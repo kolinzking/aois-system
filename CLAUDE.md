@@ -341,7 +341,7 @@ Make the outputs trustworthy and systematically optimal.
 ---
 
 ### PHASE 7 — Autonomous Agents
-*You will know: Claude tool use, MCP, A2A, Temporal, LangGraph, Dapr, multi-agent systems, autonomous remediation*
+*You will know: Claude tool use, MCP, A2A, Temporal, LangGraph, AutoGen, Mem0, Pydantic AI, Dapr, multi-agent systems, autonomous remediation*
 
 **v20 — Claude Tool Use: AOIS Sees the Cluster**
 - Give AOIS tools: `get_pod_logs`, `describe_node`, `list_events`, `get_metrics`
