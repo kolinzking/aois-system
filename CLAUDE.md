@@ -5,10 +5,18 @@
 
 ## Who Collins Is
 - SRE/DevOps engineer. Done sitting on the sidelines.
-- Goal: Real mastery of the tools that matter right now and in the next 3 years
+- Goal: Be at the forefront of where AI is heading — not where employers currently are
 - Evidence: Everything builds in this repo. GitHub is the CV.
 - Resources: Hetzner cloud, OpenAI key, Anthropic key
 - Rule: Build first. No theory without code.
+
+---
+
+## Curriculum Philosophy
+Tools are included based on **where AI is heading**, not where employers currently are.
+Employers in 2023 weren't hiring for LangGraph, MCP, or Claude API.
+The engineers who learned them anyway are the ones being fought over in 2026.
+This curriculum prepares for 2026-2028, not today.
 
 ---
 
@@ -33,24 +41,31 @@ That alone puts you ahead of 90% of engineers applying for AI/SRE roles today.
 | Tool | What It Is | Why It Matters |
 |------|-----------|----------------|
 | Claude API (Anthropic) | Primary LLM — tool use, vision, long context, extended thinking | Most capable model for reasoning + agents |
-| Claude Prompt Caching | Anthropic's context caching feature | Cuts costs 90% on repeated system prompts — every production Claude app uses this |
-| Reasoning Models | Claude extended thinking, OpenAI o3 | Deep reasoning mode — different cost/latency profile, changes prompt design |
-| OpenAI API | GPT-4o, embeddings, fine-tuning | Largest ecosystem, still dominant in enterprise |
-| Amazon Bedrock | Managed LLM service on AWS | How enterprises deploy AI with compliance and no infra |
+| Claude Prompt Caching | Anthropic's context caching | Cuts costs 90% on repeated system prompts — every production Claude app uses this |
+| Reasoning Models | Claude extended thinking, OpenAI o3 | Deep reasoning mode — different cost/latency profile, changes how you design for production |
+| OpenAI API | GPT-4o, embeddings, fine-tuning | Largest ecosystem, dominant in enterprise |
+| Amazon Bedrock | Managed LLM service on AWS | How enterprises deploy AI with compliance, no infra to manage |
 | NVIDIA NIM | Microservices for running any model at scale | NVIDIA's play to own inference infrastructure |
-| Groq | Ultra-fast LLM inference API | 10x faster than OpenAI — production routing for latency-sensitive workloads |
-| Together AI | Fast open-source model inference API | Cheapest tier for high-volume, non-sensitive workloads |
-| Ollama | Run any model locally (Llama, Mistral, etc.) | Air-gapped, cost-free inference for testing |
+| Groq | Ultra-fast LLM inference API | 10x faster than OpenAI — the latency benchmark for production routing |
+| Cerebras | Wafer-scale chip inference | Inference hardware race is real — understanding this landscape is infrastructure-layer AI knowledge |
+| Together AI | Fast open-source model inference API | Cheapest tier for high-volume workloads |
+| Fireworks AI | Fast inference platform | Different model availability and pricing from Groq/Together — full routing landscape matters |
+| Ollama | Run any model locally | Air-gapped, cost-free inference for testing |
 | vLLM | High-throughput LLM serving engine | How production inference actually scales |
-| LiteLLM | Universal LLM proxy/gateway | One API to route between Claude, OpenAI, Bedrock, Groq, Together AI, local |
+| LiteLLM | Universal LLM proxy/gateway | One API to route between all providers — Claude, OpenAI, Bedrock, Groq, Together, Fireworks, local |
 | Hugging Face | 500k+ models, datasets, Inference API | The GitHub of AI models |
 | LangGraph | Stateful multi-agent orchestration | The right way to build complex AI workflows |
-| LlamaIndex | RAG framework — connect LLMs to your data | The most widely adopted RAG toolkit in production |
-| CrewAI | Role-based autonomous agent teams | Multi-agent systems that collaborate — widely asked for now |
-| Temporal | Durable workflow execution for agents | Agents that survive crashes, resume from where they stopped |
+| LlamaIndex | RAG framework — connect LLMs to your data | Most widely adopted RAG toolkit in production |
+| CrewAI | Role-based autonomous agent teams | Multi-agent collaboration — the pattern matters even if frameworks consolidate |
+| Temporal | Durable workflow execution for agents | Agents that survive crashes and resume — the difference between demo and production |
+| DSPy | Program LLMs instead of prompting them | The future of prompt engineering: systematic optimization over artisanal hand-crafting |
 | Instructor | Structured outputs from any LLM via Pydantic | Make LLMs return reliable JSON — used in virtually every production AI app |
+| Guardrails AI | Runtime output validation and safety rails | AI in medical/legal/finance requires output safety — this field is growing fast |
 | Langfuse | LLM observability — traces, evals, cost tracking | You cannot improve what you cannot measure |
 | MCP (Model Context Protocol) | Anthropic's standard for AI ↔ tool integration | THE emerging standard — every AI tool will speak this |
+| A2A Protocol | Google's Agent-to-Agent communication standard | Multi-vendor agent interoperability — Google + Anthropic are both building this layer |
+| Semantic Kernel | Microsoft's AI SDK | Enterprise AI in .NET/Azure shops — Microsoft has the largest enterprise footprint on earth |
+| OpenFeature | Feature flags for AI model rollouts | Safe model rollouts: ship new model to 5% of traffic, measure, then promote |
 
 ### Infrastructure & Cloud
 | Tool | What It Is | Why It Matters |
@@ -65,14 +80,16 @@ That alone puts you ahead of 90% of engineers applying for AI/SRE roles today.
 | External Secrets Operator | Pull secrets from Vault/AWS into k8s natively | The right pattern for secrets in GitOps |
 | KEDA | Event-driven autoscaling | Scale on Kafka messages, queue depth, custom metrics |
 | Karpenter | Intelligent node autoscaling (AWS) | AWS's answer to wasted compute |
+| Dapr | Distributed Application Runtime | Multi-agent systems need reliable messaging, state, pub/sub — Dapr abstracts all of it |
 | AWS EKS | Managed Kubernetes on AWS | Where enterprise k8s actually lives |
 | AWS Bedrock | Managed AI on AWS | How enterprises run LLMs with compliance |
 | AWS Lambda | Serverless compute | Event-driven AI inference at scale |
 | AWS S3 | Object storage | Ubiquitous — logs, models, artifacts |
-| AWS IAM | Identity & access management | You will be asked about this in every interview |
+| AWS IAM | Identity & access management | Every AWS interview asks about this |
 | AWS Secrets Manager | Managed secrets | Production secrets handling |
 | Cloudflare Workers | Edge compute + CDN + Zero Trust networking | Run AI inference at the edge, closest to the user |
 | Terraform | Infrastructure as Code | Provision everything: Hetzner, AWS, k8s |
+| Pulumi | IaC with real programming languages | Terraform's HCL is declarative and limited — Pulumi in Python means real logic, loops, abstractions |
 | Ansible | Configuration management + automation | Still in 70% of enterprise environments |
 
 ### Observability & SRE
@@ -84,6 +101,7 @@ That alone puts you ahead of 90% of engineers applying for AI/SRE roles today.
 | Tempo | Distributed tracing | Trace requests across services |
 | OpenTelemetry | Universal instrumentation standard + LLM semantic conventions | Instrument once, send anywhere — LLM conventions standardize token/cost tracing |
 | Fluent Bit | Lightweight log shipper/router | The sidecar that moves logs from pods to Loki/Kafka |
+| VictoriaMetrics | Prometheus at scale | AI systems generate massive telemetry — Prometheus has limits, VictoriaMetrics solves them |
 | k6 | Load and performance testing | Prove AOIS handles 1000 req/s — with a chart to show it |
 | Falco | Runtime security & threat detection | Real-time: "pod just ran curl — is that expected?" |
 | eBPF (via Cilium/Tetragon) | Kernel-level observability without agents | The future of observability and security |
@@ -94,6 +112,7 @@ That alone puts you ahead of 90% of engineers applying for AI/SRE roles today.
 | Tool | What It Is | Why It Matters |
 |------|-----------|----------------|
 | PostgreSQL + pgvector | Vector search in Postgres | RAG without a separate vector DB |
+| Supabase | Postgres + pgvector + auth + realtime + edge functions | How AI products are built fast — full stack in one managed platform |
 | Redis | Caching, pub/sub, rate limiting | The Swiss Army knife of data layers |
 | Apache Kafka | Distributed event streaming | How logs and events move at scale in every enterprise |
 | Qdrant | Purpose-built vector database | Faster than pgvector for large-scale RAG |
@@ -112,12 +131,15 @@ That alone puts you ahead of 90% of engineers applying for AI/SRE roles today.
 | SPIFFE/SPIRE | Workload identity | Service-to-service auth without static secrets |
 | Renovate | Automated dependency updates | Never have an unpatched CVE because you forgot to update |
 | OWASP LLM Top 10 | AI-specific vulnerability standard | Prompt injection, model DoS, training data poisoning — different from API security |
+| PyRIT | Microsoft's AI red-teaming framework | Systematic adversarial testing — AI red-teaming will be standard in CI pipelines |
+| Garak | LLM vulnerability scanner | Automated: find prompt injection, jailbreaks, data leakage before attackers do |
+| OpenFGA | Fine-grained authorization engine | When AI agents act on behalf of users, simple RBAC breaks — this is the direction |
 
 ### Frontend & Full Stack
 | Tool | What It Is | Why It Matters |
 |------|-----------|----------------|
 | React + Vite | Modern frontend | Industry standard SPA framework |
-| Next.js | React framework with SSR + API routes | Full stack in one framework — frontend + backend together |
+| Next.js | React framework with SSR + API routes | Full stack in one framework |
 | Vercel AI SDK | TypeScript SDK for AI-powered web apps | Streaming AI responses, tool use, multi-modal — the standard for AI UIs |
 | TypeScript | Typed JavaScript | How all serious frontend/Node projects are written |
 | WebSockets | Real-time communication | Live dashboards without polling |
@@ -145,6 +167,7 @@ That alone puts you ahead of 90% of engineers applying for AI/SRE roles today.
 | Weights & Biases | ML experiment tracking | Track every model run, diff prompts scientifically |
 | Modal | Serverless GPU compute | Run GPU workloads without managing infrastructure |
 | E2B | Secure code sandboxes for AI agents | Let your agent run code safely |
+| Dagger | Portable CI/CD pipelines written in code | Same pipeline locally and in CI — reproducibility for AI workflows |
 | Cursor / GitHub Copilot | AI-native IDE | How you will write code going forward |
 
 ---
@@ -167,21 +190,22 @@ The foundation. One endpoint that is smarter than a junior SRE.
 **v2 — LiteLLM Gateway**
 Stop calling models directly. Build a routing layer with real cost tiers.
 - LiteLLM as a local proxy
-- Routing tiers: Claude (high-severity) → GPT-4o-mini (summarization) → Groq/Together AI (high-volume, cheap) → Ollama (local testing)
+- Routing tiers: Claude (high-severity) → GPT-4o-mini (summarization) → Groq/Together AI/Fireworks (high-volume, cheap) → Ollama (local testing)
 - One codebase, any model — swap without code changes
-- Cost tracking per request baked in
+- Cost tracking per request: understand what each tier actually costs
 
-**v3 — Instructor: Reliable Intelligence**
-Make the outputs trustworthy, not just plausible.
+**v3 — Instructor + DSPy: Reliable Intelligence**
+Make the outputs trustworthy and systematically optimal.
 - Instructor for guaranteed Pydantic-validated LLM responses
-- Reasoning models: when to use Claude extended thinking vs. standard — test on real incidents, measure cost/latency tradeoff
+- DSPy: define what good output looks like, let the framework find the best prompt — the future of prompt engineering
+- Reasoning models: when to use Claude extended thinking vs. standard — measure cost/latency tradeoff on real incidents
 - Eval suite: score AOIS against a ground truth set of 20 real incidents
-- Langfuse integration: every LLM call traced, costed, scored
+- Langfuse: every LLM call traced, costed, scored
 
 ---
 
 ### PHASE 2 — Containerize & Secure
-*You will know: Docker, Docker Compose, OWASP API + LLM security, secrets management, image hardening*
+*You will know: Docker, Docker Compose, OWASP API + LLM security, secrets management, image hardening, AI red-teaming*
 
 **v4 — Docker**
 - Multi-stage Dockerfile, minimal runtime image (distroless)
@@ -193,9 +217,9 @@ Make the outputs trustworthy, not just plausible.
 - OWASP API Top 10 applied to every endpoint
 - OWASP LLM Top 10 applied to every AI interaction — prompt injection, model DoS, training data leakage
 - Prompt injection defense: AOIS accepts untrusted log data — an attacker can embed instructions in a log line
-- Manual red-team session: try to break AOIS before it reaches production
-- Rate limiting with slowapi
-- Input sanitization, max payload size
+- Guardrails AI: runtime output validation — AOIS should never recommend "delete the cluster"
+- PyRIT + Garak: systematic red-team session — automated adversarial testing before production
+- Rate limiting with slowapi, input sanitization, max payload size
 - Non-root user, read-only filesystem in container
 - Vault for secrets (local dev mode)
 
@@ -255,7 +279,7 @@ Make the outputs trustworthy, not just plausible.
 ---
 
 ### PHASE 5 — NVIDIA & GPU Inference
-*You will know: GPU workloads, NVIDIA NIM, vLLM, running your own models*
+*You will know: GPU workloads, NVIDIA NIM, vLLM, inference hardware landscape, running your own models*
 
 **v13 — NVIDIA NIM**
 - Deploy a NIM microservice (Llama or Mistral) on GPU-enabled infra
@@ -266,14 +290,15 @@ Make the outputs trustworthy, not just plausible.
 **v14 — vLLM Inference Server**
 - Deploy vLLM on Modal (serverless GPU, no hardware needed)
 - Serve an open-source model via OpenAI-compatible API
-- AOIS can now use: Claude, GPT-4o, Bedrock, Groq, Together AI, NIM, vLLM — all via LiteLLM
+- AOIS can now use: Claude, OpenAI, Bedrock, Groq, Together AI, Fireworks, NIM, vLLM — all via LiteLLM
 - Understand: throughput, latency, batching, KV cache
+- Inference hardware comparison: NVIDIA GPU vs Groq LPU vs Cerebras WSE — why they exist, what each wins at
 
 **v15 — Fine-tuning with SRE Data**
 - Curate a dataset: 500 real log samples + ideal AOIS responses
 - LoRA fine-tune a small model (Mistral 7B) on Modal GPU
 - Deploy fine-tuned model via vLLM
-- Eval: fine-tuned vs base model vs Claude vs Claude extended thinking — where does each win?
+- Eval: fine-tuned vs base vs Claude vs Claude extended thinking — where does specialization beat general reasoning?
 
 ---
 
@@ -285,7 +310,7 @@ Make the outputs trustworthy, not just plausible.
 - Trace: HTTP request → prompt build → LLM call → cache → response
 - Metrics, logs, traces unified in Grafana (Loki + Tempo + Prometheus)
 - OTel LLM semantic conventions: standardized spans for model, tokens, cost, cache hits
-- Custom metric: LLM tokens/request, cost/incident, prompt cache savings
+- VictoriaMetrics: drop-in Prometheus replacement for when AI telemetry volume gets serious
 
 **v17 — Kafka: Real Log Streaming**
 - Kafka on k8s (Strimzi operator)
@@ -309,38 +334,40 @@ Make the outputs trustworthy, not just plausible.
 ---
 
 ### PHASE 7 — Autonomous Agents
-*You will know: Claude tool use, MCP, Temporal, LangGraph, multi-agent systems, autonomous remediation*
+*You will know: Claude tool use, MCP, A2A, Temporal, LangGraph, Dapr, multi-agent systems, autonomous remediation*
 
 **v20 — Claude Tool Use: AOIS Sees the Cluster**
 - Give AOIS tools: `get_pod_logs`, `describe_node`, `list_events`, `get_metrics`
 - AOIS goes from read-only to investigative
 - Ask: "Why is the auth service slow?" — AOIS pulls its own evidence
 
-**v21 — MCP Server: AOIS as a Platform**
-- Build AOIS as an MCP server
-- Any MCP-compatible client (Claude.ai, Cursor, custom tools) can use AOIS capabilities
-- Note: Google's A2A Protocol (agent-to-agent communication across frameworks) is emerging alongside MCP — understand the distinction, watch the space
+**v21 — MCP + A2A: AOIS as an Interoperable Platform**
+- Build AOIS as an MCP server — any MCP client (Claude.ai, Cursor) can use AOIS
+- Implement A2A Protocol alongside: AOIS can now communicate with agents from other frameworks
+- MCP = how tools connect to AI. A2A = how AI agents talk to each other across vendors
+- This is the emerging multi-vendor agent standard — understand both sides
 
 **v22 — Temporal: Durable Agent Execution**
 - Wrap AOIS investigation workflows in Temporal
-- An incident investigation that takes 10 minutes survives pod restarts, crashes, deployments
-- Workflow history, replay, retry — production-grade agent reliability
-- This is the difference between a demo agent and one you can actually run in production
+- A 10-minute incident investigation survives pod restarts, crashes, deployments
+- Workflow history, replay, retry, timeouts — production-grade agent reliability
+- The difference between a demo agent and one you actually trust in production
 
 **v23 — LangGraph: Autonomous SRE Loop**
 - Stateful agent graph: Detect → Investigate → Hypothesize → Verify → Remediate → Report
 - Human-in-the-loop: approval gate before any write actions
 - Full audit trail persisted to Postgres
+- Dapr: agent nodes communicate via Dapr pub/sub — portable messaging across cloud providers
 - Handles multi-step incidents: one root cause, five downstream effects
 
 **v24 — CrewAI: Multi-Agent Operations Team**
 - Crew: Detector agent, Root Cause Analyst agent, Remediation agent, Report Writer agent
 - Each agent has different tools and context
 - They collaborate, challenge each other, produce better output than any single agent
-- Note: multi-agent frameworks are consolidating — the pattern matters more than the framework
+- The pattern of agent collaboration is permanent — the specific framework will evolve
 
 **v25 — E2B: Safe Code Execution**
-- AOIS can write and run remediation scripts in a sandboxed environment
+- AOIS writes and runs remediation scripts in a sandboxed environment
 - Test the fix before applying it to production
 - AOIS generates kubectl patch → runs it in E2B sandbox → validates → proposes to human
 
@@ -351,7 +378,7 @@ Make the outputs trustworthy, not just plausible.
 
 **v26 — React Dashboard**
 - Real-time feed of logs + AOIS analysis via WebSocket
-- Vercel AI SDK: streaming AI responses directly to the UI — the modern pattern for AI web apps
+- Vercel AI SDK: streaming AI responses to the UI — the modern standard for AI web apps
 - Severity heatmap, incident timeline, agent action log
 - Approve/reject remediation proposals with one click
 - Served via nginx, bundled into the Helm chart
@@ -359,30 +386,33 @@ Make the outputs trustworthy, not just plausible.
 **v27 — Auth & Multi-tenancy**
 - JWT + refresh tokens (FastAPI + python-jose)
 - RBAC: viewer, analyst, operator, admin
-- SPIFFE/SPIRE for service-to-service identity (no static service account tokens)
+- OpenFGA: fine-grained authorization — when agents act on behalf of users, simple roles break
+- SPIFFE/SPIRE for service-to-service identity
+- Supabase: implement as an alternative backend — see the pattern of full-stack managed platforms
 
 ---
 
 ### PHASE 9 — Production CI/CD & Platform Engineering
-*You will know: GitHub Actions, image signing, zero-downtime deploys, Internal Developer Platform*
+*You will know: GitHub Actions, Dagger, image signing, zero-downtime deploys, model rollouts, IDP*
 
-**v28 — GitHub Actions: Full Pipeline**
-- PR: lint, test, Trivy scan, Cosign sign
-- Merge to main: build → push GHCR → update Helm values → ArgoCD sync
+**v28 — GitHub Actions + Dagger: Full Pipeline**
+- GitHub Actions: PR lint, test, Trivy scan, Cosign sign → merge → build → push GHCR → ArgoCD sync
+- Dagger: wrap the pipeline in real code — same pipeline runs locally and in CI identically
 - Deploy to both Hetzner k3s AND AWS EKS from same pipeline
-- Slack notification with deploy summary
+- OpenFeature: safe model rollouts — ship new Claude version to 5% of traffic, measure, promote
 
 **v29 — Weights & Biases: ML Operations**
 - Track every prompt version as an experiment
 - A/B test: Claude standard vs extended thinking vs fine-tuned model
 - Log: latency, cost, accuracy score, user feedback
-- This is how AI products improve systematically, not by guessing
+- How AI products improve systematically, not by guessing
 
 **v30 — Internal Developer Platform (IDP)**
-- Backstage or Port: self-service portal for the team
-- Developers request: "spin up new AOIS tenant" → Crossplane provisions infra → ArgoCD deploys
-- This is Platform Engineering — the hottest role in DevOps right now
-- AOIS is a service in the catalog, with docs, runbooks, SLOs, owners
+- Backstage or Port: self-service portal
+- "Spin up new AOIS tenant" → Crossplane provisions infra → ArgoCD deploys
+- Pulumi: provision complex AOIS infrastructure programmatically — logic Terraform can't express
+- Semantic Kernel: integrate AOIS as an enterprise AI capability for .NET/Azure environments
+- AOIS in the service catalog with docs, runbooks, SLOs, owners
 
 ---
 
@@ -391,7 +421,7 @@ Make the outputs trustworthy, not just plausible.
 
 **v31 — Multimodal AOIS**
 - Claude Vision: analyze screenshots of Grafana dashboards, architecture diagrams
-- AOIS can now say: "I can see from this dashboard screenshot that..."
+- AOIS can now say: "I can see from this dashboard that..."
 - Upload a k8s topology diagram → AOIS identifies blast radius
 
 **v32 — Edge AI with Ollama**
@@ -401,10 +431,10 @@ Make the outputs trustworthy, not just plausible.
 
 **v33 — Evals, Red-teaming & AI Safety**
 - Systematic evaluation framework for AOIS output quality
-- Red-team: try to make AOIS give wrong severity, hallucinate solutions, leak data
-- OWASP LLM Top 10 at scale — automated adversarial testing
+- PyRIT + Garak at scale: automated adversarial testing in CI — every model change gets red-teamed
+- Try to make AOIS give wrong severity, hallucinate solutions, leak data
 - Constitutional AI principles: what should AOIS never do autonomously?
-- This is AI safety applied to a real product you built
+- AI safety applied to a real product you built
 
 **v34 — Computer Use + AI Governance**
 - Claude Computer Use: AOIS interacts with UIs — opens Grafana, files tickets, navigates dashboards
@@ -423,7 +453,7 @@ Make the outputs trustworthy, not just plausible.
 ### Auto-Save Setup (Active)
 - PostToolUse hook: commits after every file write/edit
 - Stop hook: commits at session end
-- Both in `~/.claude/settings.json` — activate on next session restart
+- Both in `~/.claude/settings.json`
 
 ### Current Position
 - Pre-v1. Baseline committed. Curriculum finalized at 34 versions.
@@ -441,3 +471,4 @@ Make the outputs trustworthy, not just plausible.
 4. Explanations happen during building
 5. When a tool is introduced, we use it on AOIS — never a toy example
 6. Any decision or preference agreed on is saved to memory immediately
+7. Tools are included based on where AI is heading, not where employers currently are
