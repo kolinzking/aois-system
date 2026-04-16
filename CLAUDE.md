@@ -263,11 +263,12 @@ Make the outputs trustworthy and systematically optimal.
 ### PHASE 4 — AWS Integration
 *You will know: EKS, Bedrock, IAM, S3, Lambda, Secrets Manager — the enterprise AI stack*
 
-**v10 — Amazon Bedrock**
+**v10 — Amazon Bedrock + Bedrock Agents**
 - AOIS routes to Claude on Bedrock (enterprise deployment pattern)
 - IAM roles, not API keys — the right way to authenticate in AWS
 - Compare: Anthropic direct vs Bedrock — latency, cost, compliance posture
 - LiteLLM routes to Bedrock seamlessly
+- Bedrock Agents: expose AOIS analysis as a managed agent with automatic tool routing and knowledge base — the fully managed AWS agent pattern. This is what enterprises mean when they say "we're deploying agents on AWS"
 
 **v11 — AWS Lambda: Serverless AOIS**
 - Deploy /analyze as a Lambda function
