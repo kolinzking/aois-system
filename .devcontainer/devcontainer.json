@@ -1,4 +1,5 @@
 {
   "name": "aois-system",
-  "postCreateCommand": "curl -fsSL https://claude.ai/install.sh | bash"
+  "postCreateCommand": "curl -fsSL https://claude.ai/install.sh | bash",
+  "postStartCommand": "while true; do sleep 240 && echo \"keep-alive $(date)\"; done &"
 }
