@@ -370,11 +370,13 @@ Make the outputs trustworthy and systematically optimal.
 - Dapr: agent nodes communicate via Dapr pub/sub — portable messaging across cloud providers
 - Handles multi-step incidents: one root cause, five downstream effects
 
-**v24 — CrewAI: Multi-Agent Operations Team**
-- Crew: Detector agent, Root Cause Analyst agent, Remediation agent, Report Writer agent
-- Each agent has different tools and context
-- They collaborate, challenge each other, produce better output than any single agent
-- The pattern of agent collaboration is permanent — the specific framework will evolve
+**v24 — Multi-Agent Frameworks: AutoGen + CrewAI**
+- **CrewAI pattern**: Crew of Detector, Root Cause Analyst, Remediation, Report Writer agents — role-based, sequential collaboration
+- **AutoGen pattern**: Conversation-based — agents message each other, challenge responses, iterate until consensus — different mental model, same goal
+- Pydantic AI: wire up one of the agents with full type safety — structured outputs + dependency injection, actually testable
+- Compare all three on the same incident: same problem, different architectures, observe what breaks at scale
+- The insight: frameworks consolidate, patterns persist — you are learning the pattern, not just the library
+- Google ADK: add a Vertex-hosted agent that receives the AOIS incident report via A2A — cross-vendor agent handoff in practice
 
 **v25 — E2B: Safe Code Execution**
 - AOIS writes and runs remediation scripts in a sandboxed environment
