@@ -8,6 +8,15 @@ load_dotenv()
 
 anthropic_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
+class LogInput(BaseModel):
+    log: str
+
+class IncidentAnalysis(BaseModel):
+    summary: str
+    severity: str
+    suggested_action: str
+    confidence: float
+
 SYSTEM_PROMPT = """
 You are AOIS — AI Operations Intelligence System, an expert SRE.
 Analyze infrastructure logs and classify incidents.
@@ -56,20 +65,12 @@ def analyze_with_claude(log: str) -> IncidentAnalysis:
             return IncidentAnalysis(**block.input)
     raise ValueError("Claude did not return structured output")
 
-@app.post("/analyze", response_model=IncidentAnalysis)
-def analyze(data: LogInput):
-    return analyze_with_claude(data.log)
-class LogInput(BaseModel):
-    log: str
-
-class IncidentAnalysis(BaseModel):
-    summary: str
-    severity: str
-    suggested_action: str
-    confidence: float
-
 app = FastAPI()
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+@app.post("/analyze", response_model=IncidentAnalysis)
+def analyze(data: LogInput):
+    return analyze_with_claude(data.log)
