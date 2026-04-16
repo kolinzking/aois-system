@@ -55,6 +55,10 @@ def analyze_with_claude(log: str) -> IncidentAnalysis:
         if block.type == "tool_use":
             return IncidentAnalysis(**block.input)
     raise ValueError("Claude did not return structured output")
+
+@app.post("/analyze", response_model=IncidentAnalysis)
+def analyze(data: LogInput):
+    return analyze_with_claude(data.log)
 class LogInput(BaseModel):
     log: str
 
