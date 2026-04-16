@@ -10,6 +10,7 @@ from openai import OpenAI
 load_dotenv()
 
 anthropic_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 class LogInput(BaseModel):
     log: str
