@@ -1,0 +1,4 @@
+{
+  "name": "aois-system",
+  "postCreateCommand": "curl -fsSL https://claude.ai/install.sh | bash"
+}
