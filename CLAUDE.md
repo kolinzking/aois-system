@@ -65,6 +65,13 @@ That alone puts you ahead of 90% of engineers applying for AI/SRE roles today.
 | MCP (Model Context Protocol) | Anthropic's standard for AI ↔ tool integration | THE emerging standard — every AI tool will speak this |
 | A2A Protocol | Google's Agent-to-Agent communication standard | Multi-vendor agent interoperability — Google + Anthropic are both building this layer |
 | Semantic Kernel | Microsoft's AI SDK | Enterprise AI in .NET/Azure shops — Microsoft has the largest enterprise footprint on earth |
+| AutoGen (Microsoft) | Multi-agent conversation framework | The #2 most deployed agent framework — conversation-based loops, built-in code execution, human-in-loop. Microsoft-backed. Every enterprise AI shop is evaluating or running this |
+| Google ADK | Google's Agent Development Kit | Google's official multi-agent framework (2025) — built for Gemini, deploys to Vertex AI. Represents Google's architectural answer to LangGraph. Must-know as the Google agent standard |
+| OpenAI Agents SDK | OpenAI's production agent framework (2025) | Handoffs between agents, built-in guardrails, tracing hooks. Largest developer ecosystem means you will encounter this pattern in every enterprise codebase |
+| Pydantic AI | Type-safe agent framework from the Pydantic team | Built by the same team behind Instructor. Agents with full type safety, dependency injection, and real testability — the Python-native way to build reliable agents |
+| Mem0 / MemGPT (Letta) | Persistent memory layer for AI agents | The layer that separates agents from chatbots. Short-term + long-term + episodic memory across sessions. Without this, every agent conversation starts from zero |
+| AgentOps | Observability built for agent workflows | Langfuse traces LLM calls. AgentOps traces agent sessions, multi-step loops, agent cost per task, failure modes. You need both layers when agents go to production |
+| Amazon Bedrock Agents | AWS managed agent service | Distinct from Bedrock-as-LLM. Managed tool routing, knowledge bases, multi-agent orchestration — enterprise agents without infrastructure. How AWS customers will run agents at scale |
 | OpenFeature | Feature flags for AI model rollouts | Safe model rollouts: ship new model to 5% of traffic, measure, then promote |
 
 ### Infrastructure & Cloud
