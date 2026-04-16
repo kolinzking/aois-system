@@ -89,4 +89,14 @@ def health():
 
 @app.post("/analyze", response_model=IncidentAnalysis)
 def analyze(data: LogInput):
-    return analyze_with_claude(data.log)
+    try:
+        return analyze_with_claude(data.log)
+    except Exception as claude_error:
+        try:
+            return analyze_with_openai(data.log)
+        except Exception as openai_error:
+            raise HTTPException(status_code=503, detail={
+                "error": "Both providers failed",
+                "claude": str(claude_error),
+                "openai": str(openai_error)
+            })
