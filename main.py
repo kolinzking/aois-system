@@ -69,6 +69,18 @@ def analyze_with_claude(log: str) -> IncidentAnalysis:
             return IncidentAnalysis(**block.input)
     raise ValueError("Claude did not return structured output")
 
+def analyze_with_openai(log: str) -> IncidentAnalysis:
+    response = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Analyze this log. Respond with JSON only: {{\"summary\": \"...\", \"severity\": \"P1|P2|P3|P4\", \"suggested_action\": \"...\", \"confidence\": 0.0}}\n\n{log}"}
+        ],
+        response_format={"type": "json_object"}
+    )
+    data = json.loads(response.choices[0].message.content)
+    return IncidentAnalysis(**data)
+
 app = FastAPI()
 
 @app.get("/health")
