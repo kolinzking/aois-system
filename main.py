@@ -33,6 +33,28 @@ ANALYZE_TOOL = {
         "required": ["summary", "severity", "suggested_action", "confidence"]
     }
 }
+
+def analyze_with_claude(log: str) -> IncidentAnalysis:
+    response = anthropic_client.messages.create(
+        model="claude-opus-4-6",
+        max_tokens=1024,
+        system=[
+            {
+                "type": "text",
+                "text": SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"}
+            }
+        ],
+        tools=[ANALYZE_TOOL],
+        tool_choice={"type": "tool", "name": "analyze_incident"},
+        messages=[
+            {"role": "user", "content": f"Analyze this log:\n\n{log}"}
+        ]
+    )
+    for block in response.content:
+        if block.type == "tool_use":
+            return IncidentAnalysis(**block.input)
+    raise ValueError("Claude did not return structured output")
 class LogInput(BaseModel):
     log: str
 
