@@ -343,10 +343,13 @@ Make the outputs trustworthy and systematically optimal.
 ### PHASE 7 — Autonomous Agents
 *You will know: Claude tool use, MCP, A2A, Temporal, LangGraph, AutoGen, Mem0, Pydantic AI, Dapr, multi-agent systems, autonomous remediation*
 
-**v20 — Claude Tool Use: AOIS Sees the Cluster**
+**v20 — Claude Tool Use + Agent Memory: AOIS Sees and Remembers**
 - Give AOIS tools: `get_pod_logs`, `describe_node`, `list_events`, `get_metrics`
 - AOIS goes from read-only to investigative
 - Ask: "Why is the auth service slow?" — AOIS pulls its own evidence
+- Mem0: persistent memory layer — AOIS remembers past incidents, recurring failures, resolved root causes
+- Without memory: every investigation starts cold. With memory: AOIS says "this auth service had the same spike last Tuesday — here's what fixed it"
+- Short-term memory (current session) + long-term memory (across sessions) — understand both layers
 
 **v21 — MCP + A2A: AOIS as an Interoperable Platform**
 - Build AOIS as an MCP server — any MCP client (Claude.ai, Cursor) can use AOIS
