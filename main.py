@@ -6,6 +6,12 @@ load_dotenv()
 class LogInput(BaseModel):
     log: str
 
+class IncidentAnalysis(BaseModel):
+    summary: str
+    severity: str
+    suggested_action: str
+    confidence: float
+
 app = FastAPI()
 
 @app.get("/health")
