@@ -469,7 +469,7 @@ Make the outputs trustworthy and systematically optimal.
 - Both in `~/.claude/settings.json`
 
 ### Current Position
-- Pre-v1. Baseline committed. Curriculum finalized at 34 versions.
+- Pre-v1. Baseline committed. Curriculum at 34 versions — agentic AI layer upgraded April 2026 to add AutoGen, Google ADK, OpenAI Agents SDK, Pydantic AI, Mem0, AgentOps, Bedrock Agents.
 
 ### What v1 builds next
 - `main.py` — rewritten with Anthropic SDK, structured Pydantic output, prompt caching, OpenAI fallback
