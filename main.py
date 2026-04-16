@@ -18,6 +18,21 @@ P2 - High: degraded, action within 1 hour
 P3 - Medium: warning, action within 24 hours
 P4 - Low: preventive, action within 1 week
 """
+
+ANALYZE_TOOL = {
+    "name": "analyze_incident",
+    "description": "Analyze a log and return structured incident data",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string"},
+            "severity": {"type": "string", "enum": ["P1", "P2", "P3", "P4"]},
+            "suggested_action": {"type": "string"},
+            "confidence": {"type": "number"}
+        },
+        "required": ["summary", "severity", "suggested_action", "confidence"]
+    }
+}
 class LogInput(BaseModel):
     log: str
 
