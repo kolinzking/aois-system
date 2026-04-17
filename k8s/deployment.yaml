@@ -13,6 +13,8 @@ spec:
       labels:
         app: aois
     spec:
+      imagePullSecrets:
+      - name: ghcr-secret
       containers:
       - name: aois
         image: ghcr.io/kolinzking/aois:v6

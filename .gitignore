@@ -34,3 +34,4 @@ logs/
 
 # Session artifacts
 .session_reminder
+k8s/secret.yaml
