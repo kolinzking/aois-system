@@ -1,85 +1,167 @@
 # v0.4 — Networking & HTTP: How the Internet Works
 
-## What this version builds
+## What this version is about
 
-You will use curl to hit real APIs, read the raw HTTP request and response, and understand exactly what happens when your FastAPI server receives a request. By the end, `curl -X POST http://localhost:8000/analyze -H "Content-Type: application/json" -d '{...}'` will have no mystery in it.
+Every API call your code makes — to Claude, to OpenAI, to your own FastAPI server — is an HTTP request over a TCP connection. When something goes wrong, knowing the network layer tells you exactly where to look. "Connection refused" means the server is not running. "403 Forbidden" means the server is running but rejecting you. "Timeout" means the server is reachable but not responding.
 
----
-
-## IP addresses and ports
-
-Every machine on a network has an IP address. Every process that wants to receive network connections listens on a port number.
-
-```
-IP address: 192.168.1.10        (which machine)
-Port:       8000                (which process on that machine)
-Together:   192.168.1.10:8000   (exactly one process, on one machine)
-```
-
-Port ranges:
-- `0–1023` — well-known ports, require root (80=HTTP, 443=HTTPS, 22=SSH, 5432=Postgres, 6379=Redis)
-- `1024–49151` — registered ports, common for applications
-- `49152–65535` — dynamic/private ports
-
-When you run `uvicorn main:app --port 8000`, you are binding port 8000 on your machine. Anything connecting to `localhost:8000` reaches your process.
-
-`localhost` = `127.0.0.1` = "this machine". When running in Codespaces, `0.0.0.0` means "all interfaces" — required so the Codespaces forwarding layer can reach your server from outside.
+This version removes all abstraction from API calls. By the end, `curl -X POST http://localhost:8000/analyze -H "Content-Type: application/json" -d '{...}'` will be as readable as English.
 
 ---
 
-## DNS — turning names into addresses
+## Prerequisites
 
-When you type `api.anthropic.com`, your computer does not know the IP address. It asks a DNS resolver.
+- v0.1-v0.3 complete
+- curl is installed (it is in Codespaces)
+
+Verify:
+```bash
+curl --version
+```
+Expected:
+```
+curl 7.81.0 (x86_64-pc-linux-gnu) libcurl/7.81.0 OpenSSL/3.0.2 ...
+```
+
+---
+
+## Learning goals
+
+By the end of this version you will:
+- Understand IP addresses, ports, and how they identify a specific process on a specific machine
+- Know what DNS does and what happens when you type a URL
+- Read an HTTP request and response — every line of it
+- Use curl to test any API endpoint
+- Know every HTTP method and the most important status codes
+- Understand what REST means
+- Know what JSON is and how to work with it in bash and Python
+
+---
+
+## Part 1 — IP addresses and ports
+
+Every device on a network has an IP address. An IP address identifies a machine. A port number identifies a specific process on that machine.
 
 ```
-Your code                  DNS resolver              Anthropic's server
-    |                           |                           |
-    |--- "what is the IP of --->|                           |
-    |    api.anthropic.com?"    |                           |
-    |                           |--- queries DNS chain ---->|
-    |                           |<--- returns IP address ---|
-    |<-- "IP is 52.84.x.x" ----|                           |
-    |                                                       |
-    |------------- connects to 52.84.x.x:443 ------------->|
+IP address:   192.168.1.10        — which machine
+Port:         8000                — which process on that machine
+Combined:     192.168.1.10:8000   — exactly one process, on one machine
+```
+
+**Special IP addresses:**
+- `127.0.0.1` — loopback address, means "this machine". `localhost` is an alias for it.
+- `0.0.0.0` — means "all network interfaces". When you run `uvicorn --host 0.0.0.0`, it listens on all interfaces — not just localhost — so external connections can reach it.
+
+**Port ranges:**
+- `0–1023` — well-known ports, require root privileges to bind:
+  - `22` — SSH
+  - `80` — HTTP
+  - `443` — HTTPS
+  - `5432` — PostgreSQL
+  - `6379` — Redis
+- `1024–65535` — available for applications:
+  - `8000` — your FastAPI server
+  - `8080` — common alternative HTTP port
+
+When you run `uvicorn main:app --port 8000`, the uvicorn process claims port 8000. Any connection to `your-machine:8000` goes to uvicorn, which passes it to FastAPI.
+
+Check what is listening on your machine right now:
+```bash
+ss -tlnp
+```
+Expected output (abbreviated):
+```
+State    Recv-Q  Send-Q  Local Address:Port  Peer Address:Port  Process
+LISTEN   0       128     0.0.0.0:22          0.0.0.0:*          users:(("sshd",pid=123))
+LISTEN   0       128     0.0.0.0:8000        0.0.0.0:*          users:(("uvicorn",pid=456))
+```
+`Local Address:Port` = `0.0.0.0:8000` means uvicorn is listening on all interfaces on port 8000.
+
+---
+
+## Part 2 — DNS: turning names into addresses
+
+When you type `api.anthropic.com` or call it in code, your machine does not know the IP address. It asks a DNS (Domain Name System) server.
+
+```
+Your code                    DNS resolver (8.8.8.8)        Root DNS → .com DNS → anthropic.com DNS
+    │                               │                               │
+    │── "what IP is api.anthropic.com?" ──→│                        │
+    │                               │── queries chain ──────────────→│
+    │                               │←── "52.84.x.x" ───────────────│
+    │←── "IP is 52.84.x.x" ─────────│
+    │
+    ├── opens TCP connection to 52.84.x.x:443
+    └── sends HTTP request
+```
+
+Look up a domain right now:
+```bash
+nslookup api.anthropic.com
+```
+Expected:
+```
+Server:         127.0.0.53
+Address:        127.0.0.53#53
+
+Non-authoritative answer:
+Name:   api.anthropic.com
+Address: 52.84.x.x
 ```
 
 ```bash
-nslookup api.anthropic.com      # DNS lookup
-dig api.anthropic.com           # detailed DNS lookup
-ping google.com                 # connectivity check (ICMP, not HTTP)
-traceroute google.com           # trace the network path
+dig api.anthropic.com +short
 ```
+Expected: just the IP address(es).
+
+Test connectivity without DNS:
+```bash
+ping -c 4 8.8.8.8       # ping Google's DNS server directly by IP
+```
+Expected:
+```
+PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
+64 bytes from 8.8.8.8: icmp_seq=1 ttl=117 time=12.4 ms
+```
+
+If `ping 8.8.8.8` works but `ping google.com` fails, it is a DNS problem. The network is fine.
 
 ---
 
-## HTTP — the language of the web
+## Part 3 — HTTP: the protocol of the web
 
-HTTP is a text protocol. Every API call you make — to Claude, to OpenAI, to your own FastAPI server — is an HTTP request. Understanding the raw format removes all abstraction.
+HTTP is a text-based protocol. Every API call — to Claude, to your FastAPI server, to GitHub — is an HTTP request. Understanding the raw format removes all abstraction.
 
-### Request structure
+### HTTP request structure
 
 ```
-METHOD /path HTTP/1.1
-Header-Name: header-value
-Header-Name: header-value
-                            <-- blank line separates headers from body
-{
-    "body": "here"
-}
+METHOD /path HTTP/1.1\r\n
+Header-Name: value\r\n
+Another-Header: value\r\n
+\r\n                              ← blank line: headers end here
+{body here}
 ```
 
-Real example:
+Real POST request to your AOIS server:
 ```
 POST /analyze HTTP/1.1
 Host: localhost:8000
 Content-Type: application/json
-Authorization: Bearer sk-ant-...
-Content-Length: 45
+Content-Length: 58
 
-{"log": "OOMKilled on pod/payment-service"}
+{"log": "OOMKilled pod/payment-service memory_limit=512Mi"}
 ```
 
-### Response structure
+Every part:
+- `POST` — the HTTP method
+- `/analyze` — the path (which endpoint)
+- `HTTP/1.1` — protocol version
+- `Host: localhost:8000` — which server (required in HTTP/1.1)
+- `Content-Type: application/json` — tells server the body is JSON
+- `Content-Length: 58` — how many bytes the body is
+- blank line — separates headers from body
+- `{...}` — the body (your log data)
+
+### HTTP response structure
 
 ```
 HTTP/1.1 200 OK
@@ -87,241 +169,404 @@ Content-Type: application/json
 Content-Length: 142
 
 {
-    "summary": "...",
-    "severity": "P1",
-    ...
+    "summary": "Payment service OOMKilled — exceeded memory limit",
+    "severity": "P2",
+    "suggested_action": "Increase memory limit to 1Gi",
+    "confidence": 0.95
 }
 ```
 
----
-
-## HTTP methods
-
-| Method | Purpose | Has body? | Common use |
-|--------|---------|-----------|------------|
-| GET | Retrieve a resource | No | Fetch data |
-| POST | Create or submit | Yes | Send log for analysis, create resource |
-| PUT | Replace a resource | Yes | Full update |
-| PATCH | Partial update | Yes | Partial update |
-| DELETE | Remove a resource | No | Delete resource |
-
-For AOIS: `POST /analyze` because you are submitting data for processing, not retrieving an existing resource.
+Every part:
+- `HTTP/1.1` — protocol version
+- `200 OK` — status code + reason phrase
+- `Content-Type` — body format
+- `Content-Length` — body size
+- blank line — separates headers from body
+- `{...}` — the body (the analysis result)
 
 ---
 
-## HTTP status codes
+## Part 4 — HTTP methods
 
-These tell you what happened. Every API you build and every API you call uses these.
+| Method | Meaning | Has body? | Typical AOIS use |
+|--------|---------|-----------|-----------------|
+| GET | Retrieve something | No | `GET /health` |
+| POST | Submit data for processing | Yes | `POST /analyze` |
+| PUT | Replace a resource entirely | Yes | Replace an incident record |
+| PATCH | Partially update a resource | Yes | Update severity only |
+| DELETE | Remove a resource | No | Delete an incident |
 
-| Code | Meaning | When you see it |
-|------|---------|----------------|
-| 200 | OK | Request succeeded |
-| 201 | Created | Resource was created (POST) |
-| 204 | No Content | Succeeded, no body returned |
-| 400 | Bad Request | Your request was malformed |
-| 401 | Unauthorized | No valid authentication |
-| 403 | Forbidden | Authenticated but not allowed |
-| 404 | Not Found | That path doesn't exist |
-| 422 | Unprocessable Entity | Valid syntax but bad data (FastAPI's validation error) |
-| 429 | Too Many Requests | Rate limited |
-| 500 | Internal Server Error | Bug in the server |
-| 503 | Service Unavailable | Server is down or overloaded |
-
-When AOIS returns 422, FastAPI's Pydantic validation rejected the input — the `log` field was missing or wrong type. When it returns 429, slowapi's rate limiter triggered. When Claude's API returns 429, you hit their rate limit.
+For AOIS, `POST /analyze` is the right method because you are submitting data (a log) for the server to process and return a result. You are not retrieving an existing resource.
 
 ---
 
-## curl — your API debugging tool
+## Part 5 — HTTP status codes
 
-You will use curl to test every endpoint you build. Master it.
+These are the first thing you check when a request fails.
+
+**2xx — Success:**
+```
+200 OK                 Request succeeded, response body contains result
+201 Created            Resource was created (POST that creates something)
+204 No Content         Succeeded, no body to return (DELETE)
+```
+
+**4xx — Client errors (your fault):**
+```
+400 Bad Request        Malformed request (invalid JSON, missing field)
+401 Unauthorized       No authentication or invalid credentials
+403 Forbidden          Authenticated but not permitted to do this
+404 Not Found          That path doesn't exist on this server
+405 Method Not Allowed Using GET when the endpoint requires POST
+413 Payload Too Large  Request body too big (v5 rate limiting)
+422 Unprocessable      Valid syntax but business logic rejected it (FastAPI validation errors)
+429 Too Many Requests  Rate limited (v5)
+```
+
+**5xx — Server errors (server's fault):**
+```
+500 Internal Server Error  Unhandled exception in your code
+502 Bad Gateway           Upstream service returned invalid response
+503 Service Unavailable   Server is down, overloaded, or both providers failed
+504 Gateway Timeout       Upstream took too long to respond
+```
+
+What each means in practice for AOIS:
+- You get `422` → FastAPI's Pydantic validation rejected your input (missing `log` field, wrong type)
+- You get `429` → slowapi's rate limiter triggered (too many requests per minute)
+- You get `503` → both Claude and OpenAI failed (check your API keys)
+- You get `500` → an unhandled exception — check the server logs
+
+---
+
+## Part 6 — curl: your API testing tool
+
+curl sends HTTP requests from the terminal. You will use this to test every endpoint you build for the rest of this project.
+
+### Basic usage
 
 ```bash
-# Basic GET
+# GET request
 curl http://localhost:8000/health
+```
+Expected:
+```
+{"status":"ok"}
+```
 
-# GET with formatted output
+```bash
+# GET with formatted JSON output
 curl -s http://localhost:8000/health | python3 -m json.tool
+```
+Expected:
+```json
+{
+    "status": "ok"
+}
+```
 
+```bash
 # POST with JSON body
-curl -X POST http://localhost:8000/analyze \
+curl -s -X POST http://localhost:8000/analyze \
   -H "Content-Type: application/json" \
   -d '{"log": "OOMKilled pod/payment-service"}'
-
-# Show response headers
-curl -I http://localhost:8000/health        # HEAD request — headers only
-curl -v http://localhost:8000/health        # verbose — see full request and response
-
-# With authentication header
-curl -H "Authorization: Bearer your-token" http://api.example.com/endpoint
-
-# See the status code only
-curl -o /dev/null -s -w "%{http_code}" http://localhost:8000/health
-
-# Follow redirects
-curl -L http://example.com
-
-# Save response to file
-curl -o response.json http://localhost:8000/health
-
-# POST with file as body
-curl -X POST http://localhost:8000/analyze \
-  -H "Content-Type: application/json" \
-  -d @payload.json
 ```
 
-**Flags reference:**
-- `-s` — silent (no progress bar)
-- `-X` — HTTP method
-- `-H` — add a header
-- `-d` — request body
-- `-v` — verbose (shows request + response headers)
-- `-I` — HEAD only (response headers, no body)
-- `-o` — save output to file
-- `-L` — follow redirects
-- `-w` — write out format (useful for status codes)
+### See everything: verbose mode
+
+```bash
+curl -v http://localhost:8000/health
+```
+Expected output (read every line):
+```
+* Trying 127.0.0.1:8000...         ← DNS resolved, attempting connection
+* Connected to localhost port 8000  ← TCP connection established
+> GET /health HTTP/1.1              ← request line (> = request going out)
+> Host: localhost:8000              ← request headers
+> User-Agent: curl/7.81.0
+> Accept: */*
+>                                   ← blank line: end of request
+< HTTP/1.1 200 OK                   ← response status (< = response coming in)
+< Content-Type: application/json    ← response headers
+< Content-Length: 15
+<                                   ← blank line: end of response headers
+{"status": "ok"}                    ← response body
+```
+
+This is the full HTTP exchange. Everything your Python code does when calling `anthropic_client.messages.create()` is this same exchange — just with different headers, a bigger body, and over HTTPS.
+
+### curl flag reference
+
+```bash
+-s              # silent: no progress bar (use almost always)
+-v              # verbose: show full request/response headers
+-X POST         # set HTTP method (default is GET)
+-H "Key: val"   # add a request header
+-d '{"key":"val"}' # request body
+-d @file.json   # request body from a file
+-o output.json  # save response body to file
+-I              # HEAD request (response headers only, no body)
+-L              # follow redirects
+-w "%{http_code}" # write status code after response
+-o /dev/null    # discard response body (use with -w to get just status code)
+```
+
+### Get just the status code
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health
+```
+Expected:
+```
+200
+```
+
+Useful for scripts where you want to check if an endpoint is up:
+```bash
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health)
+if [ "$STATUS" = "200" ]; then
+    echo "Server is healthy"
+else
+    echo "Server returned: $STATUS"
+fi
+```
+
+### curl with authentication
+
+```bash
+# API key in header
+curl -H "x-api-key: sk-ant-..." https://api.anthropic.com/v1/messages
+
+# Bearer token
+curl -H "Authorization: Bearer your-token" http://api.example.com/data
+```
 
 ---
 
-## Headers you will see constantly
+## Part 7 — JSON: the language APIs speak
 
-```
-Content-Type: application/json        # body is JSON
-Content-Type: text/plain              # body is plain text
-Authorization: Bearer <token>         # auth token
-X-API-Key: sk-ant-...                # API key authentication
-Accept: application/json             # client wants JSON response
-Content-Length: 234                  # body size in bytes
-Cache-Control: no-cache              # caching directive
-```
-
-In FastAPI, when you send a request without `Content-Type: application/json`, the server cannot parse your JSON body and returns 422.
-
----
-
-## JSON — the language APIs speak
-
-JSON (JavaScript Object Notation) is the standard format for API request and response bodies.
+JSON is the format almost all APIs use for request and response bodies.
 
 ```json
 {
-    "string_field": "hello world",
-    "number_field": 42,
-    "float_field": 0.95,
-    "boolean_field": true,
-    "null_field": null,
-    "array_field": ["P1", "P2", "P3"],
-    "object_field": {
-        "nested_key": "nested_value"
+    "string_field": "hello",
+    "number": 42,
+    "float": 0.95,
+    "boolean": true,
+    "null_value": null,
+    "array": ["P1", "P2", "P3"],
+    "object": {
+        "nested": "value"
     }
 }
 ```
 
-In Python:
+Rules:
+- Keys must be quoted strings
+- Strings must use double quotes (not single quotes)
+- No trailing commas
+- `true`/`false`/`null` are lowercase
+
+**Parse JSON in bash with Python:**
+```bash
+# Pretty print
+echo '{"severity":"P1","confidence":0.95}' | python3 -m json.tool
+
+# Extract a field
+echo '{"severity":"P1","confidence":0.95}' | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['severity'])"
+```
+Expected:
+```
+P1
+```
+
+**Parse JSON in Python:**
 ```python
 import json
 
-# Parse JSON string to Python dict
-data = json.loads('{"severity": "P1", "confidence": 0.95}')
+# String to Python dict
+text = '{"severity": "P1", "confidence": 0.95}'
+data = json.loads(text)
 print(data["severity"])    # P1
+print(data["confidence"])  # 0.95
 
-# Convert Python dict to JSON string
-payload = {"log": "OOMKilled pod/payment"}
-json_string = json.dumps(payload)
-print(json_string)         # {"log": "OOMKilled pod/payment"}
+# Python dict to JSON string
+result = {"summary": "OOMKilled", "severity": "P2"}
+json_text = json.dumps(result)              # compact
+json_pretty = json.dumps(result, indent=2)  # readable
 
-# Pretty print
-print(json.dumps(data, indent=2))
+# Read JSON file
+with open("response.json") as f:
+    data = json.load(f)
+
+# Write JSON file
+with open("output.json", "w") as f:
+    json.dump(result, f, indent=2)
 ```
 
 ---
 
-## Hit a real API
+## Part 8 — REST conventions
 
-Hit the GitHub API — no authentication needed for public endpoints:
-
-```bash
-# Get your own GitHub profile
-curl -s https://api.github.com/users/kolinzking | python3 -m json.tool
-
-# See rate limit info
-curl -s -I https://api.github.com/users/kolinzking | grep -i "x-rate"
-
-# List repos
-curl -s https://api.github.com/users/kolinzking/repos | python3 -m json.tool | head -50
-```
-
-Now look at the verbose output of a real HTTPS connection:
-```bash
-curl -v https://api.github.com/users/kolinzking 2>&1 | head -40
-```
-
-You will see:
-- TLS handshake
-- Request headers curl sent
-- Response status and headers
-- Body
-
-This is exactly what happens when your Python code calls `anthropic_client.messages.create(...)` — the SDK wraps this same HTTP request.
-
----
-
-## REST conventions
-
-REST is not a protocol. It is a set of conventions for designing URLs and using HTTP methods consistently.
+REST is not a protocol or a standard. It is a set of conventions that most APIs follow to be predictable.
 
 ```
 GET    /incidents          → list all incidents
-GET    /incidents/123      → get incident with ID 123
-POST   /incidents          → create a new incident
-PUT    /incidents/123      → replace incident 123
-PATCH  /incidents/123      → update parts of incident 123
+GET    /incidents/123      → get a specific incident
+POST   /incidents          → create/submit a new incident
+PUT    /incidents/123      → replace incident 123 entirely
+PATCH  /incidents/123      → update specific fields of incident 123
 DELETE /incidents/123      → delete incident 123
 ```
 
-For AOIS:
+AOIS follows REST:
 ```
-POST /analyze              → analyze a log (submit for processing, get result back)
-GET  /health               → liveness check
-GET  /docs                 → FastAPI auto-generated OpenAPI docs
+POST   /analyze            → submit a log, get back analysis
+GET    /health             → check if server is alive
+GET    /docs               → auto-generated API documentation
 ```
 
 ---
 
-## What happens when you curl localhost:8000/analyze
+## Part 9 — Hit real APIs
 
-Walking through every step:
-
-1. curl resolves `localhost` to `127.0.0.1`
-2. curl opens a TCP connection to `127.0.0.1:8000`
-3. curl sends the HTTP request (method, headers, body) over that connection
-4. uvicorn (listening on port 8000) accepts the connection
-5. uvicorn passes the request to FastAPI
-6. FastAPI reads the path (`/analyze`), finds the matching route
-7. FastAPI reads the body, runs Pydantic validation on it
-8. If validation passes: FastAPI calls your `analyze()` function with the validated `LogInput` object
-9. Your function calls `analyze_with_claude()` which calls Anthropic's API (another HTTP request, outbound)
-10. Claude responds with the structured analysis
-11. Your function returns an `IncidentAnalysis` object
-12. FastAPI serializes it to JSON
-13. FastAPI sends the HTTP response back to curl
-14. curl receives and prints it
-
-Every step in that chain is something you can debug when something goes wrong.
-
----
-
-## Checking network in the terminal
+### GitHub API (no authentication needed for public data)
 
 ```bash
-ss -tlnp                    # what ports are listening (replaces netstat)
-ss -tlnp | grep 8000        # is something on port 8000?
-netstat -tlnp               # older alternative
-curl -v http://localhost:8000/health   # is the server actually responding?
-lsof -i :8000               # what process owns port 8000
+# Get your GitHub profile
+curl -s https://api.github.com/users/kolinzking | python3 -m json.tool | head -30
+```
+Expected:
+```json
+{
+    "login": "kolinzking",
+    "id": 12345678,
+    "avatar_url": "https://avatars.githubusercontent.com/...",
+    "public_repos": 5,
+    ...
+}
 ```
 
-These commands diagnose the most common "why isn't my server reachable" problems:
-- Not listening: `ss -tlnp` shows nothing on that port — server isn't running
-- Wrong host: bound to `127.0.0.1` instead of `0.0.0.0` — not reachable externally
-- Port conflict: another process is on that port
-- Firewall: port is open but traffic is blocked
+```bash
+# List your repositories
+curl -s "https://api.github.com/users/kolinzking/repos?sort=updated" | \
+  python3 -c "import sys,json; repos=json.load(sys.stdin); [print(r['name'], r['updated_at']) for r in repos]"
+```
+
+```bash
+# Check GitHub API rate limit status
+curl -s -I https://api.github.com/users/kolinzking | grep -i "x-rate"
+```
+Expected:
+```
+x-ratelimit-limit: 60
+x-ratelimit-remaining: 58
+x-ratelimit-reset: 1713362400
+```
+GitHub allows 60 unauthenticated requests per hour.
+
+### What is actually happening under the hood
+
+Look at the full HTTPS connection to GitHub:
+```bash
+curl -v https://api.github.com/users/kolinzking 2>&1 | head -40
+```
+You will see:
+1. DNS lookup for `api.github.com`
+2. TCP connection to the IP address on port 443
+3. TLS handshake (HTTPS is HTTP over TLS encryption)
+4. HTTP request sent
+5. HTTP response received
+
+This exact sequence happens every time your Python code calls `anthropic_client.messages.create()`. The Anthropic SDK wraps it so you do not see the raw HTTP, but it is the same thing underneath.
+
+---
+
+## Part 10 — Trace a full request through AOIS
+
+Start the AOIS server (if it is not already running):
+```bash
+cd /workspaces/aois-system
+uvicorn main:app --host 0.0.0.0 --port 8000 &
+```
+
+Watch the server logs in real time in a second terminal:
+```bash
+# In a second terminal window
+cd /workspaces/aois-system
+# The uvicorn logs will appear as you send requests
+```
+
+Send a request and watch it:
+```bash
+curl -v -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"log": "OOMKilled pod/payment-service memory_limit=512Mi restarts=14"}' \
+  2>&1
+```
+
+Watch the flow:
+1. `curl` opens TCP connection to `127.0.0.1:8000`
+2. `curl` sends HTTP POST
+3. `uvicorn` receives and passes to FastAPI
+4. FastAPI validates the JSON body against `LogInput` (Pydantic)
+5. FastAPI calls `analyze_endpoint()`
+6. `analyze_endpoint()` calls Anthropic's API (another HTTP request, outbound)
+7. Claude responds
+8. `IncidentAnalysis` object created, serialized to JSON
+9. FastAPI sends HTTP 200 response
+10. `curl` receives and prints it
+
+---
+
+## Troubleshooting
+
+**"Connection refused" when hitting localhost:8000:**
+The server is not running. Fix:
+```bash
+lsof -ti:8000          # check if anything is on port 8000 (empty = nothing)
+uvicorn main:app --host 0.0.0.0 --port 8000 &    # start it
+curl http://localhost:8000/health                 # test it
+```
+
+**"Could not connect to server" / DNS error:**
+```bash
+ping -c 1 8.8.8.8           # test raw network (no DNS)
+nslookup api.anthropic.com  # test DNS
+```
+If `ping 8.8.8.8` works but `nslookup` fails — DNS issue in your environment.
+
+**curl returns HTML instead of JSON:**
+You are hitting the wrong endpoint or a proxy. Check the URL exactly. Use `-v` to see the full response.
+
+**"Recv failure: Connection reset by peer":**
+The server closed the connection unexpectedly. Check server logs for the exception.
+
+**FastAPI returns 422 when you POST:**
+```bash
+curl -v -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"log": "test"}'
+```
+Read the response body — FastAPI's 422 includes the exact field that failed validation:
+```json
+{
+    "detail": [
+        {
+            "loc": ["body", "log"],
+            "msg": "field required",
+            "type": "value_error.missing"
+        }
+    ]
+}
+```
+
+---
+
+## Connection to later phases
+
+- **Phase 1 (v1)**: Every `curl` command in the test cases uses exactly these flags. You will know what you are looking at.
+- **Phase 2 (v4)**: Docker container networking uses the same concepts — ports, IP addresses, how services find each other
+- **Phase 3 (v6)**: Kubernetes networking is layers built on top of this — pods have IPs, Services expose ports, Ingress handles routing
+- **Phase 6 (v16)**: OpenTelemetry traces show you HTTP request spans — you will read them because you understand the request lifecycle
+- **Phase 7 (v20)**: When AOIS uses tools like `get_pod_logs`, those tools make HTTP calls to the Kubernetes API — same mechanism
