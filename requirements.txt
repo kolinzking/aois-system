@@ -2,6 +2,7 @@ fastapi
 uvicorn
 anthropic
 openai
+litellm
 python-dotenv
 pydantic
 httpx
