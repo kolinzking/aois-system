@@ -1,307 +1,650 @@
 # v0.1 — Linux Essentials: Living in the Terminal
 
-## What this version builds
+## What this version is about
 
-A `sysinfo.sh` script that reports hostname, OS, CPU, memory, disk usage, and top processes. Simple output. The point is not the script — it is building the muscle memory to move around a Linux system without thinking.
+Every server, container, cloud VM, and Kubernetes node you will ever touch runs Linux. You will never have a GUI. You will only have a terminal. This version builds the muscle memory to move around confidently without thinking about the commands.
 
-Every server, every container, every cloud VM you will ever touch runs Linux. This is the OS of your career.
-
----
-
-## The filesystem — where everything lives
-
-```
-/               root of the entire filesystem
-├── home/       user home directories (/home/codespace is yours)
-├── etc/        configuration files (nginx.conf, ssh/sshd_config, hosts)
-├── var/        variable data — logs live here (/var/log/)
-├── tmp/        temporary files, cleared on reboot
-├── proc/       virtual filesystem — running kernel and process info
-├── usr/        user programs and libraries (/usr/bin, /usr/local/bin)
-├── bin/        essential command binaries (ls, cp, bash)
-└── opt/        optional/third-party software
-```
-
-Nothing is random. If you wonder where a config file is, it is in `/etc`. If you wonder where logs are, they are in `/var/log`. This structure is consistent across every Linux distribution.
+The goal is not to memorise everything. It is to recognise patterns. After running these commands enough times, the right command appears naturally when you need it.
 
 ---
 
-## Navigation
+## Prerequisites
 
+- A terminal open in your Codespace (or any Linux machine)
+- Nothing else required — Linux is already there
+
+Verify you have a Linux environment:
 ```bash
-pwd                    # print working directory — where am I right now
-ls                     # list files in current directory
-ls -la                 # list all files including hidden, long format
-ls -lah                # same, but human-readable file sizes (KB/MB/GB)
-cd /workspaces         # change to absolute path
-cd aois-system         # change to relative path
-cd ..                  # go up one level
-cd ~                   # go to home directory
-cd -                   # go back to previous directory
+uname -a
 ```
-
-`ls -la` output explained:
+Expected output (something like):
 ```
-drwxr-xr-x  3 codespace codespace 4096 Apr 17 12:00 curriculum
--rw-r--r--  1 codespace codespace  832 Apr 17 12:00 main.py
+Linux codespace-xxx 6.8.0-1044-azure #46~22.04.1-Ubuntu SMP Mon Feb 10 01:07:36 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux
 ```
-- First character: `d` = directory, `-` = file, `l` = symlink
-- Next 9 characters: permissions in three groups (owner, group, others)
-- Number after permissions: hard link count
-- Next two: owner and group
-- Number: file size in bytes
-- Date and time: last modified
-- Name
+If you see this, you are on Linux. Good.
 
 ---
 
-## Files — creating, reading, moving, deleting
+## Learning goals
 
-```bash
-mkdir logs                         # create a directory
-mkdir -p a/b/c                     # create nested directories at once
-touch file.txt                     # create an empty file
-cat file.txt                       # print entire file to terminal
-head -20 file.txt                  # first 20 lines
-tail -20 file.txt                  # last 20 lines
-tail -f /var/log/syslog            # follow a log in real time (Ctrl+C to stop)
-less file.txt                      # paginated viewer (q to quit, / to search)
-cp file.txt backup.txt             # copy file
-cp -r dir/ backup_dir/             # copy directory recursively
-mv file.txt newname.txt            # rename or move
-rm file.txt                        # delete file (no recycle bin — gone)
-rm -rf directory/                  # delete directory and everything in it (be careful)
-```
-
-`tail -f` is one of the most-used commands in SRE work. When a service is misbehaving you run `tail -f /var/log/service.log` and watch what happens in real time.
+By the end of this version you will be able to:
+- Navigate any filesystem without hesitation
+- Read, create, move, copy, and delete files and directories
+- Understand and change file permissions
+- Find and kill any process
+- Use environment variables correctly
+- Pipe commands together to answer questions about your system
+- Write and run a basic shell script
+- Not be slowed down by the terminal
 
 ---
 
-## Permissions
+## Part 1 — The filesystem: where everything lives
 
-Every file has three permission sets: **owner**, **group**, **others**. Each set has three bits: **read (r=4)**, **write (w=2)**, **execute (x=1)**.
+Linux puts everything in one tree starting at `/` (called "root"). There is no C: drive or D: drive. One tree, everything hangs off it.
 
-```bash
-chmod 755 script.sh       # owner: rwx (7), group: r-x (5), others: r-x (5)
-chmod 644 file.txt        # owner: rw- (6), group: r-- (4), others: r-- (4)
-chmod +x script.sh        # add execute permission for everyone
-chmod -x script.sh        # remove execute permission
-chown codespace file.txt  # change owner
-chown codespace:codespace file.txt  # change owner and group
+```
+/
+├── home/           user home directories
+│   └── codespace/  your home directory (~ is a shortcut for this)
+├── etc/            configuration files (nginx.conf, ssh config, etc.)
+├── var/            variable data — logs live here
+│   └── log/        system and application logs
+├── tmp/            temporary files, deleted on reboot
+├── proc/           virtual filesystem — running kernel and process info
+├── usr/
+│   ├── bin/        most user commands (python3, git, curl)
+│   └── local/      software you installed yourself
+├── bin/            essential commands (ls, bash, cat)
+└── opt/            optional third-party software
 ```
 
-Why this matters: when a script fails with "Permission denied", the file is not executable. `chmod +x script.sh` fixes it. When a web server can't read a config file, it's a permissions problem. When a container won't start, it's often a permissions problem.
+Run this to see the top level:
+```bash
+ls /
+```
+Expected output:
+```
+bin  boot  dev  etc  home  lib  lib64  media  mnt  opt  proc  root  run  sbin  srv  sys  tmp  usr  var
+```
+
+Everything you need is in one of those directories. Nothing is random.
 
 ---
 
-## Processes
+## Part 2 — Navigation
 
-A process is a running program. Every running thing on your system — your FastAPI server, Redis, Postgres, the kernel itself — is a process with a process ID (PID).
+### Where am I?
 
 ```bash
-ps aux                    # list all running processes
-ps aux | grep python      # find python processes specifically
-top                       # live view of processes (q to quit)
-htop                      # better version of top (install with: apt install htop)
-kill 1234                 # send SIGTERM (graceful stop) to PID 1234
-kill -9 1234              # send SIGKILL (force stop) — use when SIGTERM fails
-lsof -i :8000             # what process is using port 8000
-lsof -ti:8000 | xargs kill -9   # kill whatever is on port 8000
+pwd
+```
+Expected output:
+```
+/workspaces/aois-system
+```
+`pwd` = print working directory. Use it whenever you are disoriented.
+
+### What is in this directory?
+
+```bash
+ls
+```
+Expected output (something like):
+```
+CLAUDE.md  Dockerfile  README.md  curriculum  docker-compose.yml  main.py  requirements.txt
 ```
 
-The `lsof -ti:8000 | xargs kill -9` command is used throughout this project. When you need to restart your FastAPI server after a code change, you kill the old process first. `lsof -ti:8000` returns just the PID. `xargs` takes that PID and passes it to `kill -9`.
+```bash
+ls -la
+```
+Expected output:
+```
+total 64
+drwxr-xr-x  8 codespace codespace 4096 Apr 17 12:00 .
+drwxr-xr-x  3 root      root      4096 Apr 17 09:00 ..
+-rw-r--r--  1 codespace codespace  832 Apr 17 12:00 CLAUDE.md
+drwxr-xr-x  4 codespace codespace 4096 Apr 17 12:00 curriculum
+-rw-r--r--  1 codespace codespace  123 Apr 17 11:00 main.py
+```
+
+Reading the `ls -la` output, column by column:
+```
+drwxr-xr-x   8   codespace  codespace   4096   Apr 17 12:00   curriculum
+│            │   │           │           │       │              └─ name
+│            │   │           │           │       └─ last modified
+│            │   │           │           └─ size in bytes
+│            │   │           └─ group owner
+│            │   └─ user owner
+│            └─ number of hard links
+└─ permissions (d=directory, -=file, l=symlink | then 9 permission bits)
+```
+
+Flags that matter:
+- `-l` = long format (shows permissions, owner, size, date)
+- `-a` = all (includes hidden files starting with `.`)
+- `-h` = human-readable sizes (4.0K instead of 4096)
+- `-t` = sort by modification time (newest first)
+
+You will use `ls -la` and `ls -lah` constantly.
+
+### Moving around
+
+```bash
+cd curriculum           # go into curriculum directory (relative path)
+pwd                     # confirm where you are
+ls                      # see what's here
+cd ..                   # go up one level
+pwd                     # back where you started
+cd /workspaces          # go to absolute path (always works regardless of where you are)
+cd -                    # go back to where you just were
+cd ~                    # go to your home directory
+pwd                     # /home/codespace
+cd /workspaces/aois-system   # back to the project
+```
+
+**Absolute vs relative paths:**
+- Absolute path starts with `/` — works from anywhere: `cd /workspaces/aois-system`
+- Relative path is relative to where you are now: `cd curriculum` (only works if curriculum is in current directory)
+
+**Tip:** press Tab to autocomplete. Type `cd curr` then press Tab — it completes to `curriculum`. Press Tab twice to see all options if there are multiple matches.
 
 ---
 
-## Background processes
+## Part 3 — Reading files
 
 ```bash
-uvicorn main:app &        # run in background, get your terminal back
-jobs                      # list background jobs
-fg                        # bring last background job to foreground
-fg %1                     # bring job 1 to foreground
-Ctrl+C                    # kill foreground process
-Ctrl+Z                    # pause foreground process (send to background)
-bg                        # resume paused process in background
-nohup uvicorn main:app &  # run in background, survives terminal close
+cat main.py             # print entire file to terminal
+head -20 main.py        # first 20 lines only
+tail -20 main.py        # last 20 lines only
+tail -f /var/log/syslog # follow file in real time (Ctrl+C to stop)
+less main.py            # paginated viewer (scroll with arrows, q to quit, /text to search)
+wc -l main.py           # count lines in file
+wc -w main.py           # count words
+```
+
+`tail -f` is one of the most-used SRE commands. When a service is misbehaving you run:
+```bash
+tail -f /var/log/service.log
+```
+And watch what it logs in real time while you reproduce the problem.
+
+---
+
+## Part 4 — Creating, copying, moving, deleting
+
+```bash
+# Create
+mkdir practice              # create directory
+mkdir -p a/b/c              # create nested directories all at once
+touch notes.txt             # create empty file (or update timestamp if it exists)
+
+# Verify creation
+ls -la | grep practice      # confirm practice directory exists
+
+# Copy
+cp main.py main_backup.py   # copy file
+cp -r curriculum/ backup/   # copy directory recursively (-r = recursive)
+
+# Move / rename
+mv main_backup.py old_main.py    # rename (move within same directory)
+mv old_main.py practice/         # move to a different directory
+
+# Confirm
+ls practice/
+```
+Expected:
+```
+old_main.py
+```
+
+```bash
+# Delete
+rm practice/old_main.py         # delete a file (permanent — no trash)
+rm -rf backup/                  # delete directory and everything in it (-r recursive, -f force)
+rmdir practice/                 # delete empty directory only
+```
+
+**Warning:** `rm -rf` has no undo. There is no recycle bin. When you delete something it is gone. Before running `rm -rf`, confirm what directory you are in with `pwd` and confirm what you are deleting with `ls`.
+
+---
+
+## Part 5 — Permissions
+
+Every file has three permission groups: **owner**, **group**, **others**. Each has three bits: **r** (read=4), **w** (write=2), **x** (execute=1).
+
+```
+-rwxr-xr-x
+│├─┤├─┤├─┤
+│ │  │  └─ others: r-x = read + execute = 5
+│ │  └─── group:  r-x = read + execute = 5
+│ └────── owner:  rwx = read + write + execute = 7
+└──────── type:   - = file, d = directory, l = symlink
+```
+
+The three digits in `chmod 755` map to owner/group/others in octal:
+- `7` = 4+2+1 = rwx (read, write, execute)
+- `5` = 4+0+1 = r-x (read, execute, no write)
+- `4` = 4+0+0 = r-- (read only)
+- `6` = 4+2+0 = rw- (read, write, no execute)
+
+Common permission patterns:
+```bash
+chmod 755 script.sh     # owner can do anything, others can read+execute (scripts)
+chmod 644 config.txt    # owner can read+write, others can only read (config files)
+chmod 600 .env          # only owner can read+write (secrets — no one else should see)
+chmod +x script.sh      # add execute for everyone (shortcut for making scripts runnable)
+chmod -x script.sh      # remove execute for everyone
+```
+
+When you see this error:
+```
+bash: ./script.sh: Permission denied
+```
+Fix it with:
+```bash
+chmod +x script.sh
+```
+
+Check permissions on a file:
+```bash
+ls -la script.sh
+```
+Expected after `chmod +x`:
+```
+-rwxr-xr-x 1 codespace codespace 245 Apr 17 12:00 script.sh
+```
+The `x` bits are now set.
+
+---
+
+## Part 6 — Processes
+
+A process is any running program. Your FastAPI server, Redis, Postgres, the shell you are typing in — all processes, all have a process ID (PID).
+
+```bash
+ps aux              # list all running processes
+```
+Expected output (abbreviated):
+```
+USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root         1  0.0  0.0  20292  3584 ?        Ss   Apr17   0:00 /sbin/init
+codespace 1234  0.2  1.1 456789 45000 ?       Sl   12:00   0:02 python3 main.py
+codespace 5678  0.0  0.0  12345  2000 pts/0   S    12:05   0:00 bash
+```
+
+Column meanings:
+- `PID` — process ID (unique number)
+- `%CPU` — CPU usage percentage
+- `%MEM` — memory usage percentage
+- `COMMAND` — what is running
+
+Filter to find a specific process:
+```bash
+ps aux | grep python        # find Python processes
+ps aux | grep uvicorn       # find uvicorn (your FastAPI server)
+```
+Expected when server is running:
+```
+codespace 2345  0.3  2.0 789012 80000 pts/0   S+   12:05   0:01 uvicorn main:app --port 8000
+```
+
+Kill a process:
+```bash
+kill 2345               # send SIGTERM — politely asks process to stop
+kill -9 2345            # send SIGKILL — force stop immediately (use when SIGTERM fails)
+```
+
+Find and kill whatever is using port 8000 (used throughout this project):
+```bash
+lsof -ti:8000           # get PID of process using port 8000
+lsof -ti:8000 | xargs kill -9   # kill it immediately
+```
+
+`lsof -ti:8000` returns just the PID with no other text. `xargs` takes that PID and passes it to `kill -9`. If nothing is on port 8000, lsof returns nothing and xargs does nothing.
+
+Run in background (get your terminal back):
+```bash
+uvicorn main:app --port 8000 &
+```
+The `&` sends the process to background. You see the PID printed, then get your prompt back:
+```
+[1] 3456
+```
+The `[1]` is the job number. `3456` is the PID.
+
+---
+
+## Part 7 — Environment variables
+
+Environment variables are key=value pairs that any process can read. This is how API keys reach your application without being in the code.
+
+```bash
+echo $HOME              # print HOME variable
+```
+Expected:
+```
+/home/codespace
+```
+
+```bash
+echo $PATH              # print PATH — list of directories bash searches for commands
+```
+Expected (something like):
+```
+/usr/local/bin:/usr/bin:/bin:/home/codespace/.local/bin
+```
+
+When you run `python3`, bash looks through each directory in `$PATH` until it finds a file named `python3`. If it is not in any of those directories, you get `command not found`.
+
+```bash
+export MY_VAR="hello"   # set a variable for this terminal session
+echo $MY_VAR            # prints: hello
+env | grep MY_VAR       # see it in the environment
+unset MY_VAR            # remove it
+echo $MY_VAR            # prints: (empty)
+```
+
+Variables set with `export` exist only for the current terminal session. If you open a new terminal, they are gone. To make them permanent, add them to `~/.bashrc`:
+```bash
+echo 'export MY_VAR="hello"' >> ~/.bashrc
+source ~/.bashrc        # reload .bashrc without opening a new terminal
+```
+
+For AOIS, secrets are in `.env` and loaded by `python-dotenv`. You never need to export them manually — the library handles it.
+
+---
+
+## Part 8 — Pipes and redirection
+
+The shell's superpower: compose small tools into pipelines. Each tool does one thing well, pipes connect them.
+
+```bash
+command > file.txt          # redirect output to file (creates or overwrites)
+command >> file.txt         # append output to file (adds to existing)
+command 2> errors.txt       # redirect stderr (error output) to file
+command 2>&1                # merge stderr into stdout (both go to same place)
+command1 | command2         # pipe: stdout of command1 becomes stdin of command2
+```
+
+Real examples that you will use:
+```bash
+# Find Python processes
+ps aux | grep python
+
+# Count how many files are in a directory
+ls | wc -l
+
+# See last 20 error lines from a log file
+cat /var/log/syslog | grep ERROR | tail -20
+
+# Find which process is using the most CPU
+ps aux | sort -k3 -rn | head -5
+
+# See only the HTTP errors in your FastAPI logs
+docker compose logs aois | grep "HTTP 5"
+```
+
+When a command produces too much output:
+```bash
+ps aux | head -20       # only show first 20 lines
+ps aux | tail -20       # only show last 20 lines
+ps aux | less           # paginate it (scroll with arrows, q to quit)
+```
+
+Silence output you do not care about:
+```bash
+mkdir logs 2>/dev/null || true      # suppress "already exists" error
+command > /dev/null 2>&1            # discard all output completely
 ```
 
 ---
 
-## Environment variables
-
-Environment variables are key=value pairs available to any process on the system. This is how API keys reach your application without being hardcoded.
+## Part 9 — Searching
 
 ```bash
-echo $HOME                     # print HOME variable
-echo $PATH                     # print PATH — where bash looks for commands
-export MY_VAR="hello"          # set a variable for this session
-echo $MY_VAR                   # prints: hello
-env                            # list all environment variables
-printenv MY_VAR                # print one variable
-unset MY_VAR                   # remove a variable
+grep "error" app.log                    # lines containing "error" (case sensitive)
+grep -i "error" app.log                 # case insensitive
+grep -n "error" app.log                 # show line numbers
+grep -c "error" app.log                 # count matching lines (number only)
+grep -v "DEBUG" app.log                 # invert: lines NOT containing DEBUG
+grep -r "ANTHROPIC" /workspaces/        # search recursively in directory
+grep -E "OOMKilled|CrashLoop" app.log   # regex: match either pattern
+grep -A 3 "ERROR" app.log              # show 3 lines AFTER each match
+grep -B 2 "ERROR" app.log              # show 2 lines BEFORE each match
+grep -C 2 "ERROR" app.log              # show 2 lines BEFORE AND AFTER (context)
 ```
 
-`$PATH` is a colon-separated list of directories. When you type `python`, bash looks in each directory in $PATH for a file named `python`. If it's not there, you get "command not found". When you install something and it's not found, the binary is not in a directory in $PATH.
-
----
-
-## Pipes and redirection
-
-The shell's superpower is composing small tools into pipelines.
-
+Test grep right now:
 ```bash
-command > file.txt         # redirect output to file (overwrites)
-command >> file.txt        # redirect output to file (appends)
-command 2> errors.txt      # redirect stderr to file
-command 2>&1               # merge stderr into stdout
-command < file.txt         # feed file as input to command
-command1 | command2        # pipe: output of command1 becomes input of command2
+grep -r "def " /workspaces/aois-system/main.py
 ```
+Expected: shows all function definitions in main.py.
 
-Real examples:
 ```bash
-ps aux | grep python           # list processes, filter to python ones
-cat /var/log/syslog | grep ERROR | tail -20   # last 20 error lines from syslog
-ls -la | wc -l                 # count files in directory
-echo "hello" > /tmp/test.txt   # write to file
-cat /dev/null > file.txt       # empty a file without deleting it
+grep -rn "ANTHROPIC" /workspaces/aois-system/ --include="*.py"
+```
+Expected: shows every line in every Python file that mentions ANTHROPIC, with line numbers.
+
+Find files:
+```bash
+find /workspaces/aois-system -name "*.py"       # all Python files
+find . -name "*.md" -newer CLAUDE.md            # .md files newer than CLAUDE.md
+find /tmp -mtime +7 -delete                     # delete files older than 7 days
 ```
 
 ---
 
-## Searching
+## Part 10 — Disk and memory
 
 ```bash
-grep "error" file.txt              # find lines containing "error"
-grep -i "error" file.txt           # case insensitive
-grep -r "error" /var/log/          # search recursively in directory
-grep -n "error" file.txt           # show line numbers
-grep -v "debug" file.txt           # invert — show lines NOT containing "debug"
-grep -E "error|warning" file.txt   # regex — error OR warning
-
-find /etc -name "*.conf"           # find files by name pattern
-find . -name "*.py" -newer main.py # find .py files newer than main.py
-find /tmp -mtime +7 -delete        # find and delete files older than 7 days
+df -h               # disk usage by filesystem, human-readable
 ```
+Expected output:
+```
+Filesystem      Size  Used Avail Use% Mounted on
+overlay          32G  8.5G   22G  29% /
+tmpfs            64M     0   64M   0% /dev
+```
+The first row is your main disk. `Use%` shows how full it is. When it hits 90%+, you have a problem.
+
+```bash
+du -sh /workspaces/aois-system/     # size of the project directory
+du -sh *                             # size of everything in current directory
+du -sh * | sort -h                   # sorted by size (smallest first)
+free -h                              # memory usage
+```
+Expected `free -h`:
+```
+               total        used        free      shared  buff/cache   available
+Mem:           7.7Gi       2.1Gi       3.9Gi        45Mi       1.7Gi       5.3Gi
+Swap:          1.0Gi          0B       1.0Gi
+```
+`Mem: available` is what actually matters — how much memory processes can use right now.
 
 ---
 
-## Disk and memory
+## Part 11 — Useful shortcuts
 
-```bash
-df -h                    # disk usage by filesystem, human readable
-du -sh directory/        # disk usage of a specific directory
-du -sh * | sort -h       # size of everything in current dir, sorted
-free -h                  # memory usage (total, used, free, cache)
+```
+Ctrl+C          kill the current running process
+Ctrl+Z          pause current process (suspends it)
+Ctrl+D          end of input (closes terminal if used at prompt)
+Ctrl+L          clear the screen
+Ctrl+A          jump to beginning of current line
+Ctrl+E          jump to end of current line
+Ctrl+R          search through command history (type to filter, Enter to run)
+Tab             autocomplete (single press = complete, double press = show options)
+!!              repeat the last command
+!git            repeat last command that started with "git"
+Up/Down arrows  cycle through command history
+history         show full command history
+history | grep docker    find all docker commands you've run
 ```
 
----
-
-## Useful shortcuts
-
-```bash
-Ctrl+C     # kill current process
-Ctrl+Z     # pause current process
-Ctrl+D     # end of input (like typing exit)
-Ctrl+L     # clear screen (same as clear command)
-Ctrl+A     # go to beginning of line
-Ctrl+E     # go to end of line
-Ctrl+R     # search command history
-!!         # repeat last command
-!grep      # repeat last command starting with "grep"
-history    # show command history
-```
-
----
-
-## Package management
-
-```bash
-apt update                      # refresh package list
-apt install htop                # install a package
-apt remove htop                 # remove a package
-apt list --installed            # list installed packages
-which python3                   # find where a command lives
-python3 --version               # check version
-```
-
----
-
-## SSH
-
-SSH (Secure Shell) is how you connect to remote servers. Every Hetzner VPS, every AWS EC2 instance, every cloud machine you manage will be accessed via SSH.
-
-```bash
-ssh user@ip_address              # connect to server
-ssh -i ~/.ssh/key.pem user@ip    # connect with a specific private key
-ssh-keygen -t ed25519            # generate a new key pair
-cat ~/.ssh/id_ed25519.pub        # your public key — this goes on the server
-```
-
-Key pairs: you keep the private key (`~/.ssh/id_ed25519`), you put the public key on the server (`~/.ssh/authorized_keys`). The server encrypts a challenge with your public key. Only your private key can decrypt it. That's the authentication.
-
-Never share or copy your private key. If a server is compromised, you rotate keys — you do not reuse them.
+`Ctrl+R` is especially useful. Press it, start typing `uvicorn`, and it finds the last uvicorn command you ran. Press Enter to run it.
 
 ---
 
 ## Build: sysinfo.sh
 
-Create this file at `/workspaces/aois-system/practice/sysinfo.sh`:
+Now build something. Create this file at `/workspaces/aois-system/practice/sysinfo.sh`.
 
+First, create the practice directory if it does not exist:
 ```bash
+mkdir -p /workspaces/aois-system/practice
+```
+
+Create the file:
+```bash
+cat > /workspaces/aois-system/practice/sysinfo.sh << 'EOF'
 #!/bin/bash
+# AOIS System Info Report
 
-echo "=== AOIS System Info ==="
+echo "========================================="
+echo "  AOIS System Info"
+echo "  Generated: $(date)"
+echo "========================================="
 echo ""
 
-echo "Hostname:    $(hostname)"
-echo "OS:          $(cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d '"')"
-echo "Kernel:      $(uname -r)"
-echo "Uptime:      $(uptime -p)"
+echo "--- Host ---"
+echo "Hostname:  $(hostname)"
+echo "OS:        $(grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '"')"
+echo "Kernel:    $(uname -r)"
+echo "Uptime:    $(uptime -p 2>/dev/null || uptime)"
 echo ""
 
-echo "=== CPU ==="
-echo "Cores:       $(nproc)"
-echo "Load avg:    $(cat /proc/loadavg | awk '{print $1, $2, $3}')"
+echo "--- CPU ---"
+echo "Cores:     $(nproc)"
+echo "Load avg:  $(cut -d' ' -f1-3 /proc/loadavg)"
 echo ""
 
-echo "=== Memory ==="
-free -h | awk 'NR==2 {printf "Total: %s | Used: %s | Free: %s\n", $2, $3, $4}'
+echo "--- Memory ---"
+free -h | awk 'NR==2 {printf "Total: %s | Used: %s | Free: %s | Available: %s\n", $2, $3, $4, $7}'
 echo ""
 
-echo "=== Disk ==="
+echo "--- Disk ---"
 df -h / | awk 'NR==2 {printf "Total: %s | Used: %s | Free: %s | Usage: %s\n", $2, $3, $4, $5}'
 echo ""
 
-echo "=== Top 5 Processes by CPU ==="
-ps aux --sort=-%cpu | awk 'NR<=6 {printf "%-10s %-8s %-8s %s\n", $1, $2, $3, $11}'
+echo "--- Top 5 Processes (by CPU) ---"
+ps aux --sort=-%cpu | awk 'NR==1{print "USER       PID   CPU  MEM  CMD"} NR>1 && NR<=6 {printf "%-10s %-6s %4s %4s  %s\n", $1, $2, $3, $4, $11}'
 echo ""
 
-echo "=== Network Ports in Use ==="
-ss -tlnp | grep LISTEN | awk '{print $4, $6}' | head -10
+echo "--- Ports Listening ---"
+ss -tlnp 2>/dev/null | grep LISTEN | awk '{print "  " $4}' | head -10
+echo ""
+
+echo "--- Python Version ---"
+python3 --version 2>/dev/null || echo "Python3 not found"
+echo ""
+
+echo "--- Project Size ---"
+if [ -d "/workspaces/aois-system" ]; then
+    du -sh /workspaces/aois-system/ 2>/dev/null
+fi
+echo ""
+echo "========================================="
+EOF
 ```
 
-Make it executable and run it:
+Make it executable:
 ```bash
 chmod +x /workspaces/aois-system/practice/sysinfo.sh
+```
+
+Run it:
+```bash
 bash /workspaces/aois-system/practice/sysinfo.sh
 ```
 
-Each line teaches a command. Read the script after running it, then modify it — add your Python version, add a check for whether port 8000 is in use.
+Expected output (your values will differ):
+```
+=========================================
+  AOIS System Info
+  Generated: Thu Apr 17 12:30:00 UTC 2026
+=========================================
+
+--- Host ---
+Hostname:  codespace-abc123
+OS:        Ubuntu 22.04.4 LTS
+Kernel:    6.8.0-1044-azure
+Uptime:    up 3 hours, 12 minutes
+
+--- CPU ---
+Cores:     4
+Load avg:  0.12 0.08 0.05
+
+--- Memory ---
+Total: 7.7Gi | Used: 2.1Gi | Free: 3.9Gi | Available: 5.3Gi
+
+--- Disk ---
+Total: 32G | Used: 8.5G | Free: 22G | Usage: 29%
+
+--- Top 5 Processes (by CPU) ---
+USER       PID   CPU  MEM  CMD
+...
+```
 
 ---
 
-## Commands you will use daily throughout this project
+## Troubleshooting
 
+**"command not found" after installing something:**
 ```bash
-tail -f logs            # watch logs in real time
-ps aux | grep python    # is my server running?
-lsof -ti:8000 | xargs kill -9   # kill the server on port 8000
-chmod +x script.sh      # make a script executable
-grep -r "error" .       # search for errors in all files
-df -h                   # is the disk full?
-free -h                 # is memory full?
+which python3           # where is it?
+echo $PATH              # is that directory in PATH?
+hash -r                 # clear bash's command cache
+```
+If the directory is not in PATH, add it: `export PATH=$PATH:/path/to/dir`
+
+**"Permission denied" running a script:**
+```bash
+ls -la script.sh        # check permissions
+chmod +x script.sh      # add execute permission
 ```
 
-You do not need to memorise all of this. Run the commands. The muscle memory builds itself.
+**"No such file or directory" when you can see the file:**
+```bash
+pwd                     # are you where you think you are?
+ls -la                  # is the file actually there?
+ls -la | grep filename  # search for it exactly
+```
+Typos in filenames are the most common cause.
+
+**Accidentally deleted something:**
+There is no undo for `rm`. The file is gone. Prevention: always use `ls` to confirm what you are about to delete before running `rm -rf`.
+
+**Terminal is frozen:**
+- `Ctrl+C` — kills the current command
+- `Ctrl+Z` then `kill %1` — kills a suspended job
+- `q` — exits less, man, git log
+- Close and reopen the terminal as a last resort
+
+---
+
+## Commands you will use every day in this project
+
+```bash
+ls -la                          # see what is here
+pwd                             # where am I
+cd /workspaces/aois-system      # go to the project
+tail -f logs/app.log            # watch logs in real time
+ps aux | grep python            # is my server running?
+lsof -ti:8000 | xargs kill -9   # kill whatever is on port 8000
+chmod +x script.sh              # make a script executable
+grep -r "error" .               # search for errors in all files
+df -h                           # is the disk full?
+free -h                         # is memory low?
+```
+
+You do not need to memorise all of this at once. Run the commands. The muscle memory builds through repetition, not study.
+
+---
+
+## Connection to later phases
+
+- **Phase 2 (v4)**: You will use `docker exec` to shell into containers and use these commands to debug what is happening inside
+- **Phase 3 (v6)**: You will SSH into your Hetzner VPS and use all of this to configure k3s
+- **Phase 6 (v16)**: `ps aux`, `top`, `df`, `free` become your first-response debugging tools before the observability stack is up
+- **Phase 7 (v20)**: When you give AOIS tools like `get_pod_logs`, those tools shell out to Linux commands under the hood
