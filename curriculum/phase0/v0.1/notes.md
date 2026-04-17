@@ -355,15 +355,68 @@ For AOIS, secrets are in `.env` and loaded by `python-dotenv`. You never need to
 
 ---
 
+## Part 8 — stdin, stdout, stderr: the three streams
+
+Every process has three open file descriptors by default. Understanding these is prerequisite to understanding pipes and redirection.
+
+```
+┌─────────────────────────────────────────────┐
+│                  process                    │
+│                                             │
+│  fd 0: stdin  ←── keyboard / pipe / file   │  ← input stream
+│  fd 1: stdout ──→ terminal / pipe / file   │  ← normal output
+│  fd 2: stderr ──→ terminal / pipe / file   │  ← error output
+│                                             │
+└─────────────────────────────────────────────┘
+```
+
+- **stdin (fd 0)**: where the process reads input from. By default: your keyboard. Pipes redirect this.
+- **stdout (fd 1)**: where the process writes normal output. By default: your terminal.
+- **stderr (fd 2)**: where the process writes error messages. By default: also your terminal — which is why errors appear mixed with output. They are two separate streams that both happen to display on screen.
+
+Why separate stdout and stderr? So you can redirect one without the other:
+```bash
+python3 app.py > output.txt       # stdout goes to file, errors still show on screen
+python3 app.py 2> errors.txt      # errors go to file, output still shows on screen
+python3 app.py > out.txt 2>&1     # both go to the same file
+```
+
+`2>&1` means "point file descriptor 2 at the same place file descriptor 1 currently points." The `&1` is "file descriptor 1", not a file named `1`.
+
+Test it right now:
+```bash
+# python3 -c "import sys" succeeds silently — stdout has nothing, stderr has nothing
+python3 -c "import sys"
+echo "Exit: $?"    # 0 = success
+
+# This fails — the error goes to stderr
+python3 -c "import nonexistent_module" 2>/dev/null
+echo "Exit: $?"    # non-zero = failure
+
+# Now capture only stderr
+python3 -c "import nonexistent_module" 2> /tmp/py_error.txt
+cat /tmp/py_error.txt    # the error message is here
+```
+
+Expected from last command:
+```
+ModuleNotFoundError: No module named 'nonexistent_module'
+```
+
+This matters every time you debug a container or process. When you run `uvicorn main:app` and see startup errors on your screen, those are stderr. When you redirect logs, they may not include errors unless you merge with `2>&1`.
+
+---
+
 ## Part 8 — Pipes and redirection
 
 The shell's superpower: compose small tools into pipelines. Each tool does one thing well, pipes connect them.
 
 ```bash
-command > file.txt          # redirect output to file (creates or overwrites)
-command >> file.txt         # append output to file (adds to existing)
-command 2> errors.txt       # redirect stderr (error output) to file
-command 2>&1                # merge stderr into stdout (both go to same place)
+command > file.txt          # redirect stdout to file (creates or overwrites)
+command >> file.txt         # append stdout to file (adds to existing)
+command 2> errors.txt       # redirect stderr to file
+command 2>&1                # redirect stderr to wherever stdout goes (merge both)
+command > out.txt 2>&1      # both stdout and stderr go to out.txt
 command1 | command2         # pipe: stdout of command1 becomes stdin of command2
 ```
 
