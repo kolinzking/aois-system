@@ -1,25 +1,13 @@
 from fastapi import FastAPI, HTTPException
-
 from pydantic import BaseModel
 from dotenv import load_dotenv
+import litellm
 import os
-import anthropic
 import json
-from openai import OpenAI
 
 load_dotenv()
 
-anthropic_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-class LogInput(BaseModel):
-    log: str
-
-class IncidentAnalysis(BaseModel):
-    summary: str
-    severity: str
-    suggested_action: str
-    confidence: float
+litellm.drop_params = True  # ignore unsupported params per provider silently
 
 SYSTEM_PROMPT = """
 You are AOIS — AI Operations Intelligence System, an expert SRE.
@@ -32,71 +20,94 @@ P3 - Medium: warning, action within 24 hours
 P4 - Low: preventive, action within 1 week
 """
 
+# Tool definition in OpenAI format — LiteLLM translates to each provider's format
 ANALYZE_TOOL = {
-    "name": "analyze_incident",
-    "description": "Analyze a log and return structured incident data",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "summary": {"type": "string"},
-            "severity": {"type": "string", "enum": ["P1", "P2", "P3", "P4"]},
-            "suggested_action": {"type": "string"},
-            "confidence": {"type": "number"}
-        },
-        "required": ["summary", "severity", "suggested_action", "confidence"]
+    "type": "function",
+    "function": {
+        "name": "analyze_incident",
+        "description": "Analyze a log and return structured incident data",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "severity": {"type": "string", "enum": ["P1", "P2", "P3", "P4"]},
+                "suggested_action": {"type": "string"},
+                "confidence": {"type": "number"}
+            },
+            "required": ["summary", "severity", "suggested_action", "confidence"]
+        }
     }
 }
 
-def analyze_with_claude(log: str) -> IncidentAnalysis:
-    response = anthropic_client.messages.create(
-        model="claude-opus-4-6",
-        max_tokens=1024,
-        system=[
-            {
-                "type": "text",
-                "text": SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"}
-            }
-        ],
-        tools=[ANALYZE_TOOL],
-        tool_choice={"type": "tool", "name": "analyze_incident"},
-        messages=[
-            {"role": "user", "content": f"Analyze this log:\n\n{log}"}
-        ]
-    )
-    for block in response.content:
-        if block.type == "tool_use":
-            return IncidentAnalysis(**block.input)
-    raise ValueError("Claude did not return structured output")
+# Routing tiers — swap models here, zero code changes downstream
+ROUTING_TIERS = {
+    "premium": "anthropic/claude-opus-4-6",   # P1 incidents, deep reasoning
+    "standard": "gpt-4o-mini",                # P2/P3, summarization, 10x cheaper
+    "fast": "groq/llama-3.1-8b-instant",      # high-volume, sub-second latency
+    "local": "ollama/mistral",                # air-gapped, zero cost
+}
 
-def analyze_with_openai(log: str) -> IncidentAnalysis:
-    response = openai_client.chat.completions.create(
-        model="gpt-4o-mini",
+DEFAULT_TIER = "premium"
+
+
+class LogInput(BaseModel):
+    log: str
+    tier: str = DEFAULT_TIER
+
+
+class IncidentAnalysis(BaseModel):
+    summary: str
+    severity: str
+    suggested_action: str
+    confidence: float
+    provider: str
+    cost_usd: float
+
+
+def analyze(log: str, tier: str) -> IncidentAnalysis:
+    model = ROUTING_TIERS.get(tier, ROUTING_TIERS[DEFAULT_TIER])
+
+    response = litellm.completion(
+        model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Analyze this log. Respond with JSON only: {{\"summary\": \"...\", \"severity\": \"P1|P2|P3|P4\", \"suggested_action\": \"...\", \"confidence\": 0.0}}\n\n{log}"}
+            {"role": "user", "content": f"Analyze this log:\n\n{log}"}
         ],
-        response_format={"type": "json_object"}
+        tools=[ANALYZE_TOOL],
+        tool_choice={"type": "function", "function": {"name": "analyze_incident"}},
+        max_tokens=1024,
     )
-    data = json.loads(response.choices[0].message.content)
-    return IncidentAnalysis(**data)
+
+    tool_call = response.choices[0].message.tool_calls[0]
+    data = json.loads(tool_call.function.arguments)
+
+    cost = litellm.completion_cost(completion_response=response)
+
+    return IncidentAnalysis(
+        **data,
+        provider=model,
+        cost_usd=round(cost, 6),
+    )
+
 
 app = FastAPI()
 
+
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "tiers": list(ROUTING_TIERS.keys())}
+
 
 @app.post("/analyze", response_model=IncidentAnalysis)
-def analyze(data: LogInput):
+def analyze_endpoint(data: LogInput):
+    tier = data.tier if data.tier in ROUTING_TIERS else DEFAULT_TIER
     try:
-        return analyze_with_claude(data.log)
-    except Exception as claude_error:
-        try:
-            return analyze_with_openai(data.log)
-        except Exception as openai_error:
-            raise HTTPException(status_code=503, detail={
-                "error": "Both providers failed",
-                "claude": str(claude_error),
-                "openai": str(openai_error)
-            })
+        return analyze(data.log, tier)
+    except Exception as e:
+        # Fallback: if requested tier fails, try standard before giving up
+        if tier != "standard":
+            try:
+                return analyze(data.log, "standard")
+            except Exception:
+                pass
+        raise HTTPException(status_code=503, detail=str(e))
