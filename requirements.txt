@@ -8,3 +8,4 @@ langfuse
 python-dotenv
 pydantic
 httpx
+jaraco.context>=6.1.0
