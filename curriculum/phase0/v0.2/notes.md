@@ -49,6 +49,144 @@ When you run `./script.sh`, the OS reads the shebang, finds `/bin/bash`, and pas
 
 When you run `bash script.sh`, you are explicitly telling bash to run it, so the shebang line is optional (but still good practice).
 
+### set -euo pipefail: the safety header every script needs
+
+The second line of every production bash script should be:
+```bash
+set -euo pipefail
+```
+
+Without this, bash has dangerous default behavior. With it, scripts fail loudly instead of silently producing wrong results. Here is exactly what each flag does:
+
+**`-e` (errexit):** exit immediately when any command fails.
+
+Without `-e`:
+```bash
+#!/bin/bash
+cd /nonexistent_directory      # fails silently
+rm -rf *                       # runs anyway — deletes files in your current directory
+echo "Done"                    # still prints
+```
+
+With `-e`:
+```bash
+#!/bin/bash
+set -e
+cd /nonexistent_directory      # fails
+# script stops here — rm never runs
+```
+
+**`-u` (nounset):** treat unset variables as errors.
+
+Without `-u`:
+```bash
+#!/bin/bash
+echo "Deleting $DIRECTOY"      # typo: DIRECTOY instead of DIRECTORY
+rm -rf $DIRECTOY               # expands to empty string: rm -rf  (deletes current dir!)
+```
+
+With `-u`:
+```bash
+#!/bin/bash
+set -u
+echo "Deleting $DIRECTOY"      # bash: DIRECTOY: unbound variable — script stops
+```
+
+**`-o pipefail`:** if any command in a pipeline fails, the entire pipeline fails.
+
+Without `pipefail`:
+```bash
+cat /nonexistent_file | wc -l
+echo $?    # 0 — "success" — because wc -l succeeded
+```
+
+With `pipefail`:
+```bash
+set -o pipefail
+cat /nonexistent_file | wc -l
+echo $?    # non-zero — the pipeline failed because cat failed
+```
+
+**The full header for every script you write:**
+```bash
+#!/bin/bash
+set -euo pipefail
+```
+
+Add this to every script from now on. You will see it in Dockerfiles, CI pipelines, and Kubernetes init containers throughout this project.
+
+---
+
+### Heredocs: creating files with exact content
+
+You have been using heredocs throughout this curriculum without a formal explanation. Here is what they are.
+
+A heredoc is a way to pass a multi-line string to a command, inline in the script. The syntax:
+
+```bash
+command << 'EOF'
+line 1
+line 2
+line 3
+EOF
+```
+
+`EOF` is the delimiter — it marks the start and end. The content between the two `EOF` markers is passed as stdin to the command. `'EOF'` (with quotes) means the content is treated literally — variables inside are NOT expanded:
+
+```bash
+cat << 'EOF'
+The value of $HOME is $HOME
+EOF
+```
+Output:
+```
+The value of $HOME is $HOME
+```
+
+Without quotes (`<< EOF`), variables ARE expanded:
+```bash
+cat << EOF
+The value of HOME is $HOME
+EOF
+```
+Output:
+```
+The value of HOME is /home/codespace
+```
+
+**The most common heredoc pattern in this project — creating files:**
+
+```bash
+cat > /workspaces/aois-system/practice/example.sh << 'EOF'
+#!/bin/bash
+set -euo pipefail
+
+echo "This script was created with a heredoc"
+echo "Home: $HOME"
+EOF
+```
+
+`cat > file << 'EOF'` means: redirect stdin (the heredoc content) into `cat`, which writes it to `file`. The single quotes around `EOF` prevent variable expansion in the file content — the `$HOME` in the script is written literally, not replaced with `/home/codespace`.
+
+You will write this exact pattern for every script, config file, and manifest in Phase 3 (Kubernetes YAML), Phase 9 (GitHub Actions), and beyond.
+
+**Verify it works:**
+```bash
+cat > /tmp/heredoc_test.sh << 'EOF'
+#!/bin/bash
+set -euo pipefail
+NAME="AOIS"
+echo "Project: $NAME"
+echo "Running from: $(pwd)"
+EOF
+bash /tmp/heredoc_test.sh
+```
+Expected:
+```
+Project: AOIS
+Running from: /tmp
+```
+
 ---
 
 ## Part 2 — Variables
