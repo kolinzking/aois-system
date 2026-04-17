@@ -3,6 +3,8 @@ uvicorn
 anthropic
 openai
 litellm
+instructor
+langfuse
 python-dotenv
 pydantic
 httpx
