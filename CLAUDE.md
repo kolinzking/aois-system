@@ -469,11 +469,29 @@ Make the outputs trustworthy and systematically optimal.
 - Both in `~/.claude/settings.json`
 
 ### Current Position
-- Pre-v1. Baseline committed. Curriculum at 34 versions — agentic AI layer upgraded April 2026 to add AutoGen, Google ADK, OpenAI Agents SDK, Pydantic AI, Mem0, AgentOps, Bedrock Agents.
+- **v5 complete. Phase 1 (v1–v3) and Phase 2 (v4–v5) done. Next: v6 — k3s on Hetzner.**
 
-### What v1 builds next
-- `main.py` — rewritten with Anthropic SDK, structured Pydantic output, prompt caching, OpenAI fallback
-- `requirements.txt` — proper dependency file
+### What's been built (v1–v5)
+- **v1**: FastAPI + Claude (prompt caching) + OpenAI fallback, structured Pydantic output (summary, severity P1–P4, suggested_action, confidence)
+- **v2**: LiteLLM gateway — 4 routing tiers (Claude premium → GPT-4o-mini → Groq fast → Ollama local), cost tracking per request
+- **v3**: Instructor for guaranteed validated output + Langfuse tracing (tokens, cost, latency per call)
+- **v4**: Multi-stage Dockerfile (non-root, minimal image), Docker Compose (AOIS + Redis + Postgres), Trivy scan
+- **v5**: Security hardening — rate limiting (slowapi), input sanitization (5KB limit, injection pattern stripping), hardened system prompt, output blocklist (destructive action detection), payload size middleware
+
+### Current root-level state
+- `/main.py` — v5 implementation (active)
+- `/Dockerfile` — v4 multi-stage build
+- `/docker-compose.yml` — AOIS + Redis + Postgres
+- `/requirements.txt` — consolidated dependencies
+- `/test.py` — tier routing + cost comparison test suite
+- `/curriculum/` — archived per-version source + notes
+
+### What v6 builds next
+- Provision Hetzner VPS with Terraform
+- k3s install, kubeconfig, kubectl
+- Raw k8s manifests: Deployment, Service, Ingress, ConfigMap, Secret
+- cert-manager + Let's Encrypt: AOIS on HTTPS
+- Liveness/readiness probes, resource limits, HPA
 
 ---
 
