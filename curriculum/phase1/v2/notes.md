@@ -1,79 +1,218 @@
-# v2 — LiteLLM Gateway
+# v2 — LiteLLM Gateway: One Interface, Any Model
 
-## What this version does
-Replaces the two separate provider SDKs (Anthropic + OpenAI) with a single routing layer.
-One function call reaches any model. Routing is controlled by a tier name in the request.
-Every response now tells you which model answered and what it cost.
+## What this version builds
 
-## What changed from v1
-- Removed: `anthropic` SDK, `openai` SDK, two separate analyze functions
-- Added: `litellm`, `ROUTING_TIERS` dict, `tier` field on requests, `provider` and `cost_usd` on responses
+v1 had two separate code paths: one function for Anthropic, one for OpenAI. Different SDK calls, different response parsing, different error handling. To add a third provider (Groq, for example), you would write a third function.
+
+v2 replaces both functions with a single routing layer. One function call works for any model. The model string (`"anthropic/claude-opus-4-6"` vs `"gpt-4o-mini"` vs `"groq/llama-3.1-8b-instant"`) is the only thing that changes between providers.
+
+At the end of v2:
+- **4 routing tiers** with real cost differences
+- **Cost tracking** on every response (you see the dollar amount per call)
+- **One codebase** — add a new model in one line, zero logic changes
+- **Fallback logic** that degrades gracefully if a tier is unavailable
 
 ---
 
-## Code Explained — Block by Block
+## Prerequisites
 
-### LiteLLM replaces both SDKs
+- v1 complete and tested
+- The v1 `main.py` is working and all 6 test cases pass
+
+Install LiteLLM if not already installed:
+```bash
+pip install litellm
+python3 -c "import litellm; print(f'LiteLLM {litellm.__version__} installed')"
+```
+
+Add to `requirements.txt` if it is not there:
+```bash
+grep -q "litellm" requirements.txt || echo "litellm" >> requirements.txt
+```
+
+For the `fast` tier (Groq), you need a Groq API key. Get one free at console.groq.com:
+```
+GROQ_API_KEY=gsk_...
+```
+Add it to `.env`. If you do not have one, the fast tier will fail and fall back to standard — that is fine for now.
+
+For the `local` tier (Ollama), you need Ollama running locally:
+```bash
+# Not required for v2 to work — local tier just fails gracefully without it
+ollama --version    # check if installed
+```
+
+---
+
+## Learning goals
+
+By the end of this version you will understand:
+- What LiteLLM is and why it exists (universal LLM gateway)
+- How to define routing tiers with cost-performance tradeoffs
+- Why cost tracking matters from the first version in production
+- How a single API interface can route to completely different providers
+- What graceful degradation looks like in practice
+
+---
+
+## What LiteLLM is
+
+LiteLLM is a Python library that provides a single interface (`litellm.completion()`) for calling any LLM provider. The model string prefix determines the provider:
+
+```
+"anthropic/claude-opus-4-6"     → Anthropic API
+"gpt-4o-mini"                    → OpenAI API (no prefix needed — it is the default)
+"groq/llama-3.1-8b-instant"     → Groq API
+"ollama/mistral"                 → Local Ollama instance
+"bedrock/anthropic.claude-v3"   → Amazon Bedrock (Phase 4)
+```
+
+You write the tool definition once in OpenAI format. LiteLLM translates it to each provider's format under the hood.
+
+LiteLLM also provides `litellm.completion_cost()` which calculates the exact dollar cost from any response's token counts.
+
+---
+
+## The code changes: v1 → v2
+
+### What was removed
+
+```python
+# REMOVED: two separate SDKs
+import anthropic
+from openai import OpenAI
+
+anthropic_client = anthropic.Anthropic(...)
+openai_client = OpenAI(...)
+
+# REMOVED: two separate functions
+def analyze_with_claude(log: str) -> IncidentAnalysis: ...
+def analyze_with_openai(log: str) -> IncidentAnalysis: ...
+```
+
+### What was added
+
 ```python
 import litellm
+import json
 
 litellm.drop_params = True
 ```
-LiteLLM is a universal gateway. One function — `litellm.completion()` — routes to any provider.
-The provider is determined by a prefix in the model string: `anthropic/`, `groq/`, `ollama/`.
 
-`drop_params = True` tells LiteLLM to silently ignore any parameter a provider does not support.
-Groq does not support every parameter that Claude does. Without this, routing to Groq would crash.
+`litellm.drop_params = True` tells LiteLLM to silently ignore parameters that a provider does not support. Different providers support different parameters. Without this, routing to Groq might crash if your request includes a parameter Groq does not accept.
 
 ---
 
-### The Tool — Now in OpenAI Format
+## The routing tiers
+
+```python
+DEFAULT_TIER = "premium"
+
+ROUTING_TIERS = {
+    "premium":  "anthropic/claude-opus-4-6",    # $3 input / $15 output per million tokens
+    "standard": "gpt-4o-mini",                   # $0.15 input / $0.60 output per million tokens
+    "fast":     "groq/llama-3.1-8b-instant",    # near-zero cost, <1 second latency
+    "local":    "ollama/mistral",               # free, runs on your machine
+}
+```
+
+**Real cost difference for one AOIS call (~600 tokens):**
+
+| Tier | Model | Approx cost/call | When to use |
+|------|-------|-----------------|-------------|
+| premium | claude-opus-4-6 | $0.004 | P1/P2 incidents needing deep reasoning |
+| standard | gpt-4o-mini | $0.00005 | High-volume P3/P4 analysis |
+| fast | groq/llama | ~$0.0001 | When latency matters more than quality |
+| local | ollama/mistral | $0.00 | Development, testing, air-gapped |
+
+At 10,000 calls/day:
+- All premium: ~$40/day
+- All standard: ~$0.50/day
+- Smart routing (P1→premium, P3/P4→standard): ~$5-10/day
+
+This is why routing exists. In Phase 7 (multi-agent), AOIS will automatically route based on severity: P1 incidents get Claude, bulk P4 log summarization goes to the cheap tier.
+
+**Adding a new tier:** one line in `ROUTING_TIERS`. Zero other changes.
+
+```python
+ROUTING_TIERS["bedrock"] = "bedrock/anthropic.claude-v3-sonnet"    # Phase 4
+ROUTING_TIERS["nim"] = "openai/meta/llama-3.1-8b-instruct"        # Phase 5
+```
+
+---
+
+## The tool definition: now in OpenAI format
+
+v1 used Anthropic's native format:
+```python
+# v1 — Anthropic format
+{
+    "name": "analyze_incident",
+    "description": "...",
+    "input_schema": { ... }    ← Anthropic-specific key
+}
+```
+
+v2 uses OpenAI format (LiteLLM's common format):
 ```python
 ANALYZE_TOOL = {
     "type": "function",
     "function": {
         "name": "analyze_incident",
-        "parameters": { ... }
+        "description": "Analyze a log and return structured incident data",
+        "parameters": {            ← OpenAI key (LiteLLM translates to Anthropic's input_schema)
+            "type": "object",
+            "properties": {
+                "summary":          {"type": "string"},
+                "severity":         {"type": "string", "enum": ["P1", "P2", "P3", "P4"]},
+                "suggested_action": {"type": "string"},
+                "confidence":       {"type": "number"}
+            },
+            "required": ["summary", "severity", "suggested_action", "confidence"]
+        }
     }
 }
 ```
-v1 used Anthropic's native tool format (`input_schema`).
-v2 uses OpenAI's tool format (`parameters`).
-LiteLLM translates this to whatever each provider actually expects.
-You write it once, it works everywhere.
+
+LiteLLM translates `parameters` to `input_schema` when routing to Anthropic, and passes `parameters` as-is to OpenAI. You define it once.
 
 ---
 
-### Routing Tiers
+## The updated models
+
 ```python
-ROUTING_TIERS = {
-    "premium": "anthropic/claude-opus-4-6",   # $0.012 per call — deep reasoning
-    "standard": "gpt-4o-mini",                # $0.000083 per call — 150x cheaper
-    "fast": "groq/llama-3.1-8b-instant",      # sub-second latency, near-zero cost
-    "local": "ollama/mistral",                # runs on your machine, zero cost
-}
+class LogInput(BaseModel):
+    log: str
+    tier: str = DEFAULT_TIER    # callers can now choose which tier
+
+class IncidentAnalysis(BaseModel):
+    summary: str
+    severity: str
+    suggested_action: str
+    confidence: float
+    provider: str       # which model actually answered
+    cost_usd: float     # what this call cost in dollars
 ```
-This is the core of v2. One dict controls all routing.
-To add a new model: add one line here. Zero logic changes anywhere else.
 
-The cost difference is real:
-- Processing 10,000 logs/day on premium = ~$120/day
-- Processing 10,000 logs/day on standard = ~$0.83/day
-- The routing tier you choose per log type determines your infrastructure cost
-
-To activate a tier you just need its API key in .env.
-If the key is missing, the fallback logic catches it.
+`provider` and `cost_usd` are new. Every response now tells you which model answered and what it cost. Over time, this data lets you measure:
+- Which tiers are being used most
+- What the system is actually spending
+- Whether the cheap tiers produce acceptable quality
 
 ---
 
-### The Single Analyze Function
+## The single analyze function
+
 ```python
-def analyze(log: str, tier: str) -> IncidentAnalysis:
+def analyze(log: str, tier: str = DEFAULT_TIER) -> IncidentAnalysis:
     model = ROUTING_TIERS.get(tier, ROUTING_TIERS[DEFAULT_TIER])
 
     response = litellm.completion(
         model=model,
-        messages=[...],
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Analyze this log:\n\n{log}"}
+        ],
         tools=[ANALYZE_TOOL],
         tool_choice={"type": "function", "function": {"name": "analyze_incident"}},
         max_tokens=1024,
@@ -85,42 +224,38 @@ def analyze(log: str, tier: str) -> IncidentAnalysis:
 
     return IncidentAnalysis(**data, provider=model, cost_usd=round(cost, 6))
 ```
-v1 had two functions (analyze_with_claude, analyze_with_openai) with different logic in each.
-v2 has one function. The model string is the only thing that changes per tier.
 
 Step by step:
-1. Look up the model string from the tier name
-2. Call litellm.completion() — same interface regardless of provider
-3. response.choices[0].message.tool_calls[0] — LiteLLM normalises all responses to this shape
-4. tool_call.function.arguments is a JSON string — parse it into a dict
-5. litellm.completion_cost() calculates the dollar cost from the token counts in the response
-6. **data unpacks the dict into IncidentAnalysis keyword arguments
+
+**1. `model = ROUTING_TIERS.get(tier, ROUTING_TIERS[DEFAULT_TIER])`**
+Look up the model string for the requested tier. If the tier name is unrecognized, use the default (premium). This prevents a crash on an invalid tier name.
+
+**2. `litellm.completion(...)`**
+One function call that works for any model. LiteLLM reads the model string prefix, finds the right provider, translates the request format, adds the correct API key from the environment, and makes the HTTP call.
+
+**3. `response.choices[0].message.tool_calls[0]`**
+LiteLLM normalizes all provider responses to the OpenAI response shape. Whether the model was Claude or GPT or Llama, the response structure is always `choices[0].message.tool_calls[0]`.
+
+Compare to v1 where the response structure was different for Anthropic (`response.content` → loop for `tool_use` block) vs OpenAI (`choices[0].message.content` → json.loads).
+
+**4. `json.loads(tool_call.function.arguments)`**
+`tool_call.function.arguments` is a JSON string. `json.loads()` converts it to a Python dict.
+
+**5. `litellm.completion_cost(completion_response=response)`**
+Calculates the dollar cost from the token counts in the response. LiteLLM has a database of prices for every model it supports. Returns a float in USD.
+
+**6. `IncidentAnalysis(**data, provider=model, cost_usd=round(cost, 6))`**
+Unpacks the dict as keyword arguments, adds the two new fields, creates the Pydantic model.
 
 ---
 
-### Updated Models
+## The fallback logic
+
 ```python
-class LogInput(BaseModel):
-    log: str
-    tier: str = DEFAULT_TIER     # caller can now choose the routing tier
-
-class IncidentAnalysis(BaseModel):
-    summary: str
-    severity: str
-    suggested_action: str
-    confidence: float
-    provider: str    # which model actually answered
-    cost_usd: float  # what this call cost in dollars
-```
-`provider` and `cost_usd` make cost visible per response.
-Over time this data becomes your cost analytics — you can see which tiers are being used
-and what the system is actually spending.
-
----
-
-### Fallback Logic
-```python
+@app.post("/analyze", response_model=IncidentAnalysis)
 def analyze_endpoint(data: LogInput):
+    tier = data.tier
+
     try:
         return analyze(data.log, tier)
     except Exception as e:
@@ -129,15 +264,165 @@ def analyze_endpoint(data: LogInput):
                 return analyze(data.log, "standard")
             except Exception:
                 pass
-        raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(
+            status_code=503,
+            detail={"error": str(e), "tier": tier}
+        )
 ```
-If the requested tier fails (missing API key, provider down), try standard before giving up.
-This means Groq being unavailable does not take down the service.
+
+If the requested tier fails (missing API key, provider down, rate limit), try standard before giving up. This means:
+- Groq is down → falls back to GPT-4o-mini automatically
+- Local Ollama is not running → falls back to GPT-4o-mini automatically
+- Claude is having issues → falls back to GPT-4o-mini
+
+If standard also fails, return 503 with both error messages so you know what happened.
 
 ---
 
-## What v2 does NOT have (solved in later versions)
-- No output validation guarantee — if the LLM returns malformed JSON, it crashes
-- No retry logic — one failure = one 503, no automatic recovery
-- No tracing — cost_usd is per-call but there is no history, no dashboard, no trend data
-- Prompt caching is gone — LiteLLM does not pass cache_control through to Anthropic by default
+## Running and testing v2
+
+Look at the archived v2 code:
+```bash
+cat /workspaces/aois-system/curriculum/phase1/v2/main.py
+```
+
+The current root `main.py` is v5 (security-hardened), which has all v2 concepts plus security layers. Test with the current version:
+
+### Start the server
+```bash
+cd /workspaces/aois-system
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+### Test with explicit tier selection
+
+Premium tier (Claude):
+```bash
+curl -s -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"log": "OOMKilled pod/payment-service memory_limit=512Mi restarts=14", "tier": "premium"}' \
+  | python3 -m json.tool
+```
+Expected: response includes `"provider"` and `"cost_usd"` fields.
+
+Standard tier (GPT-4o-mini):
+```bash
+curl -s -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"log": "OOMKilled pod/payment-service memory_limit=512Mi restarts=14", "tier": "standard"}' \
+  | python3 -m json.tool
+```
+Expected: same analysis, different provider, much lower cost_usd.
+
+Compare costs:
+```bash
+python3 << 'EOF'
+import requests
+import json
+
+LOG = "OOMKilled pod/payment-service memory_limit=512Mi restarts=14 exit_code=137"
+BASE = "http://localhost:8000"
+
+for tier in ["premium", "standard"]:
+    r = requests.post(f"{BASE}/analyze",
+                      json={"log": LOG, "tier": tier},
+                      headers={"Content-Type": "application/json"})
+    if r.status_code == 200:
+        data = r.json()
+        print(f"Tier: {tier}")
+        print(f"  Provider:  {data['provider']}")
+        print(f"  Severity:  {data['severity']}")
+        print(f"  Cost:      ${data['cost_usd']:.6f}")
+        print()
+    else:
+        print(f"Tier {tier} failed: {r.status_code} {r.text}")
+EOF
+```
+
+Expected output:
+```
+Tier: premium
+  Provider:  anthropic/claude-opus-4-6
+  Severity:  P2
+  Cost:      $0.004200
+
+Tier: standard
+  Provider:  gpt-4o-mini
+  Severity:  P2
+  Cost:      $0.000083
+```
+
+The premium tier costs approximately 50x more than standard. Both return P2. For a P4 log summary, you would route to standard.
+
+### Test fast tier (Groq)
+
+If you have a Groq API key:
+```bash
+curl -s -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"log": "OOMKilled pod/payment-service", "tier": "fast"}' \
+  | python3 -m json.tool
+```
+Expected: response in under 1 second, very low cost.
+
+### Test fallback behavior
+
+If Groq is not configured, test fallback explicitly:
+```bash
+curl -s -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"log": "OOMKilled pod/payment-service", "tier": "fast"}' \
+  | python3 -m json.tool
+```
+When Groq API key is missing, LiteLLM raises an error, the fallback logic catches it, tries standard tier (GPT-4o-mini), and returns successfully. The response `provider` field tells you which model actually answered.
+
+---
+
+## Troubleshooting
+
+**"LiteLLM API key not found for provider":**
+```bash
+# Check environment variable names LiteLLM expects
+# Anthropic: ANTHROPIC_API_KEY
+# OpenAI:    OPENAI_API_KEY
+# Groq:      GROQ_API_KEY
+python3 -c "from dotenv import load_dotenv; import os; load_dotenv(); print(os.getenv('GROQ_API_KEY', 'NOT SET'))"
+```
+
+**"json.decoder.JSONDecodeError" when parsing tool call:**
+The model did not call the tool despite `tool_choice` forcing it. This is rare. Check:
+```python
+print(response.choices[0].message)    # see the raw message
+print(response.choices[0].message.tool_calls)   # is it None?
+```
+If `tool_calls` is `None`, the model responded in text. Try again — usually transient.
+
+**"litellm.exceptions.AuthenticationError":**
+The API key for the requested tier is invalid. Check the key for that specific provider. Note that Groq and Anthropic use different key formats and different environment variable names.
+
+**`cost_usd` is 0.0:**
+`litellm.completion_cost()` returns 0 for models whose pricing it does not know. For standard models (Claude, GPT-4o-mini, Groq Llama), it should be non-zero. For custom or self-hosted models, you may need to set pricing manually.
+
+**Provider order in fallback:**
+The fallback only tries `standard`. If you want premium → standard → fast → local, you need to implement a retry loop across tiers.
+
+---
+
+## What v2 does not have (solved in v3)
+
+| Gap | Impact | Fixed in |
+|-----|--------|---------|
+| No output validation guarantee | If LLM returns `"severity": "Critical"` instead of `"P1"`, `json.loads` succeeds but Pydantic accepts it because `severity` is still plain `str` | v3: Instructor validates the schema strictly |
+| No automatic retry on bad output | One malformed response = one 503 (or silent bad data) | v3: Instructor retries with the error sent back to the model |
+| No call history or dashboard | `cost_usd` per call, but no aggregation, no trend, no comparison | v3: Langfuse |
+| Prompt caching lost | LiteLLM's default Anthropic routing does not pass `cache_control` through | Note: caching can be added back in v3 with LiteLLM's caching config |
+
+---
+
+## Connection to later phases
+
+- **v3**: `litellm.completion()` is wrapped by Instructor. `json.loads(tool_call.function.arguments)` disappears — Instructor handles parsing and validation.
+- **Phase 4 (v10)**: `ROUTING_TIERS["bedrock"] = "bedrock/anthropic.claude-v3-sonnet"` — one line and AOIS routes to Amazon Bedrock.
+- **Phase 5 (v13-v14)**: `ROUTING_TIERS["nim"] = "..."` and `ROUTING_TIERS["vllm"] = "..."` — NIM and vLLM added as tiers. The routing logic never changes.
+- **Phase 7 (v23)**: LangGraph agent nodes each call `analyze(log, tier)`. The tier is chosen based on severity: P1 incidents go to premium, batch P4 analysis goes to standard.
+- **The principle**: LiteLLM is the abstraction layer that makes all of this possible. You write routing logic once. New providers are one line.
