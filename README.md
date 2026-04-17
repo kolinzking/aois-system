@@ -32,6 +32,21 @@ At that point you have: k8s, Claude agents, AWS Bedrock, full observability, CI/
 
 ## Table of Contents
 
+### Phase 0 — The Foundation
+> Everything Phase 1 assumes you already know. The ground everything else is built on.
+
+| Version | Topic | What you build | Status |
+|---------|-------|----------------|--------|
+| v0.1 | Linux Essentials | `sysinfo.sh` — filesystem, processes, permissions, SSH | ✅ |
+| v0.2 | Bash Scripting | `log_analyzer.sh` — pattern matcher that makes v1 land harder | ✅ |
+| v0.3 | Git & GitHub | This repo, committed properly — history as CV | ✅ |
+| v0.4 | Networking & HTTP | curl real APIs, HTTP methods, status codes, JSON | ✅ |
+| v0.5 | Python for This Project | venv, Pydantic, .env, type hints, async — the exact patterns used throughout | ✅ |
+| v0.6 | Your First API (No AI) | Mock AOIS endpoint — regex analysis, no Claude. Shows the limit. | ✅ |
+| v0.7 | How LLMs Work | Raw Claude API call. Tokens, context, system prompts, cost. | ✅ |
+
+---
+
 ### Phase 1 — The Intelligence Core
 > You will know: Python, FastAPI, Claude API, prompt caching, structured outputs, multi-model routing
 
