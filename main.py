@@ -1,13 +1,19 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+from typing import Literal
+import instructor
 import litellm
 import os
-import json
 
 load_dotenv()
 
-litellm.drop_params = True  # ignore unsupported params per provider silently
+litellm.drop_params = True
+
+# Langfuse callback — every LiteLLM call is traced automatically, no other changes needed
+if os.getenv("LANGFUSE_SECRET_KEY"):
+    litellm.success_callback = ["langfuse"]
+    litellm.failure_callback = ["langfuse"]
 
 SYSTEM_PROMPT = """
 You are AOIS — AI Operations Intelligence System, an expert SRE.
@@ -20,31 +26,11 @@ P3 - Medium: warning, action within 24 hours
 P4 - Low: preventive, action within 1 week
 """
 
-# Tool definition in OpenAI format — LiteLLM translates to each provider's format
-ANALYZE_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "analyze_incident",
-        "description": "Analyze a log and return structured incident data",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "summary": {"type": "string"},
-                "severity": {"type": "string", "enum": ["P1", "P2", "P3", "P4"]},
-                "suggested_action": {"type": "string"},
-                "confidence": {"type": "number"}
-            },
-            "required": ["summary", "severity", "suggested_action", "confidence"]
-        }
-    }
-}
-
-# Routing tiers — swap models here, zero code changes downstream
 ROUTING_TIERS = {
-    "premium": "anthropic/claude-opus-4-6",   # P1 incidents, deep reasoning
-    "standard": "gpt-4o-mini",                # P2/P3, summarization, 10x cheaper
-    "fast": "groq/llama-3.1-8b-instant",      # high-volume, sub-second latency
-    "local": "ollama/mistral",                # air-gapped, zero cost
+    "premium": "anthropic/claude-opus-4-6",
+    "standard": "gpt-4o-mini",
+    "fast": "groq/llama-3.1-8b-instant",
+    "local": "ollama/mistral",
 }
 
 DEFAULT_TIER = "premium"
@@ -55,39 +41,40 @@ class LogInput(BaseModel):
     tier: str = DEFAULT_TIER
 
 
+# Instructor uses this model directly as the return type — no tool definition needed
+# Field descriptions become part of the prompt that guides the LLM
 class IncidentAnalysis(BaseModel):
-    summary: str
-    severity: str
-    suggested_action: str
-    confidence: float
-    provider: str
-    cost_usd: float
+    summary: str = Field(description="Concise description of what happened and why it matters")
+    severity: Literal["P1", "P2", "P3", "P4"] = Field(description="Incident severity level")
+    suggested_action: str = Field(description="Specific remediation steps for the on-call engineer")
+    confidence: float = Field(description="Confidence score between 0.0 and 1.0", ge=0.0, le=1.0)
+    provider: str = Field(default="", description="Model that produced this analysis")
+    cost_usd: float = Field(default=0.0, description="Cost of this API call in USD")
+
+
+# Instructor wraps LiteLLM — adds automatic retry + Pydantic validation
+client = instructor.from_litellm(litellm.completion)
 
 
 def analyze(log: str, tier: str) -> IncidentAnalysis:
     model = ROUTING_TIERS.get(tier, ROUTING_TIERS[DEFAULT_TIER])
 
-    response = litellm.completion(
+    # response_model=IncidentAnalysis tells Instructor what shape to enforce
+    # If the LLM returns bad output, Instructor retries with the validation error fed back to the model
+    result, completion = client.chat.completions.create_with_completion(
         model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": f"Analyze this log:\n\n{log}"}
         ],
-        tools=[ANALYZE_TOOL],
-        tool_choice={"type": "function", "function": {"name": "analyze_incident"}},
+        response_model=IncidentAnalysis,
+        max_retries=2,
         max_tokens=1024,
     )
 
-    tool_call = response.choices[0].message.tool_calls[0]
-    data = json.loads(tool_call.function.arguments)
-
-    cost = litellm.completion_cost(completion_response=response)
-
-    return IncidentAnalysis(
-        **data,
-        provider=model,
-        cost_usd=round(cost, 6),
-    )
+    result.provider = model
+    result.cost_usd = round(litellm.completion_cost(completion_response=completion), 6)
+    return result
 
 
 app = FastAPI()
@@ -104,7 +91,6 @@ def analyze_endpoint(data: LogInput):
     try:
         return analyze(data.log, tier)
     except Exception as e:
-        # Fallback: if requested tier fails, try standard before giving up
         if tier != "standard":
             try:
                 return analyze(data.log, "standard")
