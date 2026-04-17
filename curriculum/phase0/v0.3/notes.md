@@ -1,122 +1,249 @@
 # v0.3 — Git & GitHub: Your Professional History
 
-## What this version builds
+## What this version is about
 
-This repo, committed properly. Real history. Meaningful commit messages. A .gitignore that actually protects you.
+GitHub is your CV in this field. When an engineer or recruiter looks at your profile, they see the commit history. The progression from v0.1 to v34 — committed consistently, with meaningful messages — is evidence that you build things rather than just read about them.
 
-GitHub is your CV in this field. Recruiters and engineers look at the commit history, the progression, the consistency. Every version of AOIS committed properly is evidence of who you are as an engineer.
-
----
-
-## The mental model — snapshots, not diffs
-
-Git does not store changes. Git stores **snapshots** of your entire project at a point in time. Each commit is a complete snapshot, plus a pointer to the previous snapshot. The "diff" you see is computed on the fly by comparing two snapshots — it is not what git stores.
-
-This matters because it changes how you think about branches, merges, and history. A branch is just a pointer to a commit. Merging is creating a new snapshot that has two parents. Checking out a branch is replacing your working files with the files from that snapshot.
-
-```
-Snapshot A --> Snapshot B --> Snapshot C  (main branch points here)
-                    \
-                     --> Snapshot D --> Snapshot E  (feature branch points here)
-```
+Beyond the career angle: git is how every real team manages code. Every company uses it. Understanding it deeply eliminates the fear that makes people do things wrong (force pushing main, losing work, confused merges). By the end of this version, git has no mystery.
 
 ---
 
-## The three areas
+## Prerequisites
 
-Git has three areas. Understanding these eliminates most git confusion.
+- v0.1 and v0.2 complete — you can use the terminal fluently
+- Git is installed (it is in Codespaces)
 
+Verify git is installed and configured:
+```bash
+git --version
 ```
-Working directory          Staging area (index)          Repository (.git)
-      |                           |                              |
-   (your files)              (what will be                 (committed
-   you edit here              in the next commit)           snapshots)
-      |                           |                              |
-      |------ git add ---------> |                              |
-      |                           |------ git commit ---------> |
-      |<----- git checkout ------|<-----------------------------|
+Expected:
+```
+git version 2.43.0
 ```
 
-`git add` moves changes from working directory to staging area.
-`git commit` takes everything in staging and creates a snapshot.
-`git checkout` replaces working directory files from a snapshot.
-
-When `git status` shows "Changes not staged for commit" — that's the working directory.
-When it shows "Changes to be committed" — that's the staging area.
-
----
-
-## Setup
-
+Check if it is configured:
+```bash
+git config --list | grep user
+```
+Expected:
+```
+user.name=Collins
+user.email=gspice1@proton.me
+```
+If you see nothing, configure it now:
 ```bash
 git config --global user.name "Collins"
-git config --global user.email "your@email.com"
+git config --global user.email "gspice1@proton.me"
 git config --global init.defaultBranch main
-git config --list    # verify settings
+git config --global core.editor "nano"    # use nano as default editor (simpler than vim)
 ```
-
-These go into `~/.gitconfig` and apply to every repo on this machine.
 
 ---
 
-## The daily workflow
+## Learning goals
+
+By the end of this version you will:
+- Understand git's mental model (snapshots, not diffs)
+- Know the three areas and how changes move between them
+- Use the daily git workflow without thinking: status, add, commit, log, diff
+- Write meaningful commit messages
+- Use branches correctly
+- Connect a local repo to GitHub and push/pull
+- Understand .gitignore and what never enters a repo
+- Know how to undo mistakes safely
+
+---
+
+## Part 1 — The mental model: snapshots, not diffs
+
+Most people think of git as tracking changes. This leads to confusion. The accurate mental model is different.
+
+**Git stores snapshots.** Each commit is a complete snapshot of your entire project at that moment — every file, every directory. Not what changed from the last commit. The whole thing.
+
+When you see a "diff" in git, git is computing it on the fly by comparing two snapshots. The diff is not stored — the snapshots are.
+
+```
+time →
+
+Commit A          Commit B          Commit C
+(snapshot)   →   (snapshot)   →   (snapshot)
+                                        ↑
+                                     HEAD (where you are now)
+                                     main (branch pointer)
+```
+
+A **branch** is just a pointer (a text file containing a commit hash) to a specific commit. Creating a branch is instantaneous — it just creates a new pointer.
+
+`HEAD` is a pointer to the branch you are currently on. When you commit, the branch pointer advances to the new commit, and HEAD follows.
+
+```
+Before commit:    main → Commit C ← HEAD
+After commit:     main → Commit D ← HEAD
+```
+
+This model makes operations like branching, merging, and rebasing conceptually simple — they are all just moving pointers around or creating new snapshots.
+
+---
+
+## Part 2 — The three areas
+
+Understanding these three areas eliminates 90% of git confusion.
+
+```
+┌─────────────────────┐    git add     ┌──────────────────┐    git commit    ┌──────────────┐
+│   Working Directory  │ ─────────────→ │   Staging Area   │ ───────────────→ │  Repository  │
+│                     │                │    (Index)       │                  │   (.git/)    │
+│  Files you edit     │ ←───────────── │                  │ ←─────────────── │              │
+│  on disk            │  git checkout  │  What the next   │  git checkout    │  Committed   │
+│                     │                │  commit will     │                  │  snapshots   │
+└─────────────────────┘                │  contain         │                  └──────────────┘
+                                       └──────────────────┘
+```
+
+- **Working directory**: your files as they are on disk right now. This is where you edit.
+- **Staging area (index)**: a "preview" of the next commit. `git add` moves changes here.
+- **Repository (.git/)**: the database of all committed snapshots.
+
+What `git status` shows:
+- "Changes not staged for commit" = changes in working directory not yet in staging
+- "Changes to be committed" = changes in staging area, will be in next commit
+- "Untracked files" = new files git has never seen (not in working directory tracking, not staged)
+
+---
+
+## Part 3 — Daily workflow
+
+### Check what state everything is in
+
+Always start here:
+```bash
+cd /workspaces/aois-system
+git status
+```
+Expected (clean repo):
+```
+On branch main
+nothing to commit, working tree clean
+```
+
+After making a change (edit any file):
+```bash
+echo "# test" >> README.md
+git status
+```
+Expected:
+```
+On branch main
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+
+        modified:   README.md
+
+no changes added to commit (use "git add" or "git commit -a")
+```
+
+### See exactly what changed
 
 ```bash
-git status                  # what's changed? always run this first
-git diff                    # what exactly changed in files (unstaged)
-git diff --staged           # what's in staging (will be committed)
-git add main.py             # stage a specific file
-git add curriculum/phase0/  # stage a whole directory
-git add -p                  # interactive: choose which changes to stage
-git commit -m "message"     # commit what's staged
-git log                     # show commit history
-git log --oneline           # compact view
-git log --oneline --graph   # with branch graph
+git diff            # changes in working directory not yet staged
+git diff --staged   # changes in staging area (what will be in the next commit)
+git diff HEAD       # all changes since last commit (staged + unstaged)
 ```
 
-**Never use `git add .` blindly.** Run `git status` first. Know exactly what you are staging. One accidental commit of `.env` leaks your API keys into git history — even if you delete the file in the next commit, the keys are still in history and must be rotated.
+Expected `git diff` output:
+```diff
+diff --git a/README.md b/README.md
+index abc1234..def5678 100644
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,4 @@
+ # AOIS
++# test
+```
+Lines starting with `+` are additions. Lines starting with `-` are deletions. Lines with no prefix are context (unchanged).
+
+### Stage changes
+
+```bash
+git add README.md               # stage a specific file
+git add curriculum/phase0/      # stage an entire directory
+git add -p                      # interactive: choose which changes to stage (hunk by hunk)
+git add .                       # stage everything in current directory (careful — read below)
+```
+
+**Warning about `git add .`:** it stages everything, including files you may not want to commit. Always run `git status` after `git add .` to see exactly what got staged. Better to be explicit and name files.
+
+After staging:
+```bash
+git status
+```
+Expected:
+```
+On branch main
+Changes to be committed:
+  (use "git restore --staged <file>..." to unstage)
+
+        modified:   README.md
+```
+
+### Commit
+
+```bash
+git commit -m "docs: update README with test line"
+```
+Expected:
+```
+[main abc1234] docs: update README with test line
+ 1 file changed, 1 insertion(+)
+```
+
+The output tells you: branch name, commit hash (first 7 characters), message, and what changed.
+
+### View history
+
+```bash
+git log                     # full log with author, date, message
+git log --oneline           # compact: one line per commit
+git log --oneline --graph   # with ASCII branch graph
+git log --oneline -10       # last 10 commits only
+```
+
+Expected `git log --oneline`:
+```
+abc1234 docs: update README with test line
+2305c5d checkpoint: 2026-04-17 15:09
+5b40d7f checkpoint: 2026-04-17 12:13
+```
+
+The first 7 characters (`abc1234`) are the commit hash — a unique identifier for that snapshot. You can reference any commit by its hash.
 
 ---
 
-## Commit messages
+## Part 4 — .gitignore: what never enters the repo
 
-A commit message is a message to your future self and anyone who reads this repo. It should say **why**, not what. The diff already shows what changed.
+The `.gitignore` file lists patterns of files and directories that git should never track.
 
-Bad:
-```
-fixed bug
-update main
-changes
-wip
-asdf
+Check the current `.gitignore`:
+```bash
+cat /workspaces/aois-system/.gitignore
 ```
 
-Good:
-```
-v1: FastAPI + Claude tool use + OpenAI fallback
-v2: LiteLLM gateway with 4 routing tiers and cost tracking
-fix: handle Claude timeout on P1 incident analysis
-docs: add v0.3 notes on git mental model
-```
+It should contain `.env` at minimum. If it does not, your API keys are at risk.
 
-Convention for this project: `version: description` for version milestones, `type: description` for everything else. Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
-
----
-
-## .gitignore — what never enters the repo
-
-Create `/workspaces/aois-system/.gitignore` with:
-
-```gitignore
-# Secrets — never commit these
+A complete `.gitignore` for this project:
+```bash
+cat > /workspaces/aois-system/.gitignore << 'EOF'
+# === Secrets — NEVER commit these ===
 .env
 .env.local
 .env.*.local
 *.pem
 *.key
 secrets/
+credentials.json
 
-# Python
+# === Python ===
 __pycache__/
 *.py[cod]
 *.pyo
@@ -128,184 +255,381 @@ env/
 dist/
 build/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Node
+# === Node ===
 node_modules/
 npm-debug.log*
 
-# IDE
-.vscode/
+# === IDE ===
+.vscode/settings.json
 .idea/
 *.swp
 *.swo
 
-# OS
+# === OS ===
 .DS_Store
 Thumbs.db
 
-# Logs
+# === Logs ===
 *.log
 logs/
 
-# Docker
+# === Docker ===
 .docker/
 
-# Terraform
+# === Terraform ===
 *.tfstate
 *.tfstate.backup
 .terraform/
 .terraform.lock.hcl
+
+# === Kubernetes ===
+kubeconfig
+*.kubeconfig
+EOF
 ```
 
-Check it works:
+Verify that `.env` is protected:
 ```bash
-git status    # .env should NOT appear in the list
+git status
 ```
+`.env` should NOT appear in the untracked files list. If it does, `.gitignore` is not set up correctly — stop immediately and fix it before doing anything else.
 
-If `.env` appears, it is not in `.gitignore` properly. Fix it before anything else.
+**What happens if you accidentally commit `.env`:**
+The API keys are now in git history. Even if you delete the file and commit again, the keys are still visible in previous commits. They must be rotated immediately:
+1. Generate new keys from console.anthropic.com and platform.openai.com
+2. Update `.env` with new keys
+3. Remove the file from tracking:
+   ```bash
+   git rm --cached .env
+   git commit -m "remove .env from tracking"
+   ```
+The old keys are still in history, but they no longer work, so the damage is contained.
 
 ---
 
-## Branches
+## Part 5 — Commit messages that mean something
 
-```bash
-git branch                     # list local branches
-git branch -a                  # list all branches including remote
-git checkout -b feature/kafka  # create and switch to new branch
-git checkout main              # switch to existing branch
-git merge feature/kafka        # merge feature into current branch
-git branch -d feature/kafka    # delete branch after merging
+A commit message is a message to your future self and to anyone who reads this repo. It should say **why**, not what. The diff already shows what changed.
+
+**Bad messages:**
+```
+fix bug
+update main
+changes
+wip
+added stuff
+asdf
 ```
 
-**When to branch:** for anything that takes more than one commit. For version work: each version gets a branch, merged to main when done. For this learning project, working directly on main is fine until Phase 3 (GitOps).
+**Good messages:**
+```
+v1: FastAPI + Claude tool use + OpenAI fallback
+v2: LiteLLM gateway with 4 routing tiers and cost tracking per call
+fix: handle Claude timeout on P1 incident analysis gracefully
+docs: add v0.3 notes covering git mental model and daily workflow
+refactor: extract sanitize_log into separate validation module
+chore: pin jaraco.context>=6.1.0 to fix Trivy CVE
+```
+
+The pattern for this project: `type: description`
+- `feat:` or `vN:` — new version or feature
+- `fix:` — bug fix
+- `docs:` — documentation only
+- `refactor:` — code change that does not add features or fix bugs
+- `chore:` — maintenance (dependency updates, config changes)
+- `test:` — adding or updating tests
+
+Keep the first line under 72 characters. If you need more detail, leave a blank line and add a body:
+```bash
+git commit -m "v5: rate limiting, payload limits, prompt injection defence
+
+Implements four security layers as specified in OWASP LLM Top 10:
+- Input: sanitize_log() strips injection patterns, caps at 5KB
+- Prompt: SECURITY paragraph in system prompt
+- Output: validate_output() blocks destructive suggestions
+- Transport: slowapi rate limiting at 10/minute per IP"
+```
 
 ---
 
-## Remotes and GitHub
+## Part 6 — Branches
+
+A branch is an independent line of development. Use it when you want to try something without affecting the main codebase.
 
 ```bash
-git remote -v                           # show configured remotes
-git remote add origin git@github.com:user/repo.git   # add remote
-git push -u origin main                 # push main branch, set upstream
-git push                                # push after upstream is set
-git pull                                # fetch + merge remote changes
-git fetch                               # fetch without merging
-git clone git@github.com:user/repo.git  # copy a repo locally
+git branch                      # list local branches
+git branch -a                   # list all branches including remote-tracking
+```
+Expected:
+```
+* main
+```
+The `*` marks the current branch.
+
+Create and switch to a new branch:
+```bash
+git checkout -b feature/test-branch
+git branch                      # verify you are on the new branch
+```
+Expected:
+```
+* feature/test-branch
+  main
 ```
 
-**origin** is the conventional name for your primary remote. When you run `git push`, git pushes to origin by default.
-
-**SSH vs HTTPS for GitHub:**
-- HTTPS: requires username + token on every push
-- SSH: authenticate with a key pair, no password needed
-
-Set up SSH authentication:
+Make a change, commit it:
 ```bash
-ssh-keygen -t ed25519 -C "your@email.com"   # generate key pair
-cat ~/.ssh/id_ed25519.pub                     # copy this
-# Paste it in GitHub → Settings → SSH and GPG keys → New SSH key
-ssh -T git@github.com                         # test the connection
-# Expected: "Hi username! You've successfully authenticated"
+echo "test content" > /tmp/test_file.txt
+cp /tmp/test_file.txt /workspaces/aois-system/practice/test_file.txt
+git add practice/test_file.txt
+git commit -m "test: add test file on feature branch"
+```
+
+Switch back to main:
+```bash
+git checkout main
+ls practice/     # test_file.txt is NOT here — it is on the feature branch
+```
+
+Merge the feature branch into main:
+```bash
+git merge feature/test-branch
+ls practice/     # now test_file.txt IS here
+```
+
+Delete the branch (clean up after merging):
+```bash
+git branch -d feature/test-branch
+git branch      # confirms it is gone
+```
+
+Clean up the test file:
+```bash
+rm /workspaces/aois-system/practice/test_file.txt
+git add practice/test_file.txt
+git commit -m "chore: remove test file"
+```
+
+**For this learning project:** working directly on `main` is fine until Phase 3 (GitOps). When ArgoCD watches main and auto-deploys on every push, you will use branches properly. For now, commit directly to main.
+
+---
+
+## Part 7 — Remotes and GitHub
+
+A remote is a copy of the repository somewhere else (GitHub, GitLab, your own server).
+
+```bash
+git remote -v           # show configured remotes
+```
+Expected (if the repo is connected to GitHub):
+```
+origin  https://github.com/kolinzking/aois-system.git (fetch)
+origin  https://github.com/kolinzking/aois-system.git (push)
+```
+
+`origin` is the conventional name for the primary remote.
+
+```bash
+git push                # push current branch to its upstream remote
+git push -u origin main # push and set upstream (first time for a new branch)
+git pull                # fetch from remote and merge into current branch
+git fetch               # fetch from remote without merging (safe to run anytime)
+```
+
+`git fetch` vs `git pull`:
+- `git fetch` just downloads new commits from the remote into your local repository. Your working directory is unchanged.
+- `git pull` = `git fetch` + `git merge`. It fetches AND merges remote changes into your current branch.
+
+When in doubt, use `git fetch` first to see what changed, then decide whether to merge.
+
+**SSH authentication for GitHub (recommended over HTTPS):**
+```bash
+ssh-keygen -t ed25519 -C "gspice1@proton.me"    # generate key pair
+# When asked for a file, press Enter to use the default
+# When asked for a passphrase, press Enter for none (or set one for extra security)
+
+cat ~/.ssh/id_ed25519.pub                         # your public key
+```
+Copy the output (starts with `ssh-ed25519 ...`), go to GitHub → Settings → SSH and GPG keys → New SSH key, paste it.
+
+Test the connection:
+```bash
+ssh -T git@github.com
+```
+Expected:
+```
+Hi kolinzking! You've successfully authenticated, but GitHub does not provide shell access.
 ```
 
 ---
 
-## Reading history
+## Part 8 — Reading history and finding information
 
 ```bash
-git log --oneline                      # compact history
-git log --oneline --graph --all        # visual branch graph
-git show abc1234                       # show a specific commit
-git show HEAD                          # show latest commit
-git diff HEAD~1 HEAD                   # diff last two commits
-git blame main.py                      # who changed each line and when
-git log --follow -p main.py            # full history of a file including renames
+git log --oneline --graph --all     # full visual history of all branches
+
+git show abc1234                    # show a specific commit (what changed, message, author)
+git show HEAD                       # show the most recent commit
+git show HEAD~1                     # show one commit before HEAD
+git show HEAD~3                     # show three commits before HEAD
+
+git diff HEAD~1 HEAD                # what changed in the last commit
+git diff abc1234 def5678            # what changed between two specific commits
+
+git blame main.py                   # who last changed each line and when
+git log --follow -p main.py         # full history of changes to one file
+
+git log --oneline --author="Collins"    # commits by a specific person
+git log --oneline --since="2026-04-01" # commits since a date
+git log --oneline --grep="v3"          # commits with "v3" in the message
 ```
 
-`HEAD` is a pointer to the current commit — wherever you are right now. `HEAD~1` means one commit before HEAD. `HEAD~3` means three before.
+`git blame` is useful when you find something surprising in the code:
+```bash
+git blame main.py | head -20
+```
+Expected:
+```
+abc1234 (Collins 2026-04-17 12:00:00 +0000  1) from fastapi import FastAPI
+abc1234 (Collins 2026-04-17 12:00:00 +0000  2) from pydantic import BaseModel
+```
+Shows who wrote each line and when.
 
 ---
 
-## Undoing things
+## Part 9 — Undoing mistakes
 
 ```bash
-git restore main.py             # discard changes in working directory (unstaged)
-git restore --staged main.py    # unstage a file (keep changes in working dir)
-git commit --amend              # modify the last commit message or add a file
-                                # WARNING: only do this if you haven't pushed yet
-git revert abc1234              # create a new commit that undoes a commit
-                                # safe: works on pushed commits, preserves history
-git reset --hard HEAD~1         # dangerous: delete last commit and discard changes
-                                # never do this on pushed commits
+# Discard changes in working directory (before staging)
+git restore main.py             # discard all changes to main.py
+git restore .                   # discard all changes to all files
+
+# Remove from staging area (keep changes in working directory)
+git restore --staged main.py    # unstage main.py but keep the edits
+
+# Fix the last commit message (before pushing)
+git commit --amend -m "corrected message"
+# WARNING: only do this if you have NOT pushed yet
+
+# Safely undo a commit (creates a new commit that reverses it)
+git revert HEAD                 # undo last commit
+git revert abc1234              # undo a specific commit
+# This is SAFE — it does not rewrite history, works on pushed commits
+
+# Nuclear option: delete last commit and discard all changes
+git reset --hard HEAD~1
+# WARNING: data is GONE. Only use on commits you have not pushed.
 ```
 
-**Rule of thumb:** if you haven't pushed yet, you can rewrite history freely. Once you've pushed, use `git revert` — it adds a new commit rather than rewriting history, which is safe for shared branches.
+**The rule:**
+- Before pushing: you can rewrite history freely with `--amend` and `reset`
+- After pushing: use `git revert` only — it adds a new commit, never rewrites history
+
+**Recovering "lost" work:**
+Almost nothing in git is truly lost. `git reflog` shows every place HEAD has pointed:
+```bash
+git reflog | head -20
+```
+Expected:
+```
+abc1234 HEAD@{0}: commit: v5: security hardening
+bcd2345 HEAD@{1}: commit: v4: Docker multi-stage build
+cde3456 HEAD@{2}: checkout: moving from feature to main
+```
+If you accidentally reset or deleted a branch, the commit hash is still in reflog. You can recover it:
+```bash
+git checkout -b recovery-branch abc1234     # create branch pointing to "lost" commit
+```
 
 ---
 
-## What lives in .git/
+## Part 10 — Committing this project properly
 
-```bash
-ls -la .git/
-```
-
-```
-HEAD        — pointer to current branch
-config      — repo-level git config
-objects/    — all commits, trees, blobs (the actual content)
-refs/       — branches and tags (just files containing commit hashes)
-hooks/      — scripts that run on git events (pre-commit, post-commit, etc.)
-index       — the staging area
-logs/       — history of where HEAD has pointed
-```
-
-`git reflog` shows everything HEAD has pointed to — useful if you lost a commit you thought was gone. Git almost never truly loses data.
-
----
-
-## Committing this project properly
-
-Check what exists:
+Now commit Phase 0 notes:
 ```bash
 cd /workspaces/aois-system
 git status
-git log --oneline
 ```
 
-If the history looks like `checkpoint: 2026-04-17` entries from the auto-save hooks, that is fine. From here, every commit you make manually should be meaningful:
+You should see the new Phase 0 files:
+```
+Untracked files:
+    curriculum/phase0/
+    practice/sysinfo.sh
+    practice/log_analyzer.sh
+```
 
+Stage and commit:
 ```bash
-# Stage and commit Phase 0 notes
 git add curriculum/phase0/
-git commit -m "phase0: add foundation curriculum (v0.1-v0.7)"
-
-# Or commit version by version as you go through them
-git add curriculum/phase0/v0.1/
-git commit -m "v0.1: Linux essentials notes and sysinfo.sh"
+git add practice/
+git commit -m "phase0: add foundation curriculum v0.1-v0.7"
 ```
 
----
-
-## The .git/hooks directory
-
-This project already has post-commit hooks configured in `~/.claude/settings.json`. Those hooks commit automatically after Claude writes files. You can see them with:
+Verify:
+```bash
+git log --oneline -5
+```
+Expected: your new commit at the top.
 
 ```bash
-cat ~/.claude/settings.json
+git show HEAD --stat
 ```
-
-Hooks are scripts that git runs at specific moments. `pre-commit` runs before a commit is created — useful for linting, running tests, blocking commits that contain secrets. `post-commit` runs after a commit is created. `pre-push` runs before a push — useful for running the full test suite.
-
-You will write your own hooks in Phase 9 (v28, GitHub Actions + Dagger).
+Expected: shows which files were added and how many lines.
 
 ---
 
-## GitHub as CV — what recruiters actually look at
+## Troubleshooting
 
-1. **Commit frequency** — consistent daily activity shows you actually code
-2. **Commit message quality** — `fix bug` vs `v3: Instructor validation with Langfuse tracing` tells them everything
-3. **README** — does this repo explain what it is and why it exists?
-4. **Progression** — v1 → v2 → v3 shows a build mindset, not just tutorial following
-5. **Real tools** — Claude API, LangGraph, Temporal, k8s in the same repo signals you are ahead of the curve
+**"Your branch is behind 'origin/main'":**
+```bash
+git pull
+```
+Someone (or a hook) pushed to the remote and you have not pulled yet. Pull before pushing.
 
-Every version of AOIS committed properly is building this signal.
+**"Please commit your changes or stash them before merge":**
+```bash
+git stash              # temporarily save working directory changes
+git pull               # pull the remote changes
+git stash pop          # restore your saved changes
+```
+
+**"Merge conflict" after pull:**
+Git shows conflicted files in `git status` with "both modified". Open the file and look for:
+```
+<<<<<<< HEAD
+your version
+=======
+their version
+>>>>>>> origin/main
+```
+Edit the file to keep what you want, remove the marker lines, then:
+```bash
+git add conflicted_file.py
+git commit -m "resolve merge conflict in conflicted_file.py"
+```
+
+**"fatal: not a git repository":**
+```bash
+pwd                     # are you in the right directory?
+ls -la | grep ".git"    # is there a .git directory here?
+cd /workspaces/aois-system
+```
+
+**Accidentally staged .env:**
+```bash
+git restore --staged .env       # unstage it without discarding content
+git status                      # verify it is no longer staged
+```
+Then add `.env` to `.gitignore` before anything else.
+
+---
+
+## Connection to later phases
+
+- **Phase 3 (v8)**: ArgoCD watches the git repo. Every `git push` to main triggers a deployment. This is GitOps — git IS the source of truth for the cluster state.
+- **Phase 9 (v28)**: GitHub Actions runs on every push. The pipeline builds, tests, scans, and deploys automatically. Every workflow you write runs bash commands in response to git events.
+- **The CV angle**: By Phase 10, the commit history shows 34 versions of progressive complexity. That history is the evidence of your skills — more credible than any resume line.
