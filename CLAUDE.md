@@ -183,6 +183,46 @@ That alone puts you ahead of 90% of engineers applying for AI/SRE roles today.
 
 ---
 
+### PHASE 0 — The Foundation
+*You will know: Linux, bash scripting, git, HTTP, Python patterns, FastAPI basics, how LLMs work*
+
+**v0.1 — Linux Essentials**
+- Filesystem navigation, permissions, processes, environment variables, SSH
+- Pipes, redirection, grep/awk/sed
+- Build: `sysinfo.sh` — system report script
+
+**v0.2 — Bash Scripting**
+- Variables, conditionals, loops, functions, exit codes, text processing
+- Build: `log_analyzer.sh` — brittle regex log analyzer that sets up the "why AI" moment in v1
+
+**v0.3 — Git & GitHub**
+- Mental model (snapshots not diffs), the three areas, daily workflow
+- .gitignore, branches, remotes, commit message conventions, GitHub as CV
+- Build: This repo committed properly with real history
+
+**v0.4 — Networking & HTTP**
+- IP addresses, DNS, ports, TCP/IP, HTTP methods, status codes, headers
+- curl mastery, JSON, REST conventions
+- Build: curl real APIs (GitHub), understand every step of a request/response cycle
+
+**v0.5 — Python for This Project**
+- Virtual environments, requirements.txt, .env + python-dotenv, type hints
+- Pydantic BaseModel and Field constraints, async/await, error handling
+- Build: the core Pydantic models for AOIS from scratch
+
+**v0.6 — Your First API (No AI)**
+- FastAPI, uvicorn, ASGI, routing, request/response, HTTPException, middleware
+- OpenAPI auto-docs at /docs
+- Build: mock AOIS endpoint with regex analysis — shows the limitation
+
+**v0.7 — How LLMs Work**
+- Tokens, context windows, system prompts, temperature, max_tokens
+- Input/output token cost, prompt caching economics
+- Raw Claude API call via curl and Python SDK — free text response, no structure
+- Build: raw SDK call, understand why unstructured output needs tooling → sets up v1
+
+---
+
 ### PHASE 1 — The Intelligence Core
 *You will know: Python, FastAPI, Claude API, prompt caching, structured outputs, multi-model routing*
 
