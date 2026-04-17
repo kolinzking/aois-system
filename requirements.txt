@@ -8,4 +8,5 @@ langfuse
 python-dotenv
 pydantic
 httpx
+slowapi
 jaraco.context>=6.1.0
