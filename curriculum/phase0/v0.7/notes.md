@@ -1,163 +1,284 @@
 # v0.7 — How LLMs Work: Before You Call One
 
-## What this version builds
+## What this version is about
 
-A raw Claude API call — no FastAPI, no Pydantic models, no frameworks. Just the SDK, the HTTP request, and the response. You will see what the model actually returns, understand what tokens are, and understand why structured output needs tooling.
+v1 will call Claude and get back a structured incident analysis in one function call. Before that makes sense, you need to understand what is actually happening: what a language model is, what tokens are, what a context window means, and why the raw API returns text instead of structured data.
 
-Then v1 arrives and wraps this raw power into a production API.
-
----
-
-## What a language model actually is
-
-A language model predicts the next token given all previous tokens. That is the entire mechanism. Everything else — reasoning, coding, log analysis, tool use — emerges from doing this at scale on massive amounts of text.
-
-```
-Input:  "The payment service is returning HTTP 503 errors. The likely cause is"
-Output: " database connection pool exhaustion"
-
-Input:  "Severity levels: P1=critical, P2=high. This log shows OOMKilled. Severity:"
-Output: " P2"
-```
-
-The model has seen billions of documents. It has learned which tokens tend to follow which other tokens. When you write a good system prompt, you are setting context that steers which patterns the model activates.
-
-This is why prompt engineering works: you are not "telling the model what to do" — you are selecting which learned patterns apply to this generation.
+This version makes one raw Claude API call. No frameworks, no FastAPI, no Pydantic validation on the output. Just the SDK and the response. You will see what Claude actually returns and understand exactly why v1 wraps it with tooling.
 
 ---
 
-## Tokens — the unit of LLM cost and context
+## Prerequisites
 
-A token is roughly 4 characters or 0.75 words. It is not a word, not a character — it is a subword unit determined by the model's tokenizer.
+- v0.1–v0.6 complete
+- Anthropic API key in `.env`
+- Anthropic SDK installed
+
+Verify:
+```bash
+python3 -c "import anthropic; print(anthropic.__version__)"
+```
+Expected: a version number. If you get `ModuleNotFoundError`:
+```bash
+pip install anthropic python-dotenv
+```
+
+Verify your API key works:
+```bash
+cd /workspaces/aois-system
+python3 -c "
+from dotenv import load_dotenv
+import os
+load_dotenv()
+key = os.getenv('ANTHROPIC_API_KEY')
+print('Key present:', bool(key))
+print('Key prefix:', key[:15] if key else 'None')
+"
+```
+Expected:
+```
+Key present: True
+Key prefix: sk-ant-api03-...
+```
+If `Key present: False`, your `.env` file is missing or the key name does not match exactly.
+
+---
+
+## Learning goals
+
+By the end of this version you will:
+- Understand what a language model is at a conceptual level
+- Know what tokens are and why they are the unit of LLM cost
+- Understand context windows and why they matter
+- Know how system prompts, user messages, and assistant messages work
+- Understand temperature and max_tokens
+- Make a raw Claude API call and read the response object
+- Understand why free-text responses need tooling to be production-safe
+- Know the exact cost of a call and why prompt caching matters
+
+---
+
+## Part 1 — What a language model actually is
+
+A language model predicts the next token given all previous tokens. That is the complete mechanism.
+
+Given: `"The payment service is returning HTTP 503 errors. The most likely cause is"`
+The model predicts the next token. Then the next. Then the next. It continues until it decides to stop.
+
+Result: `" a database connection pool exhaustion, typically caused by too many concurrent requests"`
+
+The model has seen billions of documents during training. It has learned which patterns of tokens tend to follow which other patterns. It does not "understand" in the human sense — but because it learned from so much human writing, engineering documentation, and technical content, its predictions are remarkably accurate for technical reasoning.
+
+**Why prompting works:**
+
+When you write:
+```
+System: You are an expert SRE. Classify this log by severity P1-P4.
+User: OOMKilled pod/payment-service memory_limit=512Mi restarts=14
+```
+
+You are not "telling the model what to do" in a command sense. You are selecting which learned patterns activate. The model has seen thousands of SRE-written incident reports, severity classifications, and Kubernetes log analyses. Your system prompt steers the model toward those patterns.
+
+This is why a well-written system prompt produces consistently useful outputs, and why a vague prompt produces vague outputs.
+
+---
+
+## Part 2 — Tokens: the unit of cost and context
+
+A token is roughly 4 characters or 0.75 words. It is a subword unit determined by the model's tokenizer (a vocabulary of ~100,000 subword pieces).
 
 ```
-"OOMKilled"          → 3 tokens: ["O", "OM", "Killed"]
-"CrashLoopBackOff"  → 4 tokens: ["Crash", "Loop", "Back", "Off"]
-"the"               → 1 token
-"Hello, world!"     → 4 tokens: ["Hello", ",", " world", "!"]
+"OOMKilled"           → ~3 tokens
+"CrashLoopBackOff"    → ~4 tokens
+"the"                 → 1 token
+"authentication"      → ~3 tokens
+"Hello, world!"       → 4 tokens
 ```
 
-**Why it matters:**
-- You pay per token (input tokens + output tokens)
-- The context window is measured in tokens
-- `max_tokens` in your API call limits how long the response can be
+**Why tokens matter:**
 
-Rough pricing for Claude (as of 2026):
-- Input: ~$3 per million tokens
-- Output: ~$15 per million tokens
-- With prompt caching: cached input ~$0.30 per million tokens
+1. **Cost** — you pay per token, not per request:
+   - Claude input tokens: approximately $3 per million tokens
+   - Claude output tokens: approximately $15 per million tokens
+   - With prompt caching: cached input costs ~$0.30 per million tokens (90% reduction)
 
-A typical log analysis call:
+2. **Context window** — the maximum tokens the model can process at once
+
+A typical AOIS call:
 - System prompt: ~300 tokens
 - User message (the log): ~100 tokens
 - Response: ~200 tokens
-- Total: ~600 tokens ≈ $0.004 per call
+- Total: ~600 tokens
+- Cost per call: ~$0.004
 - With caching on the system prompt: ~$0.002 per call
 
-At 1,000 calls/day: ~$2/day cached vs ~$4/day uncached. At 100,000 calls/day: $200/day vs $400/day. Caching the system prompt is not optional in production.
+At 10,000 calls/day without caching: ~$40/day
+At 10,000 calls/day with caching: ~$20/day
+
+At 100,000 calls/day (real production scale): the difference is $400/day vs $200/day. Caching the system prompt is not optional at scale.
+
+**Estimate tokens:**
+```python
+# Rule of thumb: len(text) / 4 ≈ token count
+text = "OOMKilled pod/payment-service memory_limit=512Mi restarts=14 exit_code=137"
+approx_tokens = len(text) / 4
+print(f"Approximate tokens: {approx_tokens}")  # ~18
+```
 
 ---
 
-## Context window
+## Part 3 — Context window
 
-The context window is the maximum number of tokens the model can "see" at once — everything in the system prompt, user message, assistant response, conversation history.
+The context window is the maximum number of tokens the model can process in one call — everything: system prompt, user messages, assistant messages, conversation history, and the response it generates.
 
-Claude's context window: 200,000 tokens (~150,000 words — longer than most novels).
+**Claude's context window: 200,000 tokens** (~150,000 words — longer than most novels).
 
-**What this means for AOIS:**
-- Your system prompt + a single log line fits easily in any model's context window
-- When you add agent memory (v20), conversation history grows — you need to manage what stays in context
-- Long context ≠ free — you pay for every input token every call
-- Prompt caching (v1) solves the system prompt cost specifically
+For AOIS log analysis:
+- System prompt (~300 tokens) + log line (~100 tokens) + response (~200 tokens) = ~600 tokens
+- We use 0.3% of the context window per call
+
+Why the context window matters for later versions:
+- **v20 (Agent Memory)**: as AOIS investigates an incident over multiple tool calls, the conversation history grows. At 200,000 tokens you have a very long leash, but you still need to manage it.
+- **v23 (LangGraph)**: multi-step agent loops accumulate tokens across many exchanges. You need to track what is in context and what to keep.
+
+**Paying for unused context:**
+Every token in the context window costs money, whether the model "uses" it or not. If your system prompt is 2,000 tokens and you make 10,000 calls per day, you pay for 20 million prompt tokens daily — just for the fixed system prompt. Prompt caching makes those tokens cost 10x less after the first call.
 
 ---
 
-## System prompt vs user message vs assistant message
+## Part 4 — System prompt vs user message vs assistant message
 
 ```python
 messages = [
-    # The system prompt sets the model's role and rules — sent every call
-    {"role": "system", "content": "You are an expert SRE..."},
-    
-    # The user message is what you are sending this call
-    {"role": "user", "content": "Analyze this log: OOMKilled pod/payment-service"},
-    
-    # The assistant message is what the model returned — used in multi-turn conversations
-    {"role": "assistant", "content": "This is a P2 incident..."},
-    
-    # You can continue the conversation
-    {"role": "user", "content": "What should I check first?"}
+    {
+        "role": "system",
+        "content": "You are AOIS — AI Operations Intelligence System..."
+    },
+    {
+        "role": "user",
+        "content": "Analyze this log: OOMKilled pod/payment-service"
+    },
+    # In multi-turn: you include past assistant responses to give context
+    {
+        "role": "assistant",
+        "content": "This is a P2 incident indicating..."
+    },
+    {
+        "role": "user",
+        "content": "What should I check first?"
+    }
 ]
 ```
 
-For AOIS, every call is a fresh single-turn exchange: system prompt + user log. No conversation history needed. Later (v20, agent memory), you will build multi-turn exchanges where the agent remembers what it investigated.
+**System prompt**: permanent instructions that apply to the entire conversation. Identity, rules, format, constraints. Sent on every call. This is what you cache.
+
+**User message**: what you are asking this specific call. The log line.
+
+**Assistant message**: what the model previously said. Only used in multi-turn conversations. For AOIS v1-v5, every call is a fresh single-turn exchange — no conversation history.
+
+For AOIS, the system prompt defines: what AOIS is, severity level definitions (P1-P4), and (v5 onwards) the security instructions to resist prompt injection.
 
 ---
 
-## Temperature
+## Part 5 — Temperature and max_tokens
 
-Temperature controls randomness. Range: 0.0 to 1.0 (some models allow higher).
+**Temperature** controls randomness in token selection.
 
-- `temperature=0.0` — deterministic: same input gives same output every time. Use for classification, analysis, structured output.
-- `temperature=0.5` — some variation. Use for summaries where slight rephrasing is fine.
-- `temperature=1.0` — high creativity. Use for writing, brainstorming.
+At temperature 0: the model always picks the highest-probability next token. Same input → same output every time.
 
-For AOIS log analysis: always `temperature=0.0` or close to it. You want consistent, repeatable severity classification. A P1 should always be P1 on the same log, not sometimes P1 and sometimes P2 based on random sampling.
+At temperature 1: the model samples from the probability distribution. Same input → different outputs each time.
+
+```python
+# For AOIS — always use low temperature
+# Log analysis must be consistent: same OOMKilled log → same P2 every time
+temperature=0.0
+
+# For creative tasks (not AOIS)
+temperature=0.7    # some variation is acceptable or even desirable
+```
+
+**max_tokens** limits how long the response can be. You pay for output tokens, so set this to what you actually need plus some headroom.
+
+```python
+max_tokens=1024    # plenty for a log analysis (responses are ~150-200 tokens)
+max_tokens=4096    # for longer agent responses with detailed reasoning
+```
+
+If the model hits `max_tokens` before finishing its response, the response is cut off. The `stop_reason` field in the response will be `"max_tokens"` instead of `"end_turn"`.
 
 ---
 
-## Raw API call with curl
+## Part 6 — Raw curl call to Claude
 
-Before writing any Python, see the raw HTTP request:
+Before writing Python, see the raw HTTP exchange:
 
 ```bash
-curl https://api.anthropic.com/v1/messages \
+cd /workspaces/aois-system
+source .env  # if your .env uses export, otherwise load differently
+
+# Or load inline:
+export ANTHROPIC_API_KEY=$(grep ANTHROPIC_API_KEY .env | cut -d= -f2)
+
+curl -s https://api.anthropic.com/v1/messages \
   -H "x-api-key: $ANTHROPIC_API_KEY" \
   -H "anthropic-version: 2023-06-01" \
   -H "content-type: application/json" \
   -d '{
     "model": "claude-opus-4-6",
-    "max_tokens": 256,
-    "system": "You are an expert SRE. Analyze infrastructure logs.",
+    "max_tokens": 512,
+    "system": "You are an expert SRE. Analyze infrastructure logs concisely.",
     "messages": [
       {
         "role": "user",
         "content": "Analyze this log: OOMKilled pod/payment-service memory_limit=512Mi restarts=14"
       }
     ]
-  }'
+  }' | python3 -m json.tool
 ```
 
-The response looks like:
+Expected response (abbreviated):
 ```json
 {
-  "id": "msg_01XFDUDYJgAACzvnptvVoYEL",
-  "type": "message",
-  "role": "assistant",
-  "content": [
-    {
-      "type": "text",
-      "text": "This log indicates a critical memory issue with the payment-service pod. The container has been OOMKilled (Out of Memory Killed) 14 times, suggesting it's repeatedly exceeding its 512Mi memory limit. This is a P2 incident...\n\nSuggested actions:\n1. Increase the memory limit..."
+    "id": "msg_01XFDUDYJgAACzvnptvVoYEL",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+        {
+            "type": "text",
+            "text": "**Incident Analysis**\n\nThe payment service container has been OOMKilled (Out of Memory Killed) 14 times. The container is configured with a 512Mi memory limit but is consistently exceeding it.\n\n**Assessment:** P2 — High severity. The service is degraded and requires intervention within 1 hour.\n\n**Suggested actions:**\n1. Increase memory limit to at least 1Gi in the pod spec\n2. Check for memory leaks: kubectl top pod payment-service --containers\n3. Review recent deployments for memory-intensive changes"
+        }
+    ],
+    "model": "claude-opus-4-6-20250514",
+    "stop_reason": "end_turn",
+    "usage": {
+        "input_tokens": 87,
+        "output_tokens": 143
     }
-  ],
-  "model": "claude-opus-4-6-20250514",
-  "stop_reason": "end_turn",
-  "usage": {
-    "input_tokens": 87,
-    "output_tokens": 143
-  }
 }
 ```
 
-Notice: the response is **free text**. It is readable, accurate, and helpful — but it is not structured. You cannot do `response["severity"]`. You get a paragraph. This is why v1 adds tool use.
+Read every field:
+- `id` — unique ID for this call (useful for debugging, Langfuse traces reference this)
+- `type: "message"` — this is a message response (as opposed to other response types)
+- `role: "assistant"` — confirms this is the model's response
+- `content` — array of content blocks. For text responses, one block with `type: "text"`
+- `text` — the actual response. Free text. Well-written, accurate, but unstructured.
+- `model` — exact model version used (including date suffix)
+- `stop_reason: "end_turn"` — model chose to stop (good). If this was `"max_tokens"`, response was cut off.
+- `usage.input_tokens: 87` — how many tokens your input was
+- `usage.output_tokens: 143` — how many tokens the response was
+
+**The problem in plain sight:**
+The response text is excellent. But you cannot do `response["severity"]`. You get a markdown-formatted paragraph. Extracting `severity` from this reliably requires either regex (fragile, like v0.6) or tool use (v1).
 
 ---
 
-## Raw Python SDK call
+## Part 7 — The Python SDK call
 
-Create `/workspaces/aois-system/practice/raw_claude.py`:
+Create the script:
 
-```python
+```bash
+cat > /workspaces/aois-system/practice/raw_claude.py << 'EOF'
 from dotenv import load_dotenv
 import os
 import anthropic
@@ -166,42 +287,72 @@ load_dotenv()
 
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-# The simplest possible Claude call
+LOG_TO_ANALYZE = "OOMKilled pod/payment-service memory_limit=512Mi restarts=14 exit_code=137"
+
+print(f"Analyzing: {LOG_TO_ANALYZE}")
+print("=" * 50)
+
 response = client.messages.create(
     model="claude-opus-4-6",
     max_tokens=512,
-    system="You are an expert SRE. Analyze infrastructure logs concisely.",
+    system="You are an expert SRE. Analyze infrastructure logs. Be concise.",
     messages=[
         {
             "role": "user",
-            "content": "Analyze this log: OOMKilled pod/payment-service memory_limit=512Mi restarts=14"
+            "content": f"Analyze this log:\n\n{LOG_TO_ANALYZE}"
         }
     ]
 )
 
-# What the response object looks like
-print("=== Response object ===")
-print(f"ID:          {response.id}")
-print(f"Model:       {response.model}")
-print(f"Stop reason: {response.stop_reason}")
+# Inspect the response object
+print(f"ID:            {response.id}")
+print(f"Model:         {response.model}")
+print(f"Stop reason:   {response.stop_reason}")
 print(f"Input tokens:  {response.usage.input_tokens}")
 print(f"Output tokens: {response.usage.output_tokens}")
 print()
 
-# The actual text content
-print("=== Content ===")
+# The text content
+print("Response text:")
+print("-" * 40)
 for block in response.content:
     if block.type == "text":
         print(block.text)
+print("-" * 40)
 print()
 
-# Cost estimate
-input_cost = response.usage.input_tokens * (3.00 / 1_000_000)
-output_cost = response.usage.output_tokens * (15.00 / 1_000_000)
-print(f"=== Cost ===")
-print(f"Input:  ${input_cost:.6f}")
-print(f"Output: ${output_cost:.6f}")
-print(f"Total:  ${input_cost + output_cost:.6f}")
+# Calculate cost manually
+INPUT_PRICE_PER_MILLION = 3.00     # $3.00 per million input tokens
+OUTPUT_PRICE_PER_MILLION = 15.00   # $15.00 per million output tokens
+
+input_cost = response.usage.input_tokens * (INPUT_PRICE_PER_MILLION / 1_000_000)
+output_cost = response.usage.output_tokens * (OUTPUT_PRICE_PER_MILLION / 1_000_000)
+total_cost = input_cost + output_cost
+
+print(f"Cost breakdown:")
+print(f"  Input:   ${input_cost:.6f} ({response.usage.input_tokens} tokens × $3/M)")
+print(f"  Output:  ${output_cost:.6f} ({response.usage.output_tokens} tokens × $15/M)")
+print(f"  Total:   ${total_cost:.6f}")
+print()
+
+# Now try to extract structured data from free text
+# This is the problem that tool use (v1) solves
+print("Attempting to extract severity from free text (this is fragile):")
+text = response.content[0].text.lower()
+if "p1" in text or "critical" in text:
+    extracted_severity = "P1"
+elif "p2" in text or "high severity" in text or "high priority" in text:
+    extracted_severity = "P2"
+elif "p3" in text or "medium" in text or "warning" in text:
+    extracted_severity = "P3"
+else:
+    extracted_severity = "P4 (uncertain)"
+
+print(f"  Extracted severity: {extracted_severity}")
+print(f"  Problem: what if the model said 'Priority Two' instead of 'P2'?")
+print(f"  Problem: what if it said 'this is a significant issue' instead of 'high severity'?")
+print(f"  v1 solves this: tool use forces the model to output exactly the schema we define.")
+EOF
 ```
 
 Run it:
@@ -209,32 +360,58 @@ Run it:
 python3 /workspaces/aois-system/practice/raw_claude.py
 ```
 
-Look at the output text. It is good analysis — probably better than the v0.6 regex version. But it is a paragraph. Try to extract severity from it programmatically:
-
-```python
-# Fragile parsing attempt
-text = response.content[0].text
-if "P1" in text:
-    severity = "P1"
-elif "P2" in text:
-    severity = "P2"
-# ...
+Expected output:
 ```
+Analyzing: OOMKilled pod/payment-service memory_limit=512Mi restarts=14 exit_code=137
+==================================================
+ID:            msg_01abc...
+Model:         claude-opus-4-6-20250514
+Stop reason:   end_turn
+Input tokens:  78
+Output tokens: 156
 
-This breaks immediately if the model says "critical" instead of "P1", or "Priority 2", or "second severity level". The output is semantically correct but syntactically unreliable.
+Response text:
+----------------------------------------
+**Incident Summary**
 
-This is exactly the problem tool use solves in v1.
+The payment service container has been OOMKilled 14 times...
+[Several lines of good analysis]
+----------------------------------------
+
+Cost breakdown:
+  Input:   $0.000234 (78 tokens × $3/M)
+  Output:  $0.002340 (156 tokens × $15/M)
+  Total:   $0.002574
+
+Attempting to extract severity from free text (this is fragile):
+  Extracted severity: P2
+  Problem: what if the model said 'Priority Two' instead of 'P2'?
+  Problem: what if it said 'this is a significant issue' instead of 'high severity'?
+  v1 solves this: tool use forces the model to output exactly the schema we define.
+```
 
 ---
 
-## Ask Claude to return JSON
+## Part 8 — Asking Claude to return JSON
 
-```python
+Attempt 2: ask the model to return JSON directly.
+
+```bash
+python3 << 'EOF'
+from dotenv import load_dotenv
+import os
+import anthropic
+import json
+
+load_dotenv()
+client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
 response = client.messages.create(
     model="claude-opus-4-6",
     max_tokens=512,
-    system="""You are an expert SRE. Analyze logs and respond with JSON only.
-Format: {"summary": "...", "severity": "P1|P2|P3|P4", "suggested_action": "...", "confidence": 0.0-1.0}""",
+    system="""You are an expert SRE. Analyze logs and respond with JSON ONLY.
+Use exactly this format:
+{"summary": "...", "severity": "P1|P2|P3|P4", "suggested_action": "...", "confidence": 0.0}""",
     messages=[
         {
             "role": "user",
@@ -243,71 +420,134 @@ Format: {"summary": "...", "severity": "P1|P2|P3|P4", "suggested_action": "...",
     ]
 )
 
-import json
+text = response.content[0].text
+print("Raw response text:")
+print(repr(text[:200]))  # show any hidden characters
+print()
+
 try:
-    text = response.content[0].text
     data = json.loads(text)
-    print(f"Severity: {data['severity']}")
-    print(f"Confidence: {data['confidence']}")
-except json.JSONDecodeError:
-    print("Model did not return valid JSON")
-    print(text)
+    print("JSON parsed successfully:")
+    print(f"  severity: {data.get('severity', 'MISSING')}")
+    print(f"  confidence: {data.get('confidence', 'MISSING')}")
+except json.JSONDecodeError as e:
+    print(f"JSON parse FAILED: {e}")
+    print("The model probably added text before or after the JSON.")
+    print("This is what Instructor (v3) fixes.")
+EOF
 ```
 
-This works most of the time. But "most of the time" is not acceptable in production. The model might:
-- Add a preamble: "Here is the JSON you requested: {...}"
-- Add a postamble: "{...}\n\nLet me know if you need more details"
-- Use a slightly different key name: `"action"` instead of `"suggested_action"`
-- Return `"confidence": "high"` instead of `"confidence": 0.9`
+Run it a few times. Sometimes it works. Sometimes the model adds a preamble like "Here is the JSON you requested:" before the JSON, breaking `json.loads`. Sometimes it adds a trailing note after the closing `}`.
 
-Tool use (v1) eliminates all of these failure modes. The model is not asked to generate JSON text — it is asked to call a function, and the parameters to that function must exactly match the schema you defined.
+**This is the fragility of asking for JSON without tool use.** The model is not constrained — it is only asked. Tool use (v1) removes the option to reply in plain text. The model must call the function. It has no choice.
 
 ---
 
-## The difference between Claude and GPT at a high level
+## Part 9 — Try three different logs and observe
 
-| | Claude (Anthropic) | GPT-4o (OpenAI) |
-|--|---|---|
-| Context window | 200k tokens | 128k tokens |
-| Reasoning | Extended thinking mode (v3) | o1/o3 reasoning models |
-| Tool use format | `input_schema` | `parameters` |
-| Prompt caching | Native, significant savings | Available |
-| Vision | Yes (v31) | Yes |
-| Best at | Long-context reasoning, coding, analysis | Broad ecosystem, fine-tuning |
+Run the raw script three times with different logs. Edit `raw_claude.py` and change `LOG_TO_ANALYZE` each time:
 
-For AOIS: Claude is primary because of context length (matters for agent memory in v20+), reasoning quality, and prompt caching economics. OpenAI is fallback in v1, and available as a routing tier throughout via LiteLLM.
+```python
+# Log 1: Staging environment OOMKill
+LOG_TO_ANALYZE = "TEST: OOMKilled pod/test-runner in staging environment for load testing, non-production"
+```
+```python
+# Log 2: Context-dependent severity
+LOG_TO_ANALYZE = "auth service latency p99 jumped from 50ms to 8000ms, all regions affected, 100% of users impacted"
+```
+```python
+# Log 3: Ambiguous log
+LOG_TO_ANALYZE = "pod/worker-3 restarted"
+```
+
+Observe how Claude handles:
+1. The staging OOMKill — Claude will note it is non-production and likely classify it lower than P2
+2. The latency spike — Claude will likely classify this as P1 (all users affected), even though nothing in the log says "OOMKilled" or "CrashLoop"
+3. The ambiguous restart — Claude will ask for more context or classify as P4 with low confidence
+
+The v0.6 regex script could not do any of these correctly. The regex would:
+1. Classify the staging OOMKill as P2 (ignores "TEST" and "staging")
+2. Classify the latency spike as P4 (no matching pattern)
+3. Classify the ambiguous restart as P4 (no matching pattern)
+
+Claude's intelligence is real. v1 packages it into a production API.
 
 ---
 
-## What v1 adds to this
+## Part 10 — Prompt caching: why it matters
 
-| v0.7 (raw) | v1 (production) |
-|-----------|----------------|
-| Free text response | Structured JSON via tool use |
-| Manual cost calculation | `litellm.completion_cost()` |
-| No fallback | OpenAI fallback |
-| No validation | Pydantic validates every field |
-| Single function | FastAPI endpoint, served over HTTP |
-| You parse the response | Anthropic SDK parses into typed objects |
-| Prompt caching: manual | Prompt caching: built into system |
+Without caching: every call pays full price for the system prompt tokens.
+With caching: after the first call, the system prompt is cached. Subsequent calls pay ~10% for the cached portion.
 
-The intelligence is the same. v1 wraps it properly so it can be used by anything.
+In v1 you will see:
+```python
+system=[
+    {
+        "type": "text",
+        "text": SYSTEM_PROMPT,
+        "cache_control": {"type": "ephemeral"}
+    }
+]
+```
+
+The `cache_control: {"type": "ephemeral"}` tells Anthropic: "cache this on your side for up to 5 minutes." After the first call, every subsequent call that sends the same system prompt pays ~0.30 per million tokens instead of $3.00.
+
+This is why `SYSTEM_PROMPT` is a module-level constant. If the prompt text were generated differently each call (e.g., with a timestamp), the cache would never hit.
 
 ---
 
-## Before moving to v1
+## Troubleshooting
 
-Run this test with three different logs and observe:
-
+**"AuthenticationError: Invalid API key":**
 ```bash
-python3 /workspaces/aois-system/practice/raw_claude.py
+# Check your .env
+cat /workspaces/aois-system/.env
+# Verify the key format: should start with sk-ant-api03-
+# Check there are no spaces or quotes around the value
 ```
 
-Change the log line in the file to:
-1. `"auth service latency p99 is 12 seconds, up from 200ms baseline"`
-2. `"node/worker-3 disk pressure: 94% used on /var/lib/docker"`
-3. `"TEST environment: simulated OOMKill for load testing purposes"`
+**"RateLimitError: 429":**
+You have hit Anthropic's rate limit. Wait 60 seconds and try again. Check your usage on console.anthropic.com.
 
-Notice how Claude handles context. The third one — a test environment OOMKill — Claude will likely classify as low severity or note that it is non-production. The v0.2 bash script and v0.6 regex API classified all OOMKills the same regardless of context.
+**"APIConnectionError":**
+```bash
+curl -I https://api.anthropic.com    # can you reach Anthropic at all?
+echo $ANTHROPIC_API_KEY              # is the key in the environment?
+```
+If the curl fails: network issue in your Codespace. Try refreshing the Codespace.
 
-That is intelligence. v1 packages it.
+**"stop_reason: max_tokens" in response:**
+The response was cut off. Increase `max_tokens`. For AOIS analysis, 1024 is enough.
+
+**Script runs but response text is empty:**
+```python
+print(response.content)          # see the raw content blocks
+print(len(response.content))     # how many blocks?
+```
+If `content` is `[]`: the model returned nothing. This is very rare — usually a model error. Try again.
+
+---
+
+## What v1 adds to this foundation
+
+| v0.7 (raw call) | v1 (production) |
+|----------------|----------------|
+| Free text response | Structured JSON via tool use |
+| Manual cost calculation | `litellm.completion_cost()` automatic |
+| Single provider | LiteLLM routes to 4 providers |
+| No fallback | OpenAI fallback on Claude failure |
+| No output validation | Pydantic validates every field (v3: Instructor) |
+| Served from your terminal | FastAPI endpoint, HTTP API |
+| You parse the response | SDK parses into typed Python objects |
+
+The intelligence is the same. v1 wraps it so anything can call it reliably.
+
+---
+
+## Connection to later phases
+
+- **Phase 1 (v1)**: Tool use adds the `ANALYZE_TOOL` schema. Claude is forced to return exactly that structure. The unstructured text response disappears.
+- **Phase 1 (v3)**: Instructor wraps the SDK call. You never write a tool definition — the Pydantic model IS the schema.
+- **Phase 7 (v20)**: When AOIS uses tools like `get_pod_logs`, the same token + context concepts apply. A 10,000-line log file would consume the entire context window — you must think about what to send to the model.
+- **Phase 5 (v15)**: Fine-tuning changes the probability distributions the model learned. You are no longer steering a general-purpose model with prompts — you are using a model that was specifically trained on SRE incident data.
+- **The cost model**: Everything in this project has a cost per call. From Phase 2 onwards, every decision (which tier, when to cache, how much context to include) has a dollar amount attached to it. Understanding tokens is understanding cost.
