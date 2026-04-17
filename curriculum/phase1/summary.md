@@ -1,5 +1,16 @@
 # Phase 1 — The Intelligence Core
 
+## Introduction
+Before any infrastructure, any containers, any Kubernetes — there has to be a brain. Phase 1 builds that brain.
+
+The question this phase answers is the most fundamental one in the entire curriculum: can a piece of software look at a raw infrastructure log and reason about it the way a senior SRE would? Can it classify severity correctly, identify what happened, and suggest the right action — every time, reliably, in a structured format a machine can act on?
+
+Everything that comes after — the containers, the clusters, the agents, the dashboards — only matters if the intelligence at the centre actually works. Phase 1 proves it works.
+
+You will learn how to talk to LLMs programmatically, how to force structured output instead of free-form text, how to route between providers based on cost and capability, and how to make that output guaranteed valid so it never crashes your system. These are the skills that sit underneath every AI application in production today.
+
+By the end of Phase 1 you have a working API. It is not deployed, not secured, not observable at scale — but it is correct. That correctness is what Phase 2 through Phase 10 build on.
+
 ## What was built
 A log analysis API. Send any infrastructure log, get back structured incident data:
 severity (P1–P4), summary, suggested action, confidence score.
