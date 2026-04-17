@@ -509,7 +509,7 @@ Make the outputs trustworthy and systematically optimal.
 - Both in `~/.claude/settings.json`
 
 ### Current Position
-- **v5 complete. Phase 1 (v1–v3) and Phase 2 (v4–v5) done. Next: v6 — k3s on Hetzner.**
+- **v5 complete. Phase 0 (v0.1–v0.7), Phase 1 (v1–v3), and Phase 2 (v4–v5) done. Next: v6 — k3s on Hetzner.**
 
 ### What's been built (v1–v5)
 - **v1**: FastAPI + Claude (prompt caching) + OpenAI fallback, structured Pydantic output (summary, severity P1–P4, suggested_action, confidence)
