@@ -17,6 +17,9 @@ WORKDIR /home/aois/app
 # Copy installed packages from builder stage
 COPY --from=builder /install /usr/local
 
+# Remove setuptools — not needed at runtime, and its vendored jaraco.context has a known CVE
+RUN pip uninstall -y setuptools 2>/dev/null || true
+
 # Copy application code
 COPY main.py .
 
