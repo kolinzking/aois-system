@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 import os
 import anthropic
 import json
-import litellm
 from openai import OpenAI
 
 load_dotenv()
