@@ -1,7 +1,7 @@
 # AOIS — AI Operations Intelligence System
 ### Collins' Path to the Pinnacle of the AI Wave
 
-An SRE-grade AI system that analyzes infrastructure logs, classifies incidents, and autonomously investigates and remediates them. Built across 34 versions and 10 phases — from a single FastAPI endpoint to a fully autonomous, multi-agent, cloud-native platform.
+An SRE-grade AI system that analyzes infrastructure logs, classifies incidents, and autonomously investigates and remediates them. Built across 41 versions and 11 phases — from Linux fundamentals to a fully autonomous, multi-agent, cloud-native platform.
 
 > **The rule:** Build first. No theory without code.
 
@@ -12,9 +12,10 @@ An SRE-grade AI system that analyzes infrastructure logs, classifies incidents, 
 **Current position: v5 complete — Phase 2 done. Next: v6 (k3s on Hetzner).**
 
 ```
-Phase 1  ████████████  v1–v3   ✅ Complete
-Phase 2  ████████████  v4–v5   ✅ Complete
-Phase 3  ░░░░░░░░░░░░  v6–v9   ← You are here
+Phase 0  ████████████  v0.1–v0.7  ✅ Complete (Foundation)
+Phase 1  ████████████  v1–v3      ✅ Complete (Intelligence Core)
+Phase 2  ████████████  v4–v5      ✅ Complete (Containerize & Secure)
+Phase 3  ░░░░░░░░░░░░  v6–v9      ← You are here
 Phase 4  ░░░░░░░░░░░░  v10–v12
 Phase 5  ░░░░░░░░░░░░  v13–v15
 Phase 6  ░░░░░░░░░░░░  v16–v19
