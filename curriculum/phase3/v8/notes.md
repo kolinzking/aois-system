@@ -543,7 +543,7 @@ Then `https://argocd.46.225.235.51.nip.io` reaches the UI directly.
 ## Common Mistakes
 
 **Pushing broken Helm templates to `main`** *(recognition)*
-ArgoCD watches `main` and immediately tries to sync on every push. A template with a syntax error puts ArgoCD into `ComparisonError` — blocking all future syncs, including good ones. Your fix push does not deploy until ArgoCD recovers.
+ArgoCD watches `main` and immediately tries to sync on every push. If you push a template with a syntax error, ArgoCD enters a `ComparisonError` state and stops syncing — including future good pushes. Always run `helm lint ./charts/aois` and `helm template` locally before pushing to main. Never use main as a scratch branch when ArgoCD is watching it.
 
 *(recall — trigger it)*
 ```bash
