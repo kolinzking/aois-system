@@ -562,6 +562,23 @@ If `apt-get update` fails, the install never runs. If the install fails, the cle
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Use exit codes to build a check:
+> ```bash
+> # Check if a command succeeded and branch on it
+> python3 -c "import fastapi" && echo "fastapi installed" || echo "fastapi NOT installed"
+> python3 -c "import nonexistent_lib" && echo "found" || echo "NOT found — install it"
+>
+> # Now write a one-liner that checks your three most important deps:
+> for lib in fastapi anthropic pydantic; do
+>     python3 -c "import $lib" 2>/dev/null && echo "✓ $lib" || echo "✗ $lib MISSING"
+> done
+> ```
+> This `&&`/`||` pattern will appear in every CI/CD pipeline you write — run a check, branch on pass/fail.
+
+---
+
 ## Part 8 — Text processing: grep, awk, sed
 
 These three tools process text. You will use them constantly.
