@@ -544,7 +544,7 @@ Fix: remove `max_retries=0` or set `max_retries=2`. The default of 1 retry handl
 ---
 
 **Confusing Instructor's validation retry with a network retry** *(recognition)*
-Instructor retries when the model's response fails Pydantic validation — the model produced something that doesn't match the schema. If the Anthropic API is unreachable (network down, 5xx from Anthropic), `max_retries` in Instructor does nothing. That is a different failure mode that needs a different fix.
+Instructor retries when the model's response fails Pydantic validation — the model produced something that doesn't match the schema. This is not a network retry. If the Anthropic API is down, Instructor's `max_retries` does nothing — that is a different error class. Handle network failures separately with `tenacity` or `httpx` retry configuration.
 
 *(recall — trigger it)*
 ```bash
