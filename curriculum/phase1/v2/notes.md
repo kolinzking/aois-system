@@ -421,6 +421,30 @@ When Groq API key is missing, LiteLLM raises an error, the fallback logic catche
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Test the cost difference between tiers on identical input and understand what you are paying for:
+> ```bash
+> # Premium tier (Claude)
+> curl -s -X POST http://localhost:8000/analyze \
+>   -H "Content-Type: application/json" \
+>   -d '{"log": "disk pressure node/worker-1 available: 500Mi", "tier": "premium"}' \
+>   | python3 -m json.tool
+>
+> # Standard tier (GPT-4o-mini) — same log
+> curl -s -X POST http://localhost:8000/analyze \
+>   -H "Content-Type: application/json" \
+>   -d '{"log": "disk pressure node/worker-1 available: 500Mi", "tier": "standard"}' \
+>   | python3 -m json.tool
+> ```
+> Compare the `provider`, `cost`, and `severity` fields in both responses.
+>
+> Now answer: for this log (disk pressure — a P2/P3 issue), is the premium tier's analysis meaningfully better than standard? Record your observation. This is how you build a routing policy — not by guessing which tier to use, but by measuring what each tier actually produces on real inputs and deciding where the quality difference justifies the cost difference.
+>
+> If you do not have a Groq key, compare premium vs standard only. The point is: you should never guess which model to use — measure it.
+
+---
+
 ## Common Mistakes
 
 **Model name format differences between providers.**
