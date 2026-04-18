@@ -743,3 +743,79 @@ kubectl delete namespace aois
 - **v9 (KEDA)**: The `replicas: 1` in the Deployment becomes dynamic — KEDA scales it based on Kafka consumer lag. When log volume spikes, AOIS scales up. When idle, it scales to zero.
 - **v12 (EKS)**: The same manifests deploy to AWS EKS with minor changes (`ingressClassName: alb` instead of `traefik`, IAM for secrets instead of `secret.yaml`). The pattern is identical.
 - **The principle**: Every production Kubernetes deployment follows this exact pattern — Namespace, Secret, Deployment, Service, Ingress. You now understand each piece from first principles.
+
+---
+
+## Mastery Checkpoint
+
+You are running a real production Kubernetes cluster. These exercises prove you can operate it with confidence.
+
+**1. Read every resource with understanding**
+For each resource type in `k8s/`:
+```bash
+cat k8s/deployment.yaml
+```
+For each field you see, explain what it does. Focus on:
+- `resources.requests` vs `resources.limits` — what happens when a pod exceeds limits?
+- `livenessProbe` vs `readinessProbe` — when does Kubernetes kill a pod vs stop routing traffic?
+- `imagePullPolicy: Always` — why is this important for a deployment that uses mutable tags like `:v6`?
+- `replicas: 1` — what happens to AOIS if you set this to 3? (Try it: `kubectl scale deployment/aois -n aois --replicas=3`, then `kubectl get pods -n aois`)
+
+**2. Simulate a pod failure and recovery**
+With AOIS running (1 replica), kill the pod:
+```bash
+kubectl delete pod -n aois $(kubectl get pods -n aois -o jsonpath='{.items[0].metadata.name}')
+```
+Watch what happens:
+```bash
+kubectl get pods -n aois -w
+```
+The Deployment controller should create a new pod within seconds. The `kubectl delete pod` did not affect the Deployment — the Deployment's `replicas: 1` is the desired state, and the controller immediately works to restore it. This is Kubernetes self-healing.
+
+Now test that AOIS is still responding:
+```bash
+curl https://aois.46.225.235.51.nip.io/health
+```
+
+**3. Deploy an update with zero downtime**
+Change the image tag in `deployment.yaml` to a non-existent tag (e.g., `aois:invalid-tag`). Apply it:
+```bash
+kubectl apply -f k8s/deployment.yaml
+kubectl get pods -n aois -w
+```
+Watch the rolling update: Kubernetes starts the new pod, it fails to pull the image, it stays in `ImagePullBackOff`. But the OLD pod is still running — traffic still flows.
+```bash
+curl https://aois.46.225.235.51.nip.io/health  # still responds from old pod
+```
+Revert to the working tag and apply again. Watch Kubernetes drain the bad pod and bring back the good one. This is `RollingUpdate` strategy — Kubernetes never kills the old version until the new version is healthy.
+
+**4. Understand the full certificate chain**
+```bash
+kubectl describe certificate aois-tls -n aois
+kubectl get secret aois-tls -n aois -o yaml
+```
+The second command shows the TLS certificate and key (base64 encoded) stored in the Secret. This is what Traefik reads to terminate TLS.
+
+Now explain from memory: how does a request from your browser get decrypted? (Browser sends TLS ClientHello → Traefik presents the certificate from the Secret → TLS handshake completes → HTTP request decrypted → forwarded to AOIS pod over HTTP internally)
+
+**5. kubectl as your production debugger**
+Simulate these production scenarios and use only kubectl to diagnose:
+- **Scenario 1**: AOIS is returning 500 errors. Diagnose: `kubectl logs -n aois -l app=aois --tail=100`
+- **Scenario 2**: Pod keeps restarting. Diagnose: `kubectl describe pod -n aois <name>` and `kubectl logs --previous`
+- **Scenario 3**: Certificate is not renewing. Diagnose: `kubectl describe certificate` and `kubectl get challenges`
+- **Scenario 4**: Response is slow. Diagnose: `kubectl top pod -n aois` (resource usage)
+
+For each scenario, write the exact command sequence you would run and what output would indicate the problem.
+
+**6. The mental model test**
+Without looking at the YAML files, draw the complete network path for a request from your laptop to the AOIS pod:
+
+```
+Your browser → ? → ? → ? → ? → AOIS container:8000
+```
+
+Fill in each hop with the Kubernetes resource responsible. (Answer: DNS → Hetzner server IP → Traefik (Ingress controller) → Service (ClusterIP) → Pod (container port 8000))
+
+Verify your understanding: what would break if you deleted the Service? (Traefik cannot reach the pod — traffic stops.) What would break if you deleted the Ingress? (External traffic has no route in — the domain stops working, but the pod and Service still exist.)
+
+**The mastery bar**: You can deploy a service to Kubernetes from scratch, debug any failure state using kubectl alone, explain the network path from browser to container, and understand what each resource type's job is. When you join a company and see their k8s setup, none of it will be mysterious — you will recognize every resource type and know what to look for when something breaks.
