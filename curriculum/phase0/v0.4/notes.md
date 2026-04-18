@@ -258,6 +258,26 @@ What each means in practice for AOIS:
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Start the AOIS server and deliberately trigger each error type:
+> ```bash
+> # Terminal 1: start server
+> cd /workspaces/aois-system && uvicorn main:app --port 8000
+>
+> # Terminal 2: trigger each status code
+> curl -s http://localhost:8000/health                          # expect 200
+> curl -s -X POST http://localhost:8000/analyze -d '{}'        # expect 422 (missing log field)
+> curl -s http://localhost:8000/nonexistent                    # expect 404
+> curl -s -X POST http://localhost:8000/analyze \
+>   -H "Content-Type: application/json" \
+>   -d '{"log": "test"}'                                       # expect 200 or 503
+> ```
+> Before running each command, predict the status code. Then run it and compare.
+> The ability to predict HTTP status codes from the request tells you you understand the protocol.
+
+---
+
 ## Part 6 — curl: your API testing tool
 
 curl sends HTTP requests from the terminal. You will use this to test every endpoint you build for the rest of this project.
