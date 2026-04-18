@@ -528,7 +528,7 @@ For unauthenticated public endpoints, IP is the only option — set the limit hi
 ---
 
 **Input sanitization that misses encoding bypasses** *(recognition)*
-Your regex strips `IGNORE PREVIOUS INSTRUCTIONS` — but does it strip `IGNORE%20PREVIOUS%20INSTRUCTIONS` (URL-encoded) or `IGN0RE PREVIOUS INSTRUCTIONS` with a zero instead of O? Real-world attackers iterate through encoding variations after the obvious form is blocked.
+Your regex strips `<script>` — but does it strip `%3Cscript%3E` (URL-encoded)? What about `\u003cscript\u003e` (Unicode escape)? What about double-encoded forms? Real-world attackers iterate through encoding variations. The defense: decode first, then sanitize. For log injection specifically, AOIS's sanitization is good enough — the actual risk is prompt injection, not XSS. Know which attack you are defending against.
 
 *(recall — trigger it)*
 ```bash
