@@ -454,9 +454,23 @@ Then `https://argocd.46.225.235.51.nip.io` reaches the UI directly.
 > kubectl get all -n aois
 > argocd app get aois
 > ```
-> In the ArgoCD output, find the `Sync Status` line. It should show the git commit SHA that is currently deployed.
->
-> Now open that commit in GitHub (`https://github.com/kolinzking/aois-system/commit/<sha>`). You can see exactly what was in `values.prod.yaml` at deploy time. This is the audit trail GitOps provides — every deploy is traceable to a specific commit, by a specific person, at a specific time.
+> Expected `argocd app get aois` output:
+> ```
+> Name:               aois
+> Project:            default
+> Server:             https://kubernetes.default.svc
+> Namespace:          aois
+> URL:                https://localhost:8080/applications/aois
+> Repo:               https://github.com/kolinzking/aois-system
+> Target:             main
+> Path:               charts/aois
+> Helm Values:        values.prod.yaml
+> SyncWindow:         Sync Allowed
+> Sync Policy:        Automated (Prune)
+> Sync Status:        Synced to main (abc1234)
+> Health Status:      Healthy
+> ```
+> In the `Sync Status` line, find the commit SHA (e.g., `abc1234`). Open that commit in GitHub: `https://github.com/kolinzking/aois-system/commit/abc1234`. You can see exactly what was in `values.prod.yaml` at deploy time. Every deploy is traceable to a commit, an author, a timestamp — this is the audit trail GitOps provides.
 
 ---
 
