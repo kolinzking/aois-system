@@ -541,3 +541,88 @@ Do NOT commit:
 - **Phase 6 (v16)**: Docker Compose grows to include Prometheus, Grafana, Loki, and Tempo for the full observability stack.
 - **Phase 8 (v26)**: The React dashboard service is added to Docker Compose alongside AOIS, served by nginx.
 - **The pattern**: Docker Compose is your local development environment. Helm (Phase 3 v7) is the same thing for Kubernetes. The same services, different orchestration layer.
+
+---
+
+## Mastery Checkpoint
+
+Containerization is not optional at Phase 3+. Everything from v6 onwards lives in containers. These exercises make the mental model automatic.
+
+**1. Understand every layer of the Dockerfile**
+Read the current Dockerfile line by line. For each line, explain: what does it do, and why is it there? Pay particular attention to:
+- Why two `FROM` statements? (multi-stage: why does this matter for image size and security?)
+- What is the difference between `RUN`, `COPY`, and `CMD`?
+- Why `COPY --from=builder` instead of just installing pip packages in the runtime stage?
+- Why `USER nonroot`? (What attack does this prevent?)
+- What does `EXPOSE 8000` actually do? (Hint: less than you might think — it does not publish the port)
+
+**2. Measure the impact of multi-stage builds**
+```bash
+# Build a single-stage version (add everything to one stage) and compare sizes
+# First, check current image size
+docker images aois
+
+# Build the current multi-stage image
+docker build -t aois:v4-multistage .
+
+# Compare: what would it cost to ship the builder stage's 1GB+ Python ecosystem vs the runtime stage?
+docker history aois:v4-multistage
+```
+The `docker history` command shows every layer and its size. Understanding layer sizes is how you debug large images.
+
+**3. Docker Compose dependency chain**
+Stop everything: `docker compose down`. Now start only the AOIS container without Redis and Postgres: `docker compose up aois`. What happens? Why? Now start with `docker compose up` (all services). Watch the startup order.
+
+Next: modify `docker-compose.yml` to add a proper healthcheck to the postgres service:
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "pg_isready -U aois"]
+  interval: 5s
+  timeout: 3s
+  retries: 5
+```
+And change `depends_on` to:
+```yaml
+depends_on:
+  postgres:
+    condition: service_healthy
+```
+Now AOIS waits for Postgres to actually be ready, not just started. Restart and observe the difference.
+
+**4. Shell into a running container**
+With `docker compose up -d` running:
+```bash
+docker compose exec aois /bin/bash
+```
+You are now inside the container. Run the Linux commands from v0.1:
+- `whoami` — what user are you? (should be non-root)
+- `ls -la /app` — what files are here?
+- `cat /etc/os-release` — what OS is this?
+- `ps aux` — what processes are running?
+- `python3 -c "import anthropic; print(anthropic.__version__)"` — packages installed?
+- `env | grep ANTHROPIC` — is the key available?
+Exit with `exit`.
+
+This is exactly how you debug a misbehaving container in production.
+
+**5. Trivy scan and understand the output**
+```bash
+trivy image --severity HIGH,CRITICAL aois:v4
+```
+Read every finding. For each HIGH or CRITICAL finding:
+- What package has the CVE?
+- What is the affected version?
+- Is there a fixed version?
+- Is this CVE in the base image or something you installed?
+
+If there are zero findings: understand why the combination of distroless + pinned dependencies produces a clean scan.
+
+**6. Container networking mental model**
+With `docker compose up -d`, run:
+```bash
+docker network ls                   # see the docker network
+docker network inspect aois-system_default    # see all containers and their IPs
+```
+Now understand: why can the AOIS container reach `postgres:5432` using the service name `postgres`? (Docker Compose creates a DNS entry for each service name on the shared network.) Why can YOU reach `localhost:5432`? (The `ports:` mapping publishes it to the host.) What if you removed the `ports:` from postgres? (You could not reach it from your machine, but AOIS still could — internal network still works.)
+
+**The mastery bar**: You can build an image from scratch, explain every Dockerfile instruction, run a multi-service application with Compose, debug inside containers, and interpret security scan output. Docker is transparent to you now — you see through it to what it is actually doing.
