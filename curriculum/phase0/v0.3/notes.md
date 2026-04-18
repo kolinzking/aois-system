@@ -631,6 +631,33 @@ Expected: shows which files were added and how many lines.
 
 ---
 
+## Common Mistakes
+
+**`git add .` staging unintended files.**
+`git add .` adds everything in the current directory — including `.env`, compiled binaries, `__pycache__`, and any temporary files you created. Always run `git status` before `git add` and `git diff --staged` before `git commit` to confirm exactly what is staged. Use `.gitignore` proactively. If you accidentally commit `.env`, the credential is compromised — rotate the API key immediately, do not just delete the commit.
+
+**`.gitignore` is not retroactive.**
+Adding `.env` to `.gitignore` after you have already committed it does nothing — git still tracks it. `.gitignore` only prevents untracked files from being accidentally staged. To stop tracking a file that is already committed:
+```bash
+git rm --cached .env
+git commit -m "stop tracking .env"
+```
+After this, `.env` stays on disk (not deleted) but git ignores future changes to it.
+
+**Committing without reading `git diff --staged`.**
+Every commit should be intentional. Run `git diff --staged` before every `git commit`. If you see something unexpected, unstage it with `git restore --staged <file>`. The habit of reading the diff before committing catches most accidental commits.
+
+**Confusing `git pull` with `git fetch`.**
+`git fetch` downloads changes from remote but does not touch your working directory — safe to run anytime. `git pull` = `git fetch` + `git merge` — it modifies your working tree. When in doubt about what is on the remote, `git fetch` first, then inspect with `git log origin/main`, then merge manually.
+
+**Force-pushing to shared branches.**
+`git push --force` rewrites the remote branch history. Anyone who has pulled that branch now has a diverged history and a confusing reconciliation ahead of them. Never force-push to `main`. If you need to undo a commit on main, use `git revert` (creates a new commit that undoes the change, history intact) not `git reset --hard` + force push.
+
+**Branch name confusion after detached HEAD.**
+If you check out a specific commit (`git checkout abc1234`), git enters "detached HEAD" state — you are not on any branch. Commits you make here are not saved to any branch and will be garbage-collected. If you find yourself in detached HEAD and want to keep your work: `git checkout -b my-branch-name` to save it to a new branch.
+
+---
+
 ## Troubleshooting
 
 **"Your branch is behind 'origin/main'":**
