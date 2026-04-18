@@ -482,7 +482,7 @@ The prefix is the provider. Always check LiteLLM's model list page for exact str
 ---
 
 **Fallback configured but never tested — silent single point of failure** *(recognition)*
-You added OpenAI as a fallback. But have you confirmed it actually triggers? If it does not work, you discover this during an Anthropic outage in production — not in a test environment where fixing it takes 30 seconds.
+You added OpenAI as a fallback. But have you confirmed it actually triggers? Set `ANTHROPIC_API_KEY="invalid"` temporarily and make a request. If the fallback works, the response will come from GPT-4o-mini. If it does not work, you discover it in production when Anthropic has an outage — not in testing, where fixing it takes 30 seconds.
 
 *(recall — trigger it)*
 ```bash
