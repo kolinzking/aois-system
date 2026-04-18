@@ -1,6 +1,6 @@
 # Phase 0 — The Foundation
 
-## What this phase is
+## Introduction
 
 Everything that v1 assumes you already know.
 
