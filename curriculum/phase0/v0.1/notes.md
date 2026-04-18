@@ -393,6 +393,26 @@ For AOIS, secrets are in `.env` and loaded by `python-dotenv`. You never need to
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Test environment variable scoping:
+> ```bash
+> # Set a variable WITHOUT export
+> MY_VAR="hello"
+> bash -c 'echo "child sees: $MY_VAR"'    # child shell sees nothing
+>
+> # Set WITH export
+> export MY_VAR="hello"
+> bash -c 'echo "child sees: $MY_VAR"'    # child shell sees: hello
+>
+> # Now see what AOIS actually uses
+> cat /workspaces/aois-system/.env 2>/dev/null | head -3 || echo "no .env yet"
+> printenv | grep -i anthropic            # check if key is already in environment
+> ```
+> This is why `load_dotenv()` in Python exists — it reads the `.env` file and exports the variables so child processes (your FastAPI server) can access them. Without `load_dotenv()`, `os.getenv("ANTHROPIC_API_KEY")` returns `None`.
+
+---
+
 ## Part 8 — stdin, stdout, stderr: the three streams
 
 Every process has three open file descriptors by default. Understanding these is prerequisite to understanding pipes and redirection.
