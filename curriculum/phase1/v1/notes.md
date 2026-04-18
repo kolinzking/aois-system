@@ -583,3 +583,58 @@ These are not deficiencies — they are the next three versions.
 - **v3**: `ANALYZE_TOOL` disappears. Instructor generates the tool definition from the Pydantic model.
 - **Phase 2 (v4)**: This entire `main.py` goes into a Docker container. No code changes — only the environment changes.
 - **Phase 7 (v20)**: `analyze_with_claude()` gets expanded with tools — `get_pod_logs`, `describe_node`. AOIS stops reading logs and starts actively investigating.
+
+---
+
+## Mastery Checkpoint
+
+v1 is the moment AOIS becomes real. These exercises prove you understand the core intelligence, not just how to run the server.
+
+**1. The tool use schema controls the model**
+Look at `ANALYZE_TOOL` in the archived v1 code. The `"enum": ["P1", "P2", "P3", "P4"]` on `severity` means the model cannot return anything outside those four values — it is constrained at the API protocol level, not just by the prompt.
+
+Test this: temporarily add `"P5"` to the enum array and restart. Send the same OOMKill log. Does the model ever choose P5? (It should not — nothing in the model's training maps OOMKill to P5.) Now change the enum to just `["HIGH", "LOW"]`. Send the OOMKill log. What does it return? This proves the model adapts to the schema constraint.
+
+**2. Prove the caching hit via token counts**
+Run the cache verification script from the notes (three rapid calls with the same system prompt). For each call, record:
+- `cache_creation_input_tokens`
+- `cache_read_input_tokens`
+- Total cost (calculate from token counts)
+
+Call 1 should create the cache. Calls 2 and 3 should read from it. The system prompt tokens on calls 2-3 should cost ~10% of call 1. This is not theoretical — it is observable in the API response.
+
+**3. The fallback test with real observation**
+Break the Anthropic key as described in the notes. Send a request. Record:
+- The error in the server logs (what exception was raised?)
+- That the response still came back valid (from OpenAI)
+- The different shape of the OpenAI response vs Anthropic (why v2 introduces LiteLLM to normalize this)
+
+Restore the real key. Now you have observed the exact failure mode that motivated v2.
+
+**4. Run all 6 test cases and record the intelligence**
+Run every test case: OOMKilled, CrashLoopBackOff, cert expiry, disk pressure, staging OOMKill, latency spike. For each one, record:
+- The severity returned
+- The confidence score
+- The `suggested_action` — is it specific to this incident or generic?
+- Compare to what v0.6's regex would have returned
+
+The staging OOMKill and the latency spike are the most revealing — they show contextual awareness that no regex can provide.
+
+**5. Test the boundaries of tool_choice forcing**
+What happens if you remove `tool_choice={"type": "tool", "name": "analyze_incident"}` from the API call? Send a request and observe the response.content list. Does it include a text block before the tool_use block? Does Claude ever choose to respond in plain text? How does this affect the `for block in response.content` loop?
+
+This demonstrates why `tool_choice` forcing is essential for production reliability.
+
+**6. Understand the architectural decision for v2**
+v1 has two functions: `analyze_with_claude()` and `analyze_with_openai()`. They have different response parsing, different error types, and different system prompt formats.
+
+Write out exactly what you would have to add to support a third provider (Groq) with its own SDK. Then compare to what v2 requires: one line in `ROUTING_TIERS = {"fast": "groq/llama-3.1-8b-instant"}`. 
+
+The code you would have to write for v1-style Groq support is the argument for LiteLLM.
+
+**7. Connect v1 to Phase 7**
+In Phase 7 (v20), AOIS will have tools like `get_pod_logs(pod_name)` and `describe_node(node_name)`. These are defined exactly like `ANALYZE_TOOL` — a JSON schema with name, description, parameters.
+
+Look at `ANALYZE_TOOL` and write a hypothetical `GET_POD_LOGS_TOOL` definition that would tell Claude how to call a function with a pod name and namespace. You do not need to implement it — just write the tool definition dict. The fact that you can write this from understanding (not memory) means you understand tool use at the conceptual level.
+
+**The mastery bar**: v1 is the foundation of the entire intelligence layer. You should be able to explain to another engineer why tool use guarantees structured output, how prompt caching reduces costs, what the fallback mechanism does, and why this one function swap transforms the entire application. If you can explain all of this clearly, you are ready for v2.
