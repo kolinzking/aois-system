@@ -525,6 +525,47 @@ docker compose down -v        # stop, remove containers AND volumes (wipes datab
 
 ---
 
+## Common Mistakes
+
+**COPY before installing dependencies — breaking layer cache.**
+```dockerfile
+# WRONG — every code change invalidates the pip install layer
+COPY . .
+RUN pip install -r requirements.txt
+
+# CORRECT — requirements layer is cached until requirements.txt changes
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+```
+Docker builds layers sequentially. When a layer changes, all layers after it are rebuilt. Copying source code before installing dependencies means every code change re-runs pip install — what should take 2 seconds takes 60 seconds. Always install dependencies first, copy code second.
+
+**Not using `.dockerignore` — COPY copies your secrets.**
+`COPY . .` copies everything in the build context — including `.env`, `__pycache__`, `.git`, and any local test data. Without `.dockerignore`:
+- `.env` ends up in the image layer (secrets baked in)
+- `.git` adds megabytes to the image for no reason
+- `__pycache__` causes confusing behavior
+
+Minimum `.dockerignore`:
+```
+.env
+.git
+__pycache__
+*.pyc
+.pytest_cache
+```
+
+**Running as root in the container.**
+The default Docker container runs as root (UID 0). If a container escape vulnerability exists, the attacker gets root on the host. The multi-stage Dockerfile adds `USER nonroot` — verify it is actually in your final stage. Check: `docker run --rm ghcr.io/kolinzking/aois:v7 whoami` should print `nonroot`, not `root`.
+
+**Using `:latest` tag — not reproducible.**
+`FROM python:3.12` pulls whatever `latest` is at build time. If Python releases 3.12.8 while you are on 3.12.6, your next build uses a different base — subtly different behavior, different CVE profile. Pin the exact digest or version: `FROM python:3.12.6-slim`. In `Chart.yaml`, `appVersion: latest` is equally dangerous — pin to a specific tag.
+
+**`docker compose up` vs `docker compose up --build`.**
+`docker compose up` starts containers using cached images. If you changed `main.py`, the running container has the old code — there is no rebuild. Run `docker compose up --build` to rebuild images before starting. During development, you will forget this constantly. The symptom: your code change has no effect, even though compose says "Container started."
+
+---
+
 ## Troubleshooting
 
 **"docker: Cannot connect to the Docker daemon":**
