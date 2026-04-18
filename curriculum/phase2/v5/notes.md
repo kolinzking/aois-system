@@ -339,6 +339,33 @@ async def limit_payload_size(request: Request, call_next):
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Test the rate limiter directly:
+> ```bash
+> # Send 12 requests in rapid succession — the 11th and 12th should get 429
+> for i in $(seq 1 12); do
+>     STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/analyze \
+>       -H "Content-Type: application/json" \
+>       -d '{"log": "test log '$i'"}')
+>     echo "Request $i: HTTP $STATUS"
+> done
+> ```
+> Requests 1-10: HTTP 200. Request 11+: HTTP 429.
+>
+> Now test the payload limit:
+> ```bash
+> # Generate a payload larger than 20KB
+> python3 -c "print('A' * 25000)" | \
+>   xargs -I{} curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/analyze \
+>   -H "Content-Type: application/json" \
+>   -d "{\"log\": \"{}\"}"
+> # Expected: 413
+> ```
+> You just tested three of the four security layers from the notes. Security is not theoretical — it is observable behavior.
+
+---
+
 ## Running and testing the security controls
 
 ### Start the server
