@@ -257,6 +257,23 @@ v3 is a targeted improvement to the reliability layer only. The API shape did no
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Compare the v2 and v3 analyze functions side by side to see what Instructor removed:
+> ```bash
+> echo "=== v2 analyze function ===" && \
+>   grep -A 20 "^def analyze" /workspaces/aois-system/curriculum/phase1/v2/main.py
+>
+> echo "=== v3 analyze function ===" && \
+>   grep -A 20 "^def analyze" /workspaces/aois-system/curriculum/phase1/v3/main.py
+> ```
+> v2 has: `response.choices[0].message.tool_calls[0]`, `json.loads(tool_call.function.arguments)`, manual field extraction.
+> v3 has: `client.chat.completions.create_with_completion(response_model=IncidentAnalysis, ...)` — done.
+>
+> Instructor eliminated the response parsing entirely. The `IncidentAnalysis` Pydantic model IS the schema definition — no separate tool definition dict needed.
+
+---
+
 ## Part 5 — Langfuse: two lines of integration
 
 ```python
