@@ -627,11 +627,27 @@ A mismatch here means a broken deploy. Catching it in `helm template` costs noth
 
 > **▶ STOP — do this now**
 >
-> Run `helm lint ./charts/aois`. It should report `0 chart(s) linted, 0 chart(s) failed`.
+> Run `helm lint ./charts/aois`. Expected output:
+> ```
+> ==> Linting ./charts/aois
+> [INFO] Chart.yaml: icon is recommended
 >
-> Now deliberately break a template — remove a closing `}}` from any value reference. Run lint again. It will report the exact line and error.
+> 1 chart(s) linted, 0 chart(s) failed
+> ```
+> The INFO about `icon` is harmless — icons are for public chart repositories. 0 failures is what matters.
 >
-> Fix it and confirm lint passes again. You now know how to diagnose template syntax errors before they reach the cluster.
+> Now deliberately break a template — open `templates/deployment.yaml` and remove the closing `}}` from `{{ .Values.replicaCount }}` so it becomes `{{ .Values.replicaCount }`. Run lint:
+> ```bash
+> helm lint ./charts/aois
+> ```
+> Expected:
+> ```
+> ==> Linting ./charts/aois
+> [ERROR] templates/deployment.yaml: parse error at (aois/templates/deployment.yaml:8): unexpected "}" in operand
+>
+> Error: 1 chart(s) linted, 1 chart(s) failed
+> ```
+> Fix it and confirm lint passes again. Lint catches syntax errors before they reach the cluster — run it before every deploy.
 
 ---
 
