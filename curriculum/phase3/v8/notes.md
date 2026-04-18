@@ -2,181 +2,272 @@
 
 ## What This Is
 
-In v7 you packaged AOIS as a Helm chart. To deploy a new version you still run `helm upgrade` by hand. That means:
-- You need to be at a terminal with kubeconfig
-- There is no record in git of what was deployed and when
-- A teammate cannot deploy without your credentials
-- "What's running in prod?" requires SSHing into the cluster to check
+In v7 you packaged AOIS as a Helm chart. To deploy a new version you still run `helm upgrade` from your terminal. That command requires:
+- Your machine to have kubeconfig pointing at the cluster
+- You to be available to run it
+- Trust that you ran the right command with the right values file
+- No record in git of what was deployed or when
 
-ArgoCD eliminates all of this. It is a controller that runs inside your cluster and watches a git repo. When the repo changes, ArgoCD detects the diff and applies it. The cluster state is always what git says it should be.
+ArgoCD removes all of these requirements. It is a controller that runs inside your cluster, watches a git repository, and continuously reconciles: if the cluster does not match what git says it should be, ArgoCD makes it match.
 
-This pattern is called **GitOps**. Git is the single source of truth. The cluster is a consequence of git, not a thing you manage directly.
+This is GitOps. Git is not just where your code lives — it is the control plane for your infrastructure. Every deployment is a git commit. Every rollback is a git revert (or `argocd app rollback`). "What's running in prod?" is answered by reading git, not SSHing into the cluster.
+
+---
+
+## The Problem ArgoCD Solves
+
+Without ArgoCD, your deployment pipeline has an implicit dependency on the person running it. You deploy by running a command. The command either works or fails. If it fails halfway, the cluster is in an unknown partial state. If it succeeds, the only record of what happened is in your terminal history.
+
+**Concrete problems this creates:**
+
+**Cluster drift**: Over time, people apply quick fixes directly with `kubectl patch` or `kubectl edit`. The cluster diverges from what's in git. When something breaks, you don't know if the cause is a code change or a manual edit made six months ago by someone who no longer works there.
+
+**No audit trail**: `kubectl apply` leaves no trace in git. The Helm release Secret in the cluster has a timestamp, but it doesn't tell you who triggered it, from what code state, or what changed.
+
+**Tribal knowledge deploys**: Only people with kubeconfig and helm installed can deploy. New team members can't deploy. Automation that doesn't have cluster credentials can't deploy.
+
+**No continuous reconciliation**: If a pod's resource limit is manually changed, no system detects or corrects it. The cluster silently drifts.
+
+ArgoCD makes the cluster self-correcting. If git says AOIS should have 2 replicas and the cluster has 3, ArgoCD corrects it within minutes — automatically, logged, traceable.
 
 ---
 
 ## The GitOps Mental Model
 
-**Before GitOps (what you've been doing):**
+**Before GitOps:**
 ```
-You → kubectl apply / helm upgrade → Cluster
+Engineer → helm upgrade / kubectl apply → Kubernetes cluster
 ```
-The cluster state lives in the cluster. Git may or may not reflect it. There is no automatic reconciliation.
+The cluster's desired state is defined by whoever ran the last command. Git may or may not reflect what's actually running.
 
 **With GitOps:**
 ```
-You → git push → GitHub → ArgoCD detects diff → Cluster
+Engineer → git commit + push → GitHub → ArgoCD (watching) → Kubernetes cluster
 ```
-The cluster state is defined in git. ArgoCD continuously compares what git says against what the cluster has. Any drift is corrected automatically.
+The cluster's desired state is defined by git. ArgoCD is a reconciliation loop between git and the cluster. The cluster is always catching up to git, never the other way around.
 
-**What this means in practice:**
-- "Deploy v8" = change `image.tag: v8` in `values.prod.yaml`, commit, push
-- "Roll back" = `git revert` or `argocd app rollback aois 1`
-- "What's running?" = read `values.prod.yaml` in git — that IS what's running
-- Disaster recovery = provision a new cluster, apply ArgoCD, point it at the repo — everything comes back
+**The inversion**: In GitOps you do not manage the cluster. You manage git. The cluster manages itself.
 
 ---
 
-## How ArgoCD Works
+## How ArgoCD Works: Under the Hood
 
-ArgoCD runs as a set of pods in the `argocd` namespace. Its core component is the **Application Controller** — a reconciliation loop that:
+ArgoCD is not a deployment tool. It is a **control loop** — a Kubernetes pattern where a controller continuously watches desired state (git) and actual state (cluster) and corrects any difference.
 
-1. Reads the `Application` custom resource you define
-2. Fetches the source from git (your repo, your branch, your Helm chart path)
-3. Renders the Helm templates with your values file
-4. Compares the rendered output against what's currently in the cluster
-5. If there's a diff: applies the changes (if auto-sync is on) or marks the app as OutOfSync (if manual)
-6. Repeats every 3 minutes (default) or immediately on a webhook from GitHub
+### The components
 
-This loop never stops. If someone manually edits a Deployment in the cluster, ArgoCD detects the drift within 3 minutes and reverts it. The cluster is self-healing.
+When you install ArgoCD, several pods run in the `argocd` namespace:
+
+**argocd-application-controller**: The brain. Runs the reconciliation loop. Every 3 minutes (default) it:
+1. Fetches the source from git (your repo, your branch, your Helm chart path)
+2. Renders the Helm templates with your values file — identical to what `helm template` produces
+3. Compares the rendered output to the live cluster state
+4. If different: applies the changes (if auto-sync is enabled)
+
+**argocd-repo-server**: Handles all git operations. Clones repos, caches them, runs `helm template` / `kustomize build` / raw YAML parsing. The application controller never touches git directly — it asks the repo server.
+
+**argocd-server**: The API server + web UI. Exposes the REST API that the `argocd` CLI and the web dashboard use. Not involved in reconciliation — that's the application controller.
+
+**argocd-redis**: Caches repo server results so the application controller does not re-clone the repo on every tick.
+
+**argocd-dex-server**: Handles SSO / OIDC authentication for the web UI. Not needed for basic usage.
+
+### Three-way diff
+
+When ArgoCD compares what git says against what the cluster has, it performs a **three-way diff** — the same technique as `git merge`:
+
+1. **Desired state**: the rendered output from git (what Helm templates produce)
+2. **Live state**: what's actually in the cluster right now
+3. **Last applied state**: what ArgoCD last applied (stored in the resource's annotation)
+
+The three-way diff distinguishes between:
+- Changes from git (should be applied)
+- Changes Kubernetes added itself (status fields, resourceVersion — should be ignored)
+- Changes from manual edits (should be reverted if selfHeal is on)
+
+This is why ArgoCD does not fight with Kubernetes's own mutations. When Kubernetes adds a `resourceVersion` or updates a `status`, ArgoCD knows not to treat those as drift.
+
+### Where ArgoCD stores state
+
+ArgoCD's own state lives in Kubernetes custom resources in the `argocd` namespace. The `Application` resource you define in `argocd/application.yaml` is stored in the cluster. ArgoCD watches its own namespace for Application resources and reconciles each one.
+
+```bash
+kubectl get application -n argocd
+kubectl describe application aois -n argocd
+```
+
+The Application resource holds: source repo, target branch, Helm values file path, sync policy, and current sync/health status.
 
 ---
 
 ## The Application Manifest
 
-Everything about how ArgoCD manages AOIS is defined in `argocd/application.yaml`:
+Everything ArgoCD needs to know about managing AOIS lives in `argocd/application.yaml`:
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: aois
-  namespace: argocd          # ArgoCD's own namespace
+  namespace: argocd
 spec:
   project: default
   source:
     repoURL: https://github.com/kolinzking/aois-system
-    targetRevision: main     # watch this branch
-    path: charts/aois        # Helm chart is here
+    targetRevision: main
+    path: charts/aois
     helm:
       valueFiles:
-        - values.prod.yaml   # overlay on top of values.yaml
+        - values.prod.yaml
   destination:
-    server: https://kubernetes.default.svc   # this cluster
+    server: https://kubernetes.default.svc
     namespace: aois
   syncPolicy:
     automated:
-      prune: true        # delete resources removed from git
-      selfHeal: true     # revert manual cluster edits
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
 ```
 
-**`prune: true`**: If you remove a resource from the chart, ArgoCD deletes it from the cluster. Without this, removed resources linger as orphans.
+### `source` — where to get the desired state
 
-**`selfHeal: true`**: If someone kubectl-patches a Deployment directly, ArgoCD reverts it on the next sync. Git wins, always.
+**`repoURL`**: The git repository. ArgoCD will clone this.
 
-**`targetRevision: main`**: ArgoCD watches the `main` branch. Every push to main is a potential deploy. This is why you should never push broken Helm templates to main.
+**`targetRevision: main`**: Watch the `main` branch. Every commit to main is a candidate sync. You can also target a specific tag (`v7.0.0`) or commit SHA for immutable deploys.
+
+**`path: charts/aois`**: Within the repo, the Helm chart lives here.
+
+**`helm.valueFiles`**: The values overlay to apply. ArgoCD passes this to `helm template` just like you do manually. The path is relative to `path` — so it looks for `charts/aois/values.prod.yaml`.
+
+### `destination` — where to deploy
+
+**`server: https://kubernetes.default.svc`**: Deploy to the same cluster ArgoCD is running in. This is the in-cluster endpoint. You can also target remote clusters by registering them with ArgoCD.
+
+**`namespace: aois`**: Deploy into the `aois` namespace.
+
+### `syncPolicy` — the behavior rules
+
+**`automated:`**: Enable auto-sync. Without this, ArgoCD detects drift but waits for you to manually click Sync or run `argocd app sync aois`. With it, drift is corrected automatically.
+
+**`prune: true`**: If you remove a resource from the chart (say you delete `templates/service.yaml`), ArgoCD deletes it from the cluster. Without `prune`, removed resources become orphans — they stay in the cluster forever, unreferenced and unmanaged.
+
+**`selfHeal: true`**: If someone manually edits a resource in the cluster (kubectl patch, kubectl edit), ArgoCD detects the drift on its next tick and reverts it. Git wins, always. Without `selfHeal`, manual edits persist until the next git-triggered sync overwrites them.
+
+**`CreateNamespace=true`**: Creates the destination namespace if it does not exist. Removes the need to pre-create the namespace.
 
 ---
 
 ## Installing ArgoCD
 
-Run these on the Hetzner server (or from your machine with the cluster's kubeconfig):
+All commands run on the Hetzner server (or from your machine with kubeconfig set):
 
 ```bash
-# Create the argocd namespace
+# Create the namespace
 kubectl create namespace argocd
 
-# Install ArgoCD (official upstream manifest)
+# Apply the official upstream manifest
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-
-# Wait for all pods to be running (~60 seconds)
-kubectl wait --for=condition=available deployment -l app.kubernetes.io/name=argocd-server -n argocd --timeout=120s
-
-# Verify
-kubectl get pods -n argocd
 ```
 
-You should see pods for: argocd-server, argocd-repo-server, argocd-application-controller, argocd-dex-server, argocd-redis.
-
-### Access the ArgoCD UI
-
-ArgoCD has a web UI. To access it from your laptop:
+This creates around 50 resources: CRDs (Application, AppProject, etc.), Deployments, Services, ClusterRoles, and ConfigMaps. Watch them come up:
 
 ```bash
-# Port-forward the ArgoCD server
-kubectl port-forward svc/argocd-server -n argocd 8080:443
-
-# Open https://localhost:8080 in your browser (accept the self-signed cert)
+kubectl get pods -n argocd -w
+# Wait until all pods show Running
+# argocd-application-controller-0   1/1   Running
+# argocd-dex-server-xxx             1/1   Running
+# argocd-redis-xxx                  1/1   Running
+# argocd-repo-server-xxx            1/1   Running
+# argocd-server-xxx                 1/1   Running
 ```
 
-Get the initial admin password:
+### Get the initial admin password
+
 ```bash
 kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath="{.data.password}" | base64 -d && echo
 ```
 
-Login: username `admin`, password from above.
+This Secret is created by ArgoCD on first install. After you change the password, delete this Secret — it is no longer needed and leaving it is a security risk.
 
-### Install the ArgoCD CLI (optional but useful)
+### Access the UI
 
 ```bash
-# macOS
-brew install argocd
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+# Open https://localhost:8080 — accept the self-signed cert
+# Username: admin, Password: from above
+```
 
-# Linux
+The UI shows a card for each Application. Click into it to see the resource graph: your Deployment, Service, Ingress, the ReplicaSet the Deployment created, the pods it manages — all with health indicators.
+
+### Install the ArgoCD CLI
+
+```bash
+# Linux (on the Hetzner server or your machine)
 curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
 chmod +x argocd && sudo mv argocd /usr/local/bin/
 
-# Login via CLI
+# Authenticate to the ArgoCD server
 argocd login localhost:8080 --username admin --password <password> --insecure
+# --insecure skips TLS verification for the self-signed cert
 ```
 
 ---
 
-## Deploying the AOIS Application
+## Registering the AOIS Application
 
-With ArgoCD running, register the AOIS application:
+With ArgoCD running, apply the Application manifest from the repo:
 
 ```bash
-# Remove the Helm-managed release first (ArgoCD will own it now)
+# If Helm still owns the release, hand it off first:
 helm uninstall aois -n aois
+# This removes the Helm release Secret — ArgoCD will take over ownership
 
-# Apply the Application manifest from the repo
+# Apply the Application resource
 kubectl apply -f argocd/application.yaml
 
-# Watch ArgoCD sync
+# Watch ArgoCD discover and sync it
 kubectl get application aois -n argocd -w
+# SYNC STATUS will move: Unknown → OutOfSync → Synced
+# HEALTH STATUS will move: Unknown → Progressing → Healthy
 ```
 
-Within a minute ArgoCD will:
-1. Clone your git repo
-2. Render `charts/aois` with `values.prod.yaml`
-3. Apply all resources to the `aois` namespace
-4. Report status: `Synced / Healthy`
+ArgoCD will:
+1. Clone your repo
+2. Find `charts/aois/` with `values.prod.yaml`
+3. Run `helm template` internally
+4. Apply all resources to the `aois` namespace
+5. Report `Synced / Healthy`
 
-In the UI you will see a visual graph of all resources — Deployment, Service, Ingress, pods — with their health status.
+Verify:
+```bash
+argocd app get aois
+# Name:           aois
+# Server:         https://kubernetes.default.svc
+# Namespace:      aois
+# URL:            https://localhost:8080/applications/aois
+# Repo:           https://github.com/kolinzking/aois-system
+# Target:         main
+# Path:           charts/aois
+# Helm Values:    values.prod.yaml
+# SyncWindow:     Sync Allowed
+# Sync Policy:    Automated (Prune)
+# Sync Status:    Synced to main (abc1234)
+# Health Status:  Healthy
+
+curl https://aois.46.225.235.51.nip.io/health
+# {"status":"healthy"}
+```
 
 ---
 
-## The Deploy Workflow (GitOps Style)
+## The GitOps Deploy Workflow
 
-**Old way (v7):**
-```bash
-helm upgrade aois ./charts/aois -f charts/aois/values.prod.yaml -n aois --set image.tag=v8
-```
+Every future deploy is now a git operation.
 
-**New way (v8):**
+### Deploy a new image version
+
 ```bash
 # 1. Edit values.prod.yaml
 image:
@@ -184,153 +275,329 @@ image:
 
 # 2. Commit and push
 git add charts/aois/values.prod.yaml
-git commit -m "deploy: bump AOIS to v8"
+git commit -m "deploy: AOIS v8"
 git push
 
-# 3. ArgoCD detects the change and deploys automatically
-# Watch it happen:
-kubectl get pods -n aois -w
+# 3. ArgoCD detects the change within 3 minutes and syncs automatically
+# Watch from the CLI:
+argocd app get aois --watch
+
+# Or trigger an immediate sync (instead of waiting for the poll interval):
+argocd app sync aois --watch
 ```
 
-You never touch kubectl or helm to deploy again. Git is the deployment mechanism.
-
----
-
-## Sync Status and Health
-
-ArgoCD tracks two dimensions for every application:
-
-**Sync Status:**
-- `Synced` — cluster matches git exactly
-- `OutOfSync` — cluster differs from git (someone edited directly, or you pushed a change not yet applied)
-
-**Health Status:**
-- `Healthy` — all resources are running correctly (pods up, endpoints ready)
-- `Degraded` — something is wrong (crashlooping pod, failed deployment)
-- `Progressing` — a rollout is in progress
-
-When you push a new image tag:
-1. Status goes `OutOfSync` (git has v8, cluster has v7)
-2. ArgoCD detects and begins sync
-3. Status becomes `Progressing` (new pod starting)
-4. Status becomes `Synced / Healthy` (new pod ready, old pod terminated)
+### Scale up
 
 ```bash
-# Watch sync status from CLI
-argocd app get aois
-argocd app sync aois --watch   # trigger manual sync and watch progress
+# Edit values.prod.yaml
+replicaCount: 3
+
+git add charts/aois/values.prod.yaml
+git commit -m "scale: AOIS to 3 replicas"
+git push
+# ArgoCD applies — third pod comes up
 ```
 
----
-
-## Rollback
-
-ArgoCD keeps a history of every sync (tied to git commits):
+### Emergency rollback
 
 ```bash
+# Option 1: ArgoCD history-based rollback (fast, no git commit)
 argocd app history aois
 # ID  DATE                           REVISION
-# 1   2026-04-18 10:00:00 +0000 UTC  abc1234 (HEAD)
-# 2   2026-04-18 11:30:00 +0000 UTC  def5678
+# 0   2026-04-18 10:00:00 +0000 UTC  abc1234
+# 1   2026-04-18 11:30:00 +0000 UTC  def5678
 
-# Roll back to the previous revision
-argocd app rollback aois 1
-```
+argocd app rollback aois 0
+# ArgoCD re-applies the Helm chart as it was at commit abc1234
 
-ArgoCD re-applies the Helm chart as it was at that git commit. Kubernetes performs a rolling update back to the previous image. No manual kubectl required.
-
-You can also roll back via git:
-```bash
-git revert HEAD
+# Option 2: Git revert (leaves audit trail)
+git revert HEAD --no-edit
 git push
 # ArgoCD deploys the reverted state
 ```
 
-Both work. The git revert approach leaves an explicit audit trail in git history.
+Option 1 is faster for emergencies. Option 2 is better for team environments — the git history shows what happened and why.
+
+---
+
+## Sync Status and Health Status
+
+ArgoCD tracks two independent dimensions:
+
+### Sync Status
+
+**`Synced`**: The cluster matches git exactly. Every resource in the cluster is identical to what the Helm templates produce from the current git commit.
+
+**`OutOfSync`**: A difference exists between git and the cluster. This happens when:
+- You push a new commit (git changed, cluster hasn't caught up)
+- Someone made a manual cluster edit (cluster changed, git didn't)
+- A resource was removed from git but `prune: false` (orphan exists in cluster)
+
+**`Unknown`**: ArgoCD cannot determine status — usually a permissions issue or the Application was just created.
+
+### Health Status
+
+**`Healthy`**: All resources are running correctly. Pods are up and passing readiness probes. Services have endpoints.
+
+**`Progressing`**: A rollout is in progress. ArgoCD is watching the Deployment's rollout — new pods starting, old ones terminating.
+
+**`Degraded`**: Something is wrong. A pod is crashlooping, a Deployment is stuck, a resource failed to apply.
+
+**`Suspended`**: The application is paused (sync is disabled).
+
+### The important combinations
+
+**`Synced / Healthy`**: Everything is fine. Git = cluster, cluster is healthy.
+
+**`Synced / Degraded`**: ArgoCD applied what git says, but it's not working. The YAML was valid but the app is crashing. This is an application problem, not a deployment problem.
+
+**`OutOfSync / Healthy`**: The cluster is running something different from git (maybe from a manual edit), but it's healthy. With `selfHeal: true`, this self-corrects.
+
+**`OutOfSync / Progressing`**: A sync is happening right now. Normal transition state during a deploy.
+
+---
+
+## Polling vs Webhooks
+
+By default ArgoCD polls git every 3 minutes. This means pushes can take up to 3 minutes to trigger a sync.
+
+For faster deploys, configure a GitHub webhook that notifies ArgoCD the instant a push happens:
+
+```bash
+# Get the ArgoCD server URL (expose it first — see below)
+# In GitHub: Settings → Webhooks → Add webhook
+# Payload URL: https://your-argocd-server/api/webhook
+# Content type: application/json
+# Secret: generate one and add it to ArgoCD's secret
+# Events: Just the push event
+```
+
+With a webhook, syncs trigger in seconds after a push. Without it, the 3-minute poll is fine for learning — add the webhook when deploy speed matters.
+
+For now, trigger immediate syncs manually with `argocd app sync aois` to avoid waiting.
+
+---
+
+## Exposing ArgoCD (Optional)
+
+You have cert-manager and Traefik running. Expose the ArgoCD server on a real domain:
+
+```bash
+# argocd/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  namespace: argocd
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - argocd.46.225.235.51.nip.io
+    secretName: argocd-tls
+  rules:
+  - host: argocd.46.225.235.51.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: argocd-server
+            port:
+              number: 80
+```
+
+ArgoCD also needs to know it is behind TLS:
+```bash
+kubectl patch configmap argocd-cmd-params-cm -n argocd \
+  --type merge -p '{"data":{"server.insecure":"true"}}'
+kubectl rollout restart deployment argocd-server -n argocd
+```
+
+Then `https://argocd.46.225.235.51.nip.io` reaches the UI directly.
 
 ---
 
 > **▶ STOP — do this now**
 >
-> Before installing ArgoCD, understand what you're about to run:
+> After ArgoCD syncs AOIS, look at what it actually did:
 > ```bash
-> kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+> kubectl get all -n aois
+> argocd app get aois
 > ```
-> This creates ~50 Kubernetes resources. After applying, run:
-> ```bash
-> kubectl get all -n argocd
-> ```
-> Identify: which pods are running, what each does (server = UI/API, repo-server = git cloning, application-controller = the reconciliation loop, redis = caching, dex = auth).
+> In the ArgoCD output, find the `Sync Status` line. It should show the git commit SHA that is currently deployed.
+>
+> Now open that commit in GitHub (`https://github.com/kolinzking/aois-system/commit/<sha>`). You can see exactly what was in `values.prod.yaml` at deploy time. This is the audit trail GitOps provides — every deploy is traceable to a specific commit, by a specific person, at a specific time.
 
 ---
 
 > **▶ STOP — do this now**
 >
-> After ArgoCD has synced AOIS, trigger a manual edit to the Deployment and watch selfHeal revert it:
+> Test `selfHeal`. With ArgoCD running and AOIS synced:
 > ```bash
-> # Edit the replica count directly in the cluster
-> kubectl scale deployment aois -n aois --replicas=3
+> # Manually scale the deployment
+> kubectl scale deployment aois -n aois --replicas=5
 >
-> # Watch the pod count
+> # Immediately check ArgoCD status
+> argocd app get aois
+> # SYNC STATUS: OutOfSync  ← ArgoCD detected the drift
+>
+> # Wait up to 3 minutes (or run: argocd app sync aois)
+> # Watch the pods
 > kubectl get pods -n aois -w
+> # Two extra pods terminate — ArgoCD reverts to replicaCount from values.prod.yaml
 >
-> # Within 3 minutes, ArgoCD reverts to replicas=2 (from values.prod.yaml)
-> # ArgoCD UI will briefly show OutOfSync then return to Synced
+> # Confirm
+> kubectl get deployment aois -n aois -o jsonpath='{.spec.replicas}'
+> # 2  ← back to what git says
 > ```
-> This is what `selfHeal: true` does. Git is authoritative. The cluster cannot drift.
+> This is why `selfHeal: true` matters. The cluster cannot drift from git. Ever.
 
 ---
 
 > **▶ STOP — do this now**
 >
-> Do a full GitOps deploy cycle:
+> Do a complete GitOps deploy cycle:
 > ```bash
-> # 1. Open values.prod.yaml and change a value (replicaCount: 1 to test)
+> # 1. Change a value in values.prod.yaml — drop to 1 replica
+> #    (edit the file, do not use kubectl or helm)
+>
 > # 2. Commit and push
 > git add charts/aois/values.prod.yaml
-> git commit -m "test: scale down to 1 replica via GitOps"
+> git commit -m "test: scale to 1 replica via GitOps"
 > git push
 >
-> # 3. Watch ArgoCD detect and apply
-> kubectl get pods -n aois -w
-> # You'll see one pod terminate
+> # 3. Trigger immediate sync
+> argocd app sync aois --watch
 >
-> # 4. Revert it
+> # 4. Confirm
+> kubectl get pods -n aois
+> # One pod — the second terminated
+>
+> # 5. Revert via git
 > git revert HEAD --no-edit
 > git push
-> # Watch the second pod come back
+> argocd app sync aois --watch
+>
+> # 6. Confirm
+> kubectl get pods -n aois
+> # Two pods — back to values.prod.yaml default
 > ```
-> You just did two production deploys via git. No kubectl, no helm, no SSH.
+> You just deployed twice with zero kubectl involvement. This is the GitOps workflow.
+
+---
+
+## Troubleshooting
+
+**`ComparisonError: failed to load target state: failed to generate manifest`**
+ArgoCD cannot render the Helm chart. Usually a template syntax error or a missing values key. Run locally to reproduce:
+```bash
+helm template aois ./charts/aois -f charts/aois/values.prod.yaml
+```
+Fix the error, push, ArgoCD re-renders.
+
+**Application stuck in `OutOfSync` even after sync**
+ArgoCD synced but the cluster still differs. Usually a resource that ArgoCD cannot manage (immutable fields, a resource owned by another controller). Check:
+```bash
+argocd app get aois --show-operation
+```
+Look for resources showing `SyncFailed` and the error message.
+
+**`Namespace "aois" already exists` on first sync**
+ArgoCD tried to create the namespace (because of `CreateNamespace=true`) but it already exists. This is not an error — ArgoCD compares the namespace spec and finds it matches. Status should be `Synced`. If it reports as a problem, verify the namespace was not created with conflicting labels.
+
+**ArgoCD reverts my manual changes even though selfHeal should be off**
+Check that `automated.selfHeal` is not in your Application manifest. Run:
+```bash
+kubectl get application aois -n argocd -o yaml | grep -A5 selfHeal
+```
+If the field is there, selfHeal is on.
+
+**Sync triggered but no change in cluster**
+The rendered Helm output is identical to what's already in the cluster. ArgoCD applied but nothing differed. This is correct behavior — ArgoCD only patches resources that actually changed.
+
+**Application shows `Missing` resources**
+A resource that ArgoCD expects (based on the rendered templates) does not exist in the cluster. This happens if someone deleted a resource manually. ArgoCD will recreate it on the next sync if auto-sync is on.
+
+---
+
+## What ArgoCD Does NOT Do
+
+ArgoCD manages the deploy lifecycle. It does not:
+
+- **Build Docker images** — that is still GitHub Actions / your CI pipeline. ArgoCD only deploys what already exists in the registry.
+- **Run tests** — ArgoCD applies YAML, it does not run test suites. Tests happen before the commit that changes the image tag.
+- **Manage secrets** — ArgoCD applies Kubernetes Secrets if they are in the repo (never put real secrets in git). For secret management, you will use External Secrets Operator in v12 to pull secrets from Vault or AWS Secrets Manager into Kubernetes.
+- **Provision infrastructure** — ArgoCD deploys to existing clusters. Terraform provisions the cluster. ArgoCD deploys onto it.
+
+Understanding these boundaries matters. When someone asks "can ArgoCD run our tests?" the answer is no — and knowing why tells you where tests belong in the pipeline.
+
+---
+
+## How v8 Connects to What Comes Next
+
+**v9 (KEDA)**: You will add a `ScaledObject` to the Helm chart. After `git push`, ArgoCD deploys it. KEDA detects the resource and wires up event-driven scaling. You will never touch the cluster directly.
+
+**v28 (GitHub Actions)**: The CI/CD pipeline will push a new image, update `values.prod.yaml` with the new tag, commit, and push to main. ArgoCD detects the commit and deploys. The full pipeline from code push to running pod becomes automated end to end.
+
+**v12 (EKS)**: You will create a second ArgoCD Application pointing at `values.eks.yaml`. Same chart, different values, different destination cluster. ArgoCD manages both independently.
+
+GitOps is not just an ArgoCD feature — it is the operational model for the rest of the curriculum. After v8, git is always the control plane.
 
 ---
 
 ## Mastery Checkpoint
 
-**1. The GitOps mental model**
-Without notes: explain the difference between "push to deploy" (what you did in v6/v7) and GitOps. What is ArgoCD's role? What is git's role? What happens if someone kubectl-edits the cluster?
+**1. Explain the GitOps inversion**
+Without notes: what does "the cluster is a consequence of git, not a thing you manage directly" mean? What changes operationally when you adopt this model? (You stop running kubectl/helm to deploy. You make git commits. The cluster follows.)
 
-**2. Read the Application manifest**
-Open `argocd/application.yaml`. For each field in `spec.syncPolicy`, explain what would happen if you removed it:
-- Remove `prune: true` → deleted resources linger as orphans
-- Remove `selfHeal: true` → manual kubectl edits persist until next git push
-- Remove `automated:` entirely → ArgoCD detects diffs but never applies them (manual sync only)
+**2. Name ArgoCD's components and their roles**
+What does each pod in the `argocd` namespace do?
+- `argocd-application-controller` — the reconciliation loop
+- `argocd-repo-server` — git cloning, template rendering
+- `argocd-server` — API + web UI
+- `argocd-redis` — caching
+- `argocd-dex-server` — auth/SSO
 
-**3. Trace a deploy from git push to running pod**
-Walk through every step: you edit `values.prod.yaml` and push. What happens next? (ArgoCD polls/webhook → detects OutOfSync → fetches repo → renders Helm templates → kubectl applies diff → Kubernetes rolling update → new pod up → old pod terminated → ArgoCD reports Synced/Healthy)
+Run `kubectl get pods -n argocd` and match each pod name to its role.
 
-**4. Understand sync vs health**
-An application can be `Synced` but `Degraded`. How? (git matches cluster exactly — ArgoCD applied the change — but the pod is crashlooping. Synced means git=cluster; Healthy means the application is actually working. These are independent.)
+**3. Understand three-way diff**
+ArgoCD uses a three-way diff. What are the three states it compares? (Desired state from git, live state from cluster, last applied state from annotation.) Why does it need all three? (To distinguish Kubernetes-added fields from user drift — if it only compared git vs live, it would fight Kubernetes's own mutations like adding `resourceVersion`.)
 
-**5. The self-healing test**
-After deploying with ArgoCD, manually change something in the cluster:
-```bash
-kubectl patch deployment aois -n aois -p '{"spec":{"replicas":5}}'
-```
-Wait 3 minutes. What happens? (ArgoCD reverts to whatever `replicaCount` says in `values.prod.yaml`) Why? (`selfHeal: true` — the controller compares cluster state to desired state on every tick and corrects drift)
+**4. The selfHeal test**
+Perform the selfHeal test from the STOP exercise. Then explain what would happen if `selfHeal` were `false`: the manual edit persists until the next git-triggered sync. A commit that changes a different field would cause ArgoCD to apply the full diff — which would also revert the manual edit as a side effect. With `selfHeal: false`, drift is corrected eventually but not guaranteed to be corrected immediately.
 
-**6. Rollback via CLI and via git**
-Name both rollback methods and when you'd use each:
-- `argocd app rollback aois 1` — fast, no new commit, good for emergency
-- `git revert HEAD && git push` — leaves audit trail in git, better for team environments
+**5. Distinguish Sync vs Health**
+Give one example of each problematic combination:
+- `Synced / Degraded`: ArgoCD applied the chart correctly, but the pod is OOMKilled. Git and cluster match, but the app is broken.
+- `OutOfSync / Healthy`: Someone kubectl-patched the replica count up. The extra pods are healthy, but the cluster doesn't match git.
 
-**The mastery bar**: You understand that ArgoCD is a control loop, not a deployment tool. You can explain GitOps to someone who has only used kubectl. You have done at least one full deploy cycle via git push and watched ArgoCD apply it without touching the cluster directly.
+**6. Trace a complete deploy**
+Walk through every step from `git push` to `Synced/Healthy`:
+1. Push lands on GitHub
+2. ArgoCD's poll timer fires (or webhook triggers immediately)
+3. `argocd-repo-server` clones the repo at the new commit
+4. `argocd-repo-server` runs `helm template charts/aois -f values.prod.yaml`
+5. `argocd-application-controller` receives the rendered output
+6. Three-way diff runs — identifies what changed
+7. Application controller applies the diff to the cluster via Kubernetes API
+8. Kubernetes performs rolling update
+9. Readiness probe passes on new pod
+10. Old pod terminates
+11. Application controller checks live state — matches desired state
+12. Reports: `Synced / Healthy`
+
+Can you identify which step would fail if: the image tag doesn't exist in GHCR? (Step 8 — pod fails to pull image, ImagePullBackOff, Health goes Degraded)
+
+**7. The rollback decision**
+You deployed a bad config and need to roll back immediately. When do you use `argocd app rollback aois 0` vs `git revert HEAD && git push`?
+
+- Use `argocd app rollback` when speed matters more than audit trail. It's faster (no commit, instant).
+- Use `git revert` when working in a team. The revert commit is visible to everyone — it documents what happened and when. In regulated environments, the git revert may be required for compliance audit trails.
+
+**The mastery bar**: You understand GitOps as an operational model, not just a tool. You can explain what ArgoCD is doing at the component level, diagnose sync and health status, perform the full GitOps deploy cycle, and recover from failures. When someone on a team says "just kubectl apply it" you can explain exactly why that breaks the GitOps model — and what to do instead.
