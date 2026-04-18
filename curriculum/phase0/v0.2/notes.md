@@ -118,6 +118,33 @@ Add this to every script from now on. You will see it in Dockerfiles, CI pipelin
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Create two scripts side by side to see the safety difference:
+> ```bash
+> # Script WITHOUT safety header
+> cat > /tmp/unsafe.sh << 'EOF'
+> #!/bin/bash
+> cd /tmp/nonexistent_dir
+> echo "This line runs even after failure: $?"
+> EOF
+> bash /tmp/unsafe.sh    # observe: script continues despite cd failing
+>
+> # Script WITH safety header
+> cat > /tmp/safe.sh << 'EOF'
+> #!/bin/bash
+> set -euo pipefail
+> cd /tmp/nonexistent_dir
+> echo "This line never runs"
+> EOF
+> bash /tmp/safe.sh    # observe: script stops immediately at the failing cd
+> echo "safe.sh exit: $?"
+> ```
+> The unsafe script silently continues after failure — a bug waiting to happen.
+> The safe script fails loudly. This is the behavior you want in every CI/CD pipeline.
+
+---
+
 ### Heredocs: creating files with exact content
 
 You have been using heredocs throughout this curriculum without a formal explanation. Here is what they are.
