@@ -508,7 +508,11 @@ One memory hook: **if you have not broken it in a test, your fallback does not e
 ---
 
 **No budget limit — a routing bug silently drains credits** *(recognition)*
-If a routing condition has a bug that sends every request to Claude Opus instead of Haiku, your API bill will be 60x higher than expected. There is no default safeguard.
+If a routing condition has a bug that sends every request to Claude Opus instead of Haiku, your API bill will be 60x higher than expected. LiteLLM supports budget limits:
+```python
+litellm.max_budget = 10.0   # dollars — raises exception if exceeded
+```
+Set a daily budget limit during development. Learn to read the cost tracking output before removing the limit. There is no default safeguard — you must opt in.
 
 *(recall — trigger it)*
 ```python
