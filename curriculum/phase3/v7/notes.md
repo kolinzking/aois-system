@@ -2,68 +2,124 @@
 
 ## What This Is
 
-In v6 you deployed AOIS to Hetzner using raw Kubernetes YAML. It works. But every value — the image tag, the hostname, the replica count, the resource limits — is hardcoded in those files. Change one thing and you're editing YAML by hand. Deploy to a second environment and you're copying files and editing them again.
+In v6 you deployed AOIS to Hetzner using raw Kubernetes YAML. It works — for one environment, one version, managed by one person. The moment any of those constraints changes, raw YAML breaks down.
 
-Helm solves this. It is Kubernetes's package manager. You write templates once, then provide a `values.yaml` for each environment. The chart renders the final YAML for you.
+Every value in those files is hardcoded: the image tag, the hostname, the replica count, the resource limits, the namespace. To deploy a new version you open `deployment.yaml` and change the tag by hand. To deploy to a second environment you copy the files and change them again. Now you have two sets of YAML and no guarantee they stay in sync.
 
-The same `charts/aois/` directory you build here will deploy to:
-- Hetzner k3s (now, with `values.prod.yaml`)
-- AWS EKS (v12, with `values.eks.yaml`)
-- Local kind/minikube (with `values.local.yaml`)
+Helm solves this. It is Kubernetes's package manager — the equivalent of `apt` or `brew` but for deploying applications to clusters. You write templates once. You provide a `values.yaml` for each environment. Helm renders the final YAML for you and tracks what was deployed.
 
-One chart. Any cluster.
+The `charts/aois/` chart you build here is not a throwaway exercise. It will deploy to:
+- Hetzner k3s right now (`values.prod.yaml`)
+- AWS EKS in v12 (`values.eks.yaml` — different ingress class, different hostname)
+- Any cluster you ever work on in the future
 
----
-
-## Why Helm Exists
-
-Without Helm, you have a directory of YAML files with hardcoded values. This creates three problems:
-
-**Problem 1: Environment drift.** Your dev YAML and prod YAML diverge. You change replicas in prod and forget to update dev. Now you don't know which is canonical.
-
-**Problem 2: Upgrades are error-prone.** To update the image tag you grep through multiple files. You miss one. The wrong version runs in production.
-
-**Problem 3: No release history.** kubectl apply is stateless. You cannot ask "what version is running?" or "what changed in the last deploy?" or "how do I roll back?"
-
-Helm fixes all three:
-- **Values file** = single source of truth per environment
-- **`helm upgrade`** = one command, one version bump
-- **Release history** = `helm history aois`, `helm rollback aois 2`
+One chart. Any cluster. This is the value proposition.
 
 ---
 
-## Helm Concepts
+## Why Helm Exists: The Problems It Solves
 
-### The Three Parts of a Chart
+### Problem 1: Environment drift
+
+Without Helm you have `k8s/deployment.yaml`. You copy it to a staging cluster and change a few values. Six months later your dev YAML and staging YAML have diverged — someone changed resources in one but not the other, different image tags, different probe timeouts. You no longer know which is canonical.
+
+With Helm: one `templates/deployment.yaml`. Different values files per environment. The template is the truth. The values file is the configuration. They cannot drift from each other because there is only one template.
+
+### Problem 2: No release history
+
+`kubectl apply` is stateless. After applying, the cluster knows about the Deployment but has no memory of what came before. You cannot ask: "What version was running before this? Who deployed it? What changed?"
+
+Helm tracks every deploy as a numbered revision. `helm history aois` shows every revision with its timestamp. `helm rollback aois 2` re-applies the templates from that revision. This is the same capability that made `git log` + `git revert` indispensable — applied to Kubernetes deployments.
+
+### Problem 3: Upgrades require touching multiple files
+
+To bump the image tag in v6, you edit `k8s/deployment.yaml`. If you also have a Job or a CronJob that uses the same image, you edit those too. You miss one. The wrong version runs somewhere.
+
+With Helm: change `image.tag` in `values.prod.yaml`. Run `helm upgrade`. Every template that references `{{ .Values.image.tag }}` gets the new value simultaneously. One change, consistent everywhere.
+
+### Problem 4: Shareability
+
+A raw YAML directory is tied to your specific cluster. A Helm chart is self-contained and shareable. Anyone can run `helm install aois ./charts/aois -f my-values.yaml` against their own cluster. This is how the Kubernetes ecosystem distributes software — Prometheus, Grafana, cert-manager, ArgoCD itself are all installed via Helm charts.
+
+---
+
+## How Helm Works: Under the Hood
+
+Before looking at files, understand what Helm actually does when you run a command.
+
+### Where Helm stores state
+
+When you run `helm install aois ...`, Helm creates a **release** and stores its state as a Kubernetes Secret in the same namespace. Run this after installing:
+
+```bash
+kubectl get secret -n aois | grep helm
+# sh.helm.release.v1.aois.v1    helm.sh/release.v1   1   5m
+```
+
+That Secret contains the full rendered templates from that revision, base64-encoded. This is how `helm rollback` works — it fetches the old rendered YAML from the Secret and re-applies it. No git, no local files needed — the release history lives inside the cluster.
+
+### What `helm install` does step by step
+
+1. Reads `Chart.yaml` — validates the chart
+2. Merges `values.yaml` with any `-f overrides.yaml` and `--set` flags — prod values win
+3. Renders every template in `templates/` using the merged values — produces plain YAML
+4. Runs `helm lint` internally — validates the rendered YAML
+5. Applies the YAML to Kubernetes via the API (same as `kubectl apply`)
+6. Stores the rendered output + metadata as a Secret in the cluster (revision 1)
+7. Reports: `NAME: aois, STATUS: deployed`
+
+### What `helm upgrade` does differently
+
+`helm upgrade` diffs the new rendered output against the current release's stored YAML. It only applies resources that changed. A Deployment where only the image tag changed will trigger a rolling update. A ConfigMap that didn't change is untouched. This is more efficient than `kubectl apply -f .` which applies everything.
+
+### What `helm rollback` does
+
+Fetches the rendered YAML from the target revision's Secret. Applies it. Creates a new revision (revision N+1) — rollback is not destructive, it is a forward-applied revert. `helm history` will show the rollback as a new entry.
+
+---
+
+## The Chart Structure
 
 ```
 charts/aois/
-├── Chart.yaml          # metadata: name, version, appVersion
-├── values.yaml         # default values (dev-safe defaults)
-├── values.prod.yaml    # prod overrides (higher resources, prod hostname)
-└── templates/          # Go template files that render to k8s YAML
-    ├── namespace.yaml
-    ├── deployment.yaml
-    ├── service.yaml
-    └── ingress.yaml
+├── Chart.yaml              # chart metadata
+├── values.yaml             # default values (safe for any environment)
+├── values.prod.yaml        # production overrides only
+└── templates/
+    ├── namespace.yaml      # the aois namespace
+    ├── deployment.yaml     # the AOIS Deployment
+    ├── service.yaml        # ClusterIP Service
+    └── ingress.yaml        # Ingress (conditional)
 ```
 
-### Chart.yaml
+No `_helpers.tpl` yet — that comes when the chart grows complex enough to need shared template fragments. For now, four templates is the right size.
+
+---
+
+## Chart.yaml: What Each Field Means
 
 ```yaml
 apiVersion: v2
 name: aois
 description: AI Operations Intelligence System
 type: application
-version: 0.7.0      # chart version — increment when the chart changes
-appVersion: "v7"    # the application version — what's running inside
+version: 0.7.0
+appVersion: "v7"
 ```
 
-`version` is the chart itself. `appVersion` is what the chart deploys. These are independent. You can release chart version 0.7.1 (a bug fix in the template) that still deploys appVersion v7.
+**`apiVersion: v2`** — Helm 3 format. Helm 2 is dead (removed its Tiller server, a major security hole), but you will still see `v1` charts in the wild. They still work in Helm 3.
 
-### values.yaml
+**`version: 0.7.0`** — the chart's own version. Increment this when the chart structure changes (new template, new value, changed default). This is independent of what the chart deploys.
 
-This is the contract the chart exposes to the operator. Every hardcoded value in v6's YAML becomes a key here:
+**`appVersion: "v7"`** — the version of the application inside the chart. This is informational — shown in `helm list`. It does not have to match the Docker image tag, but by convention it should.
+
+The separation matters: you can release chart version `0.7.1` (fixed a template bug) that still deploys appVersion `v7`. Or you can bump appVersion to `v8` without changing the chart structure. They track different things.
+
+---
+
+## values.yaml: The Contract
+
+`values.yaml` is the public interface of your chart. Every value a user might need to change should be here with a sensible default.
 
 ```yaml
 replicaCount: 1
@@ -73,9 +129,21 @@ image:
   tag: v7
   pullPolicy: IfNotPresent
 
+imagePullSecrets:
+  - name: ghcr-secret
+
+namespace: aois
+
+service:
+  port: 80
+  targetPort: 8000
+
 ingress:
+  enabled: true
+  className: traefik
   host: aois.46.225.235.51.nip.io
   clusterIssuer: letsencrypt-prod
+  tlsSecretName: aois-tls
 
 resources:
   requests:
@@ -84,153 +152,198 @@ resources:
   limits:
     memory: "512Mi"
     cpu: "500m"
+
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 15
+    periodSeconds: 20
+  readiness:
+    path: /health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+secretName: aois-secrets
 ```
 
-`values.yaml` contains safe defaults. `values.prod.yaml` contains only the keys that differ in production — everything else falls through to the defaults.
-
-### Templates
-
-Templates are YAML files with Go template syntax. Helm renders them by substituting values:
-
-```yaml
-# templates/deployment.yaml
-image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
-replicas: {{ .Values.replicaCount }}
-```
-
-`.Values` references `values.yaml`. `.Release.Name` is the name you give the release at install time (`helm install aois ...` → `.Release.Name` = `"aois"`).
+Design principle: the defaults in `values.yaml` should be safe for a development environment — low resource requests, 1 replica, sensible timeouts. Production overrides live in `values.prod.yaml`. This way `helm install aois ./charts/aois` (no values file) works without accidentally deploying a 10-replica prod-sized deployment to a dev cluster.
 
 ---
 
-## What Changed from v6
+## Go Template Syntax: What You're Actually Writing
 
-In v6, `k8s/deployment.yaml` had:
-```yaml
-image: ghcr.io/kolinzking/aois:v6
-replicas: 1
-memory: "256Mi"
-```
+The templates use Go's `text/template` package with Helm's extensions. You need to understand the syntax to write and debug templates.
 
-In v7, `charts/aois/templates/deployment.yaml` has:
+### Basic substitution
+
 ```yaml
 image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
-replicas: {{ .Values.replicaCount }}
-memory: {{ .Values.resources.requests.memory }}
 ```
 
-The YAML structure is identical. Only the static values became template variables. This is the full extent of what Helm templating does — it is not magic, it is substitution.
+`.Values` is the merged values object. `.Values.image.repository` navigates the YAML hierarchy. The result is a string substituted in place.
 
----
+### The dot (`.`) — current context
 
-## The File Structure Built
+`.Values` is available because `.` is the current context — at the top level of a template, `.` is the root data structure, which has `.Values`, `.Release`, `.Chart`, and `.Files` as top-level keys.
 
-```
-charts/aois/
-├── Chart.yaml
-├── values.yaml          # defaults (1 replica, dev resources)
-├── values.prod.yaml     # prod overrides (2 replicas, higher limits)
-└── templates/
-    ├── namespace.yaml
-    ├── deployment.yaml
-    ├── service.yaml
-    └── ingress.yaml     # wrapped in {{- if .Values.ingress.enabled }}
+Inside a `range` block, `.` becomes the current iteration item (covered below). This is the most common source of confusion in Helm templates.
+
+### `.Release` — built-in metadata
+
+```yaml
+name: {{ .Release.Name }}       # the name given at helm install time
+namespace: {{ .Release.Namespace }}
 ```
 
-### The Ingress Conditional
+`.Release.Name` is why the templates use `{{ .Release.Name }}` instead of hardcoding `"aois"`. If someone installs the chart as `helm install my-aois ./charts/aois`, all resources get named `my-aois`. One chart can be installed multiple times in the same cluster under different release names.
+
+### `.Chart` — chart metadata
+
+```yaml
+# reference chart version in a label
+chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+```
+
+Rarely needed in templates but useful for adding standard labels.
+
+### Conditionals: `{{- if }}`
 
 ```yaml
 {{- if .Values.ingress.enabled }}
-...ingress spec...
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+...
 {{- end }}
 ```
 
-If you set `ingress.enabled: false` in a local dev values file, no Ingress resource is created. The same chart works for a cluster without an Ingress controller.
+If `ingress.enabled` is `false`, the entire Ingress resource is omitted from the rendered output — no resource is created. The same chart works for clusters without an Ingress controller (set `ingress.enabled: false` in values).
+
+**The `{{-` (dash)**: strips whitespace/newlines before the tag. `{{ if }}` leaves a blank line in the output. `{{- if }}` removes it. For valid YAML, use `{{-` to avoid extra blank lines that can confuse parsers.
+
+### Loops: `{{- range }}`
+
+```yaml
+imagePullSecrets:
+{{- range .Values.imagePullSecrets }}
+- name: {{ .name }}
+{{- end }}
+```
+
+`.Values.imagePullSecrets` is a list. `range` iterates it. Inside the range block, `.` becomes the current list item — so `.name` refers to the `name` key of each item.
+
+This is why `.Values.imagePullSecrets` is defined as a list of objects (`- name: ghcr-secret`) rather than a list of strings — so each item has a `.name` field.
+
+### Default values in templates
+
+```yaml
+replicas: {{ .Values.replicaCount | default 1 }}
+```
+
+The `| default` pipe applies a fallback if the value is empty or nil. Useful for optional values that might not be set. Not needed for required values that should fail loudly if missing.
 
 ---
 
-## Helm Commands
+## The Four Templates: What Each Does
 
-### Validate without deploying
+### templates/namespace.yaml
 
-```bash
-# Render the chart to YAML — check what would be applied
-helm template aois ./charts/aois
-
-# With prod overrides
-helm template aois ./charts/aois -f charts/aois/values.prod.yaml
-
-# Check for syntax errors (doesn't hit the cluster)
-helm lint ./charts/aois
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
 ```
 
-`helm template` is your most important debugging tool. Before any deploy, render and read the output. Confirm the values substituted correctly.
+Simple. Creates the `aois` namespace. The value comes from `values.yaml`. This means the same chart can deploy to a different namespace just by changing one value — useful for multi-tenant clusters.
 
-### Install
+### templates/deployment.yaml
 
-```bash
-# First deploy (namespace already exists from v6)
-helm install aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
+The most complex template. Every configurable aspect of the Deployment is a value reference:
+
+```yaml
+spec:
+  replicas: {{ .Values.replicaCount }}
+  ...
+  containers:
+  - name: {{ .Release.Name }}
+    image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+    imagePullPolicy: {{ .Values.image.pullPolicy }}
+    ...
+    resources:
+      requests:
+        memory: {{ .Values.resources.requests.memory }}
+        cpu: {{ .Values.resources.requests.cpu }}
+      limits:
+        memory: {{ .Values.resources.limits.memory }}
+        cpu: {{ .Values.resources.limits.cpu }}
+    livenessProbe:
+      httpGet:
+        path: {{ .Values.probes.liveness.path }}
+        port: {{ .Values.service.targetPort }}
+      initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+      periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
 ```
 
-### Upgrade (subsequent deploys)
+The probe path and port are values — in v9 when KEDA changes the way AOIS starts up, you can tune the probe timing without editing the template.
 
-```bash
-# Bump image tag and redeploy
-helm upgrade aois ./charts/aois -f charts/aois/values.prod.yaml -n aois --set image.tag=v8
+### templates/service.yaml
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: {{ .Release.Name }}
+  ports:
+  - port: {{ .Values.service.port }}
+    targetPort: {{ .Values.service.targetPort }}
 ```
 
-`--set` overrides a single value inline. Useful for CI where the image tag is a variable.
+Note the `selector: app: {{ .Release.Name }}`. The Deployment labels its pods `app: aois` (using `.Release.Name`). The Service selects pods with the same label. Both use `.Release.Name` — they stay in sync automatically regardless of what name you install the chart with.
 
-### Check what's running
+### templates/ingress.yaml
 
-```bash
-helm list -n aois
-helm status aois -n aois
-helm history aois -n aois
+```yaml
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+  - hosts:
+    - {{ .Values.ingress.host }}
+    secretName: {{ .Values.ingress.tlsSecretName }}
+  rules:
+  - host: {{ .Values.ingress.host }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Release.Name }}
+            port:
+              number: {{ .Values.service.port }}
+{{- end }}
 ```
 
-`helm history` shows every revision — what was deployed and when.
-
-### Rollback
-
-```bash
-helm rollback aois 1 -n aois
-```
-
-Rolls back to revision 1. Kubernetes applies the previous templates. The old pods come up, the new ones are terminated. This is one command vs. multiple kubectl apply operations.
-
-### Uninstall
-
-```bash
-helm uninstall aois -n aois
-```
-
-Removes everything the chart created. The Namespace is preserved because you may have other resources there.
-
----
-
-## Rendering What You See
-
-Run this now and read the output:
-
-```bash
-helm template aois ./charts/aois -f charts/aois/values.prod.yaml
-```
-
-You should see:
-- `replicas: 2` (prod override)
-- `image: ghcr.io/kolinzking/aois:v7`
-- `memory: 512Mi` requests, `1Gi` limits (prod override)
-- `host: aois.46.225.235.51.nip.io`
-
-This is exactly what gets sent to the Kubernetes API when you run `helm install` or `helm upgrade`. There is no hidden transformation. What you see in `helm template` is what Kubernetes receives.
+The `clusterIssuer` annotation drives cert-manager. When you deploy to EKS in v12, you will set `ingress.className: alb` and remove the cert-manager annotation — a completely different ingress setup, same template.
 
 ---
 
 ## values.prod.yaml: The Override Pattern
 
+`values.prod.yaml` contains **only the keys that differ from defaults**. Everything else falls through from `values.yaml`. Helm deep-merges them, with the override file winning on any conflict.
+
 ```yaml
-# values.prod.yaml — only what differs from defaults
 replicaCount: 2
 
 image:
@@ -248,134 +361,328 @@ resources:
     cpu: "1000m"
 ```
 
-Everything not in `values.prod.yaml` comes from `values.yaml`. This is Helm's merge behavior: prod values take precedence, defaults fill the rest.
+This file is small on purpose. The smaller the override file, the clearer what is different in production. A 200-line override file that copies most of `values.yaml` is a sign the defaults are wrong.
 
-In v12 (EKS), you will add `values.eks.yaml`:
-```yaml
-ingress:
-  className: alb          # AWS Load Balancer Controller instead of Traefik
-  host: aois.yourdomain.com
-image:
-  tag: v12
+**Important**: when Helm merges two YAML files, it merges at the key level. If you only set `image.tag` in the override, `image.repository` and `image.pullPolicy` still come from `values.yaml`. You do not need to repeat the entire `image:` block — only the keys you want to change.
+
+**Future override files:**
+- `values.eks.yaml` (v12): `ingress.className: alb`, EKS-specific hostname
+- `values.local.yaml`: `ingress.enabled: false`, `replicaCount: 1`, minimal resources
+
+---
+
+## Helm Commands: The Full Reference
+
+### Before touching a cluster
+
+```bash
+# Render the chart — see exactly what would be applied
+helm template aois ./charts/aois
+helm template aois ./charts/aois -f charts/aois/values.prod.yaml
+
+# Syntax check — catches template errors before runtime
+helm lint ./charts/aois
+
+# Dry run — sends to Kubernetes API for validation but does not apply
+helm install aois ./charts/aois -f charts/aois/values.prod.yaml -n aois --dry-run
 ```
 
-Same chart. Different ingress class. Different hostname. Everything else inherits from `values.yaml`.
+Run these in order before any real deploy. `helm template` catches your errors. `helm lint` catches structural issues. `--dry-run` catches Kubernetes validation errors (invalid field values, missing required fields).
+
+### Installing for the first time
+
+```bash
+helm install aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
+```
+
+`install` fails if the release already exists. Use `upgrade --install` for idempotent behavior (installs if new, upgrades if exists):
+
+```bash
+helm upgrade --install aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
+```
+
+This is what CI pipelines use — they don't know or care if it's a first install or an upgrade.
+
+### Deploying a new version
+
+```bash
+# Bump the tag in values.prod.yaml, then:
+helm upgrade aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
+
+# Or override the tag inline without editing the file:
+helm upgrade aois ./charts/aois -f charts/aois/values.prod.yaml -n aois --set image.tag=v8
+```
+
+`--set` is useful in CI scripts where the image tag is a variable: `--set image.tag=$CI_COMMIT_SHA`.
+
+### Inspecting a release
+
+```bash
+# List all releases in a namespace
+helm list -n aois
+
+# Detailed status of one release
+helm status aois -n aois
+
+# Full history of revisions
+helm history aois -n aois
+
+# See the values that are currently deployed
+helm get values aois -n aois
+
+# See the fully rendered YAML that is currently deployed
+helm get manifest aois -n aois
+```
+
+`helm get manifest` is the most useful debugging command. It shows you exactly what Helm applied — the rendered templates with all values substituted. Compare this against what `kubectl get -o yaml` shows to diagnose drift.
+
+### Rolling back
+
+```bash
+# See the history first
+helm history aois -n aois
+# REVISION  UPDATED                   STATUS      CHART        APP VERSION  DESCRIPTION
+# 1         2026-04-18 10:00:00 UTC   superseded  aois-0.7.0   v7           Install complete
+# 2         2026-04-18 11:30:00 UTC   deployed    aois-0.7.0   v8           Upgrade complete
+
+# Roll back to revision 1
+helm rollback aois 1 -n aois
+
+# History after rollback:
+# REVISION  STATUS      DESCRIPTION
+# 1         superseded  Install complete
+# 2         superseded  Upgrade complete
+# 3         deployed    Rollback to 1    ← new revision, re-applied revision 1's templates
+```
+
+Rollback creates a new revision. It does not delete or overwrite the history.
+
+### Uninstalling
+
+```bash
+helm uninstall aois -n aois
+```
+
+Removes all resources created by the chart. The Namespace stays — Helm does not delete namespaces because other resources may live there (Secrets, cert-manager certificates, etc.). Delete the namespace manually if you want a clean slate.
 
 ---
 
 ## Deploying v7 to Hetzner
 
-The cluster from v6 is still running. The AOIS deployment, service, and ingress already exist (applied with `kubectl apply`). Before installing via Helm, you need to delete the existing resources so Helm can take ownership:
+The cluster from v6 has AOIS resources already applied via `kubectl apply`. Helm cannot manage resources it did not create. Before installing via Helm, remove the kubectl-managed resources:
 
 ```bash
-# On the Hetzner server — delete what kubectl applied
+# On the Hetzner server (or with your kubeconfig pointing at it)
 kubectl delete deployment aois -n aois
 kubectl delete service aois -n aois
 kubectl delete ingress aois -n aois
-# Do NOT delete: namespace, secret (aois-secrets), ghcr-secret, cert-manager resources
 
-# Then install via Helm (from your local machine with kubeconfig set)
+# Do NOT delete — these were not created by the v6 manifests we're replacing:
+# - namespace (aois) — keep it
+# - secret aois-secrets — keep it (API keys live here)
+# - secret ghcr-secret — keep it (image pull credentials)
+# - cert-manager resources — keep them (ClusterIssuer, certificates)
+# - the existing TLS secret (aois-tls) — keep it (cert is already issued)
+
+# Now install via Helm
 helm install aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
 
-# Watch the rollout
+# Watch the pods come up
 kubectl get pods -n aois -w
 ```
 
-After `helm install`, the release is tracked. Future updates use `helm upgrade`.
-
----
-
-> **▶ STOP — do this now**
->
-> Before deploying, understand what you're about to send to Kubernetes:
-> ```bash
-> helm template aois ./charts/aois -f charts/aois/values.prod.yaml > /tmp/rendered.yaml
-> cat /tmp/rendered.yaml
-> ```
-> Read every line. Confirm:
-> - The image tag matches what you expect
-> - The host matches your Hetzner IP
-> - Resources are what you set in values.prod.yaml
->
-> This is the habit that prevents "I applied the wrong values" incidents.
-
----
-
-> **▶ STOP — do this now**
->
-> Run `helm lint ./charts/aois` and confirm it reports no errors. Lint checks:
-> - Required fields in Chart.yaml are present
-> - Template syntax is valid
-> - Values referenced in templates exist in values.yaml
->
-> If lint passes, the chart is structurally sound.
-
----
-
-## What helm upgrade Looks Like in Practice
-
-Once Helm owns the release, every future deploy is one command:
-
+After `helm install`, confirm with:
 ```bash
-# New image version
-helm upgrade aois ./charts/aois -f charts/aois/values.prod.yaml -n aois --set image.tag=v8
+helm list -n aois
+# NAME   NAMESPACE  REVISION  STATUS    CHART        APP VERSION
+# aois   aois       1         deployed  aois-0.7.0   v7
 
-# Scale up
-helm upgrade aois ./charts/aois -f charts/aois/values.prod.yaml -n aois --set replicaCount=3
-
-# View the history after a few upgrades
-helm history aois -n aois
-# REVISION  UPDATED                   STATUS     CHART       APP VERSION
-# 1         2026-04-18 09:30:00 UTC   superseded aois-0.7.0  v7
-# 2         2026-04-18 10:15:00 UTC   deployed   aois-0.7.0  v7
+curl https://aois.46.225.235.51.nip.io/health
+# {"status":"healthy"}
 ```
 
-In v8 (ArgoCD), you will stop running `helm upgrade` by hand entirely. ArgoCD watches the git repo and runs it for you when values.prod.yaml changes. But the Helm chart is the same — ArgoCD is just the automation layer on top.
+From this point on, never use `kubectl apply` to manage AOIS. Helm owns the release. Mixing `kubectl apply` and `helm upgrade` causes state corruption — Helm will not know about manually-applied changes.
+
+---
+
+## What `helm template` Output Tells You
+
+Running `helm template` before deploying is not optional — it is the habit that prevents incidents. Read the output like a pre-flight checklist:
+
+```bash
+helm template aois ./charts/aois -f charts/aois/values.prod.yaml
+```
+
+Look for:
+- **Image**: `image: ghcr.io/kolinzking/aois:v7` — is this the tag you intend?
+- **Replicas**: `replicas: 2` — does this match `values.prod.yaml`?
+- **Resources**: memory limits and requests — did the prod override apply?
+- **Host**: `host: aois.46.225.235.51.nip.io` — does this match the actual cluster?
+- **Namespace**: every resource should be in `aois`
+- **Labels/Selectors**: `app: aois` — do the Deployment labels match the Service selector?
+
+A mismatch here means a broken deploy. Catching it in `helm template` costs nothing. Catching it in production costs an incident.
+
+---
+
+> **▶ STOP — do this now**
+>
+> Run the template and trace one value all the way through:
+> ```bash
+> helm template aois ./charts/aois -f charts/aois/values.prod.yaml | grep -A2 "resources:"
+> ```
+> You should see `memory: 512Mi` and `cpu: 200m` for requests (from `values.prod.yaml`).
+>
+> Now run without the prod overlay:
+> ```bash
+> helm template aois ./charts/aois | grep -A2 "resources:"
+> ```
+> You should see `memory: 256Mi` and `cpu: 100m` (from `values.yaml` defaults).
+>
+> This is Helm's merge in action. Values.prod.yaml wins on the keys it defines. Everything else falls through.
+
+---
+
+> **▶ STOP — do this now**
+>
+> Add a new value to the chart without breaking anything:
+>
+> 1. Add to `values.yaml`:
+> ```yaml
+> environment: dev
+> ```
+>
+> 2. Add to `values.prod.yaml`:
+> ```yaml
+> environment: prod
+> ```
+>
+> 3. Add to `templates/deployment.yaml` in the container spec:
+> ```yaml
+> env:
+> - name: ENVIRONMENT
+>   value: {{ .Values.environment }}
+> ```
+>
+> 4. Verify:
+> ```bash
+> helm template aois ./charts/aois | grep ENVIRONMENT
+> # value: dev
+>
+> helm template aois ./charts/aois -f charts/aois/values.prod.yaml | grep ENVIRONMENT
+> # value: prod
+> ```
+>
+> You just extended the chart contract. Any operator can now configure `environment` without editing a template.
+
+---
+
+> **▶ STOP — do this now**
+>
+> Run `helm lint ./charts/aois`. It should report `0 chart(s) linted, 0 chart(s) failed`.
+>
+> Now deliberately break a template — remove a closing `}}` from any value reference. Run lint again. It will report the exact line and error.
+>
+> Fix it and confirm lint passes again. You now know how to diagnose template syntax errors before they reach the cluster.
+
+---
+
+## Troubleshooting
+
+**`Error: release aois already exists`**
+You ran `helm install` when the release already exists. Use `helm upgrade` or `helm upgrade --install`.
+
+**`Error: rendered manifests contain a resource that already exists`**
+Resources exist in the cluster that were not created by Helm (e.g., the kubectl-applied resources from v6). Solution: delete the orphaned resources first, then install.
+
+**`Error: INSTALLATION FAILED: cannot re-use a name that is still in use`**
+A previous install failed midway. The release is in a failed state. Run:
+```bash
+helm list -n aois -a   # -a shows failed releases too
+helm uninstall aois -n aois
+helm install aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
+```
+
+**Values not appearing as expected in rendered output**
+Run `helm template` and inspect. Then run `helm get values aois -n aois` to see what values Helm actually deployed with. Compare the two. A common mistake: the override file has a typo in a key name (e.g., `replicasCount` instead of `replicaCount`) — the key is silently ignored and the default is used.
+
+**Pod is up but shows wrong image tag**
+Run `helm get manifest aois -n aois | grep image:`. If the tag is wrong there, the values file had the wrong value. If the tag is right there but the pod shows something different, the pod was not restarted — run `kubectl rollout restart deployment aois -n aois`.
+
+**Helm rollback did not change anything**
+The revision you rolled back to may have the same template output as the current revision. Run `helm get manifest aois -n aois --revision 1` and compare. If they're identical, the rollback applied but nothing changed in Kubernetes because nothing was different.
+
+---
+
+## How v7 Connects to What Comes Next
+
+**v8 (ArgoCD)**: ArgoCD is Helm-aware. When you point ArgoCD at `charts/aois` with `values.prod.yaml`, it runs `helm template` internally and applies the output. You do not run `helm upgrade` anymore — ArgoCD does it for you when git changes.
+
+**v9 (KEDA)**: You will add a `ScaledObject` resource to the chart. One new template file, a few new values. The chart handles it naturally.
+
+**v12 (EKS)**: Add `values.eks.yaml`. The same chart deploys to a completely different cluster. This is the moment the investment in Helm pays off — you don't rewrite anything.
+
+The chart you built in v7 is production infrastructure. It will carry AOIS forward for the rest of the curriculum.
 
 ---
 
 ## Mastery Checkpoint
 
-**1. Explain Helm's purpose in one sentence**
-Without referencing documentation, explain to someone unfamiliar with Helm why it exists. If you cannot do this without the notes, re-read the "Why Helm Exists" section.
+**1. Explain Helm's three core problems solved**
+Without notes: name the three problems Helm solves for raw kubectl-apply workflows. (Environment drift, no release history, multi-file version bumps.) If you cannot name them, the "Why Helm Exists" section is worth re-reading.
 
-**2. Trace a value from values.yaml to rendered YAML**
-Pick any value from `values.prod.yaml` — say `replicaCount: 2`. Trace it:
-- Where is it defined? (`values.prod.yaml`)
-- Where does the template reference it? (`templates/deployment.yaml`, `{{ .Values.replicaCount }}`)
-- What does the rendered output look like? (`replicas: 2` in the Deployment spec)
-
-Run `helm template aois ./charts/aois -f charts/aois/values.prod.yaml | grep replicas` to confirm.
-
-**3. Add a new value without breaking the chart**
-Add an `environment` key to `values.yaml` with default `"dev"`. Add it to `values.prod.yaml` as `"prod"`. Reference it in `deployment.yaml` as an environment variable in the container spec:
-```yaml
-env:
-- name: ENVIRONMENT
-  value: {{ .Values.environment }}
-```
-Run `helm template` and confirm the env var appears with `"prod"` when using the prod values file.
-
-**4. Understand the override merge**
-In `values.yaml`, `resources.requests.memory` is `256Mi`. In `values.prod.yaml` it is `512Mi`.
-- Run `helm template aois ./charts/aois` — what memory value appears?
-- Run `helm template aois ./charts/aois -f charts/aois/values.prod.yaml` — what value appears now?
-- Why? (Prod values override defaults; unspecified keys fall through)
-
-**5. Understand helm list vs kubectl get**
-After deploying with Helm, run both:
+**2. Trace Helm's storage**
+After `helm install`, where does Helm store the release state? (As a Secret in the cluster namespace.) Run:
 ```bash
-helm list -n aois
-kubectl get deployment -n aois
+kubectl get secret -n aois | grep helm
+kubectl get secret sh.helm.release.v1.aois.v1 -n aois -o jsonpath='{.data.release}' | base64 -d | base64 -d | gunzip | python3 -m json.tool | head -30
 ```
-Both show AOIS running. What does `helm list` show that `kubectl get` cannot? (Release name, chart version, revision number, last deploy time — Helm's release metadata, not Kubernetes object state)
+You should see the rendered manifest and release metadata stored inside the cluster itself.
 
-**6. Rollback understanding**
-You deploy v8 and it has a bug. Run:
+**3. Explain `.Release.Name` vs hardcoding**
+Why does the Deployment template use `{{ .Release.Name }}` for the container name and pod labels instead of hardcoding `"aois"`? What would break if someone installed the chart as `helm install aois-staging ./charts/aois`? (Resource names and labels would not match the release name — the Service selector would target `app: aois` but pods would be labeled `app: aois-staging`. Traffic breaks.)
+
+Actually verify this with helm template:
+```bash
+helm template aois-staging ./charts/aois | grep -E "name:|app:"
+```
+Confirm that every `aois` reference becomes `aois-staging`.
+
+**4. The merge test**
+In `values.yaml`, `ingress.className` is `traefik`. Create a new file `values.local.yaml`:
+```yaml
+ingress:
+  enabled: false
+```
+Run:
+```bash
+helm template aois ./charts/aois -f charts/aois/values.local.yaml | grep -i ingress
+```
+Confirm no Ingress resource appears. This is the same override pattern you will use for EKS in v12.
+
+**5. Understand helm history and rollback**
+Do three helm upgrades (changing `replicaCount` each time: 1, 2, 3). Then:
 ```bash
 helm history aois -n aois
 helm rollback aois 1 -n aois
+kubectl get deployment aois -n aois -o jsonpath='{.spec.replicas}'
 ```
-What does Kubernetes do when Helm rolls back? (Re-applies the templates from revision 1 — Kubernetes performs a rolling update back to the previous pod spec. Old pods terminate, previous-version pods come up.)
+Confirm the replica count reverted to 1. Then check `helm history` again and note that rollback created a new revision (4), not deleted revisions 2 and 3.
 
-**The mastery bar**: You understand why Helm exists, can add and override values, can render and read templates before deploying, and know how to roll back. When someone asks you to "cut a Helm release" or "bump the chart version," you know exactly what that means and what files to touch.
+**6. The corrupted release recovery**
+Simulate a failed install by applying a broken manifest manually:
+```bash
+kubectl run broken-pod --image=doesnotexist -n aois
+helm install aois ./charts/aois -n aois  # will fail — release exists? Try it
+```
+Practice diagnosing and recovering from common Helm error states using the troubleshooting section.
+
+**7. Read `helm get manifest` and compare to `kubectl`**
+```bash
+helm get manifest aois -n aois > /tmp/helm-manifest.yaml
+kubectl get deployment aois -n aois -o yaml > /tmp/kubectl-manifest.yaml
+diff /tmp/helm-manifest.yaml /tmp/kubectl-manifest.yaml
+```
+The kubectl output will have many additional fields (status, resourceVersion, annotations added by Kubernetes). These are fields Kubernetes added after Helm applied the manifest. This is why Helm stores its own copy — it needs to diff against what it originally applied, not what Kubernetes has mutated since.
+
+**The mastery bar**: You understand why Helm exists, know where it stores state, can trace any value from `values.yaml` through the template to rendered output, can diagnose and recover from common error states, and understand how the chart will extend as AOIS grows. When someone says "bump the chart version" or "the Helm release is in a failed state," you know exactly what to do.
