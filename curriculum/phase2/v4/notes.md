@@ -431,6 +431,29 @@ volumes:
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Start the stack and observe all three services:
+> ```bash
+> cd /workspaces/aois-system
+> docker compose up -d
+>
+> # Check all containers are running
+> docker compose ps
+>
+> # Confirm AOIS can reach Redis and Postgres
+> docker compose exec aois bash -c "python3 -c 'import redis; r=redis.Redis(host=\"redis\"); print(r.ping())'"
+> docker compose exec aois bash -c "python3 -c 'import psycopg2; c=psycopg2.connect(host=\"postgres\",user=\"aois\",password=\"aois\",dbname=\"aois\"); print(\"postgres OK\")'"
+>
+> # Check the AOIS API through the container
+> curl -s http://localhost:8000/health
+>
+> docker compose down
+> ```
+> The hostname `redis` and `postgres` in those connection strings work because Compose puts all services on the same Docker network — each service's name becomes its hostname. This same pattern reappears in Kubernetes (where service names become DNS entries).
+
+---
+
 ## Part 6 — Running with Docker Compose
 
 ### Start everything
