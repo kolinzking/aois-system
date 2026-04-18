@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aois
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/kolinzking/aois-system
+    targetRevision: main
+    path: charts/aois
+    helm:
+      valueFiles:
+        - values.prod.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: aois
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
