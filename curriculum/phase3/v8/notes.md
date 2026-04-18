@@ -482,19 +482,29 @@ Then `https://argocd.46.225.235.51.nip.io` reaches the UI directly.
 > kubectl scale deployment aois -n aois --replicas=5
 >
 > # Immediately check ArgoCD status
-> argocd app get aois
-> # SYNC STATUS: OutOfSync  ← ArgoCD detected the drift
->
-> # Wait up to 3 minutes (or run: argocd app sync aois)
-> # Watch the pods
-> kubectl get pods -n aois -w
-> # Two extra pods terminate — ArgoCD reverts to replicaCount from values.prod.yaml
->
-> # Confirm
-> kubectl get deployment aois -n aois -o jsonpath='{.spec.replicas}'
-> # 2  ← back to what git says
+> argocd app get aois | grep "Sync Status"
 > ```
-> This is why `selfHeal: true` matters. The cluster cannot drift from git. Ever.
+> Expected immediately after the manual scale:
+> ```
+> Sync Status:        OutOfSync from main (abc1234)
+> ```
+> ArgoCD detected the drift within seconds (it watches the cluster, not just git).
+> ```bash
+> # Trigger sync now instead of waiting 3 minutes
+> argocd app sync aois --watch
+> ```
+> Expected output during sync:
+> ```
+> TIMESTAMP   GROUP  KIND        NAMESPACE  NAME  STATUS   HEALTH   HOOK  MESSAGE
+> 09:45:01           Deployment  aois       aois  Synced   Healthy        deployment "aois" successfully rolled out
+> ```
+> ```bash
+> # Confirm replica count reverted
+> kubectl get deployment aois -n aois -o jsonpath='{.spec.replicas}'
+> ```
+> Expected: `2` (back to what `values.prod.yaml` says — the three extra pods were terminated).
+>
+> This is `selfHeal: true` in action. Git is authoritative. Every manual edit is eventually corrected.
 
 ---
 
