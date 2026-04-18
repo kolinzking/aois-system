@@ -1,4 +1,5 @@
 # v6 — k3s on Hetzner: Your First Real Cluster
+⏱ **Estimated time: 6–10 hours**
 
 ## What this version builds
 
