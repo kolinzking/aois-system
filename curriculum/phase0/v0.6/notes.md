@@ -161,6 +161,43 @@ When FastAPI receives a POST request with a JSON body, it:
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Open a Python REPL and test FastAPI validation before building the full app:
+> ```python
+> python3 << 'EOF'
+> from pydantic import BaseModel
+> from fastapi import FastAPI
+> from fastapi.testclient import TestClient
+>
+> class LogInput(BaseModel):
+>     log: str
+>
+> app = FastAPI()
+>
+> @app.post("/analyze")
+> def analyze(data: LogInput):
+>     return {"received": data.log, "length": len(data.log)}
+>
+> client = TestClient(app)
+>
+> # Valid request
+> r = client.post("/analyze", json={"log": "OOMKilled pod/payment"})
+> print("Valid:", r.status_code, r.json())
+>
+> # Missing field
+> r = client.post("/analyze", json={})
+> print("Missing:", r.status_code, r.json()["detail"][0]["msg"])
+>
+> # Wrong type
+> r = client.post("/analyze", json={"log": 12345})
+> print("Wrong type:", r.status_code)
+> EOF
+> ```
+> FastAPI returns 422 on invalid input automatically. You wrote zero validation logic.
+
+---
+
 ## Part 5 — Path parameters, query parameters, request body
 
 Three ways data reaches your endpoint:
