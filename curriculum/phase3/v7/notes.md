@@ -651,6 +651,35 @@ A mismatch here means a broken deploy. Catching it in `helm template` costs noth
 
 ---
 
+## Common Mistakes
+
+**Mixing `kubectl apply` and `helm upgrade` on the same resources.**
+After `helm install`, Helm owns those resources. If you then run `kubectl apply -f k8s/deployment.yaml` on the same Deployment, you bypass Helm — Helm's stored state no longer matches the cluster. The next `helm upgrade` will fight the manually-applied state. Fix: delete the orphaned resources and let Helm manage everything, or use `helm uninstall` and start fresh.
+
+**`--set` syntax for nested values.**
+```bash
+# Wrong — this is shell syntax, not Helm syntax
+helm upgrade aois ./charts/aois --set image: {tag: v8}
+
+# Correct — use dot notation for nested keys
+helm upgrade aois ./charts/aois --set image.tag=v8
+```
+`--set` uses dot-separated paths. Always verify with `helm get values aois -n aois` after upgrading to confirm the value took effect.
+
+**Forgetting `-n namespace`.**
+`helm list` without `-n aois` shows releases in the `default` namespace. Your AOIS release is in `aois`. Running `helm upgrade aois` without `-n aois` will either fail ("release not found") or upgrade the wrong release if one named `aois` happens to exist in `default`. Always include `-n aois` in every Helm command.
+
+**`helm upgrade` failing with "release not found" on first deploy.**
+`helm upgrade` requires the release to already exist. On first deploy, use `helm install`. For idempotent behavior in CI: `helm upgrade --install` works for both first install and subsequent upgrades.
+
+**Typo in values key silently ignored.**
+If you write `replicasCount: 2` instead of `replicaCount: 2` in `values.prod.yaml`, Helm does not error. It uses the default from `values.yaml` (1 replica). The typo is silently ignored. Always verify with `helm template` before deploying and `helm get values` after deploying.
+
+**Editing secrets in-place before `helm install`.**
+The `aois-secrets` Secret in the cluster was created with `kubectl create secret`. Helm does not manage it — it was created outside the chart. Do not add the Secret to the chart without planning the migration. Adding it to the chart and running `helm install` will fail with "resource already exists." Either keep it external (current approach) or delete the existing Secret and let Helm create it.
+
+---
+
 ## Troubleshooting
 
 **`Error: release aois already exists`**
