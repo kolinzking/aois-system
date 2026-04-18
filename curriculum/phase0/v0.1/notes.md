@@ -172,6 +172,20 @@ And watch what it logs in real time while you reproduce the problem.
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Run these three commands and look carefully at the output:
+> ```bash
+> wc -l /workspaces/aois-system/main.py
+> head -5 /workspaces/aois-system/main.py
+> tail -5 /workspaces/aois-system/main.py
+> ```
+> You are reading a real production file — the AOIS FastAPI app you will understand completely by v1.
+> `wc -l` tells you how large it is. `head` shows the imports. `tail` shows the last function.
+> You do not need to understand it yet — this is practice with the tools while looking at real code.
+
+---
+
 ## Part 4 — Creating, copying, moving, deleting
 
 ```bash
