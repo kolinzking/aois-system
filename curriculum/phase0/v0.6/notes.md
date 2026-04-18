@@ -657,42 +657,130 @@ v1 swaps `analyze_with_regex()` for `analyze_with_claude()`. Everything else —
 
 ## Common Mistakes
 
-**Running FastAPI with `--reload` in production.**
-`--reload` watches your source files and restarts the server when they change. It is invaluable for development. In production it adds overhead, forks a subprocess to watch the filesystem, and can cause unexpected restarts if any file is touched (log rotation, temp file creation). Always start production with `uvicorn main:app --host 0.0.0.0 --port 8000` — no `--reload`.
+**Running FastAPI with `--reload` in production** *(recognition)*
+`--reload` forks a child process that watches the filesystem and kills/restarts the server on any file change. In production, log rotation, temp file writes, or a config file touched by another process can trigger unexpected restarts mid-request.
 
-**Returning a plain Python dict instead of a Pydantic response model.**
-```python
-@app.get("/analyze")
-async def analyze():
-    return {"result": "ok"}           # works, but no validation, no schema in /docs
-    return AnalysisResponse(result="ok")  # correct — validated, documented, type-safe
+*(recall — trigger it)*
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload &
+sleep 2
+ps aux | grep uvicorn
 ```
-FastAPI can serialize a dict, but returning a Pydantic model gives you automatic validation, automatic OpenAPI schema generation, and clear error messages when something is wrong. Use the model.
+Expected: two uvicorn processes — the watcher parent and the server child.
+```
+codespace  1234  uvicorn main:app --reload         ← parent/watcher
+codespace  1235  uvicorn main:app --reload (...)   ← actual server child
+```
+Now without `--reload`:
+```bash
+kill %1 2>/dev/null; sleep 1
+uvicorn main:app --host 0.0.0.0 --port 8000 &
+sleep 2
+ps aux | grep uvicorn
+kill %1 2>/dev/null
+```
+Expected: one process. In production there is no reason for two. `--reload` is a development flag only.
 
-**Not handling exceptions → generic 500.**
-```python
-@app.post("/analyze")
-async def analyze(request: AnalyzeRequest):
-    result = call_claude(request.log)   # if this raises, FastAPI returns 500 with no useful info
-```
-Wrap calls to external services (Claude, database) in try/except and raise `HTTPException` with a meaningful status code and detail:
-```python
-try:
-    result = call_claude(request.log)
-except anthropic.RateLimitError:
-    raise HTTPException(status_code=429, detail="Rate limit reached. Try again in 60 seconds.")
-```
+---
 
-**CORS not configured for frontend access.**
-By default, browsers block cross-origin requests. If your React dashboard (running on port 3000) calls the FastAPI API (port 8000), the browser blocks it. Fix:
-```python
-from fastapi.middleware.cors import CORSMiddleware
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_methods=["*"])
-```
-This is not needed for server-to-server calls (curl, other services) — only browsers enforce CORS.
+**Not handling exceptions → generic 500** *(recognition)*
+When an unhandled exception escapes a FastAPI route, the framework catches it and returns HTTP 500 with no useful detail. The caller gets `Internal Server Error` and nothing actionable.
 
-**`/docs` not working because of HTTPS in production.**
-FastAPI's Swagger UI at `/docs` loads its JavaScript from a CDN. If your service is on HTTPS but the CDN is blocked, `/docs` loads a blank page. This is common in air-gapped or strict network environments. For local development, always use HTTP — HTTPS adds this complication with no benefit.
+*(recall — trigger it)*
+```bash
+# Create a minimal FastAPI app that raises an unhandled exception
+cat > /tmp/test_500.py << 'EOF'
+from fastapi import FastAPI
+app = FastAPI()
+
+@app.get("/broken")
+async def broken():
+    raise ValueError("something went wrong internally")
+
+@app.get("/handled")
+async def handled():
+    from fastapi import HTTPException
+    raise HTTPException(status_code=503, detail="Dependency unavailable. Retry in 30s.")
+EOF
+
+uvicorn /tmp/test_500:app --port 8002 &
+sleep 2
+
+curl -s http://localhost:8002/broken | python3 -m json.tool
+echo "---"
+curl -s http://localhost:8002/handled | python3 -m json.tool
+kill %1 2>/dev/null
+```
+Expected from `/broken`:
+```json
+{"detail": "Internal Server Error"}
+```
+Expected from `/handled`:
+```json
+{"detail": "Dependency unavailable. Retry in 30s."}
+```
+The unhandled exception gives the caller nothing useful. The `HTTPException` gives them a specific message and a status code they can act on. Every external call (API, database) gets a try/except that raises `HTTPException`.
+
+---
+
+**Returning a dict instead of a Pydantic response model** *(recognition)*
+FastAPI will serialize a plain dict — but you lose validation, you lose the OpenAPI schema at `/docs`, and you lose type safety. The `/docs` endpoint shows `{}` for the response body instead of the actual schema.
+
+*(recall — trigger it)*
+```bash
+cat > /tmp/test_schema.py << 'EOF'
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+app = FastAPI()
+
+class Analysis(BaseModel):
+    severity: str
+    summary: str
+
+@app.get("/dict-response")
+async def dict_response():
+    return {"severity": "P2", "summary": "disk pressure"}   # plain dict
+
+@app.get("/model-response", response_model=Analysis)
+async def model_response():
+    return Analysis(severity="P2", summary="disk pressure")  # Pydantic model
+EOF
+
+uvicorn /tmp/test_schema:app --port 8003 &
+sleep 2
+
+# Check the OpenAPI schema for both endpoints
+curl -s http://localhost:8003/openapi.json | python3 -c "
+import json, sys
+spec = json.load(sys.stdin)
+print('dict endpoint schema:')
+print(json.dumps(spec['paths']['/dict-response']['get'].get('responses', {}), indent=2))
+print('model endpoint schema:')
+print(json.dumps(spec['paths']['/model-response']['get'].get('responses', {}), indent=2))
+"
+kill %1 2>/dev/null
+```
+The dict endpoint's response schema will be empty or `{}`. The model endpoint's response schema will show every field with its type. This is what gets generated in `/docs` — the model response is self-documenting.
+
+---
+
+**CORS not configured for browser access** *(recognition)*
+Browsers enforce same-origin policy — a page on `localhost:3000` cannot call an API on `localhost:8000` without CORS headers. curl and server-to-server calls are not affected — only browsers. The error appears in the browser console, not the server logs.
+
+*(recall — trigger it)*
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000 &
+sleep 2
+
+# Simulate what a browser does — send an Origin header (curl cannot fully replicate browser CORS
+# but you can see what headers the server returns)
+curl -v -H "Origin: http://localhost:3000" \
+     -H "Access-Control-Request-Method: POST" \
+     -X OPTIONS http://localhost:8000/analyze 2>&1 | grep -i "access-control"
+kill %1 2>/dev/null
+```
+Expected: no `Access-Control-Allow-Origin` header in the response. A browser receiving this response will block the request entirely — the JavaScript fetch call never completes. The error in the browser DevTools console reads: `CORS policy: No 'Access-Control-Allow-Origin' header`. Adding `CORSMiddleware` makes the header appear. curl never needs it — only browsers.
 
 ---
 
