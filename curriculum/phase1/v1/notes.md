@@ -575,6 +575,31 @@ Call 3:
 
 ---
 
+## Common Mistakes
+
+**Not using prompt caching — paying full price on every call.**
+If your system prompt is the same on every call (it is for AOIS), you must add `cache_control: {"type": "ephemeral"}` to the system prompt content block. Without it, every call pays full input token price. With it, calls 2+ pay ~10% of that price. On 1000 calls/day with a 500-token system prompt, caching saves roughly $1.35/day — or $490/year at current Anthropic pricing. This is not optional in production.
+
+**Using temperature for critical severity classification.**
+```python
+response = client.messages.create(..., temperature=0.7)
+```
+For AOIS severity classification (P1/P2/P3/P4), temperature=0.7 means different runs of the same log may produce different severity levels. Use temperature=0 for classification tasks. Use higher temperature only when you want creative variation (e.g., generating suggestions with multiple options).
+
+**Treating the model's `suggested_action` as safe to execute automatically.**
+The model can suggest "delete the namespace" or "run rm -rf /var/data" in a suggested_action field. Without output validation (added in v5), AOIS would return that suggestion directly. Never auto-execute LLM suggestions without a human approval step or output blocklist. The model is right most of the time — but "most of the time" is not production-safe.
+
+**Not handling `anthropic.RateLimitError`.**
+The Anthropic API has rate limits. Under load, calls will fail with 429. Without a retry strategy, AOIS returns a 500 error to the user. Add retry logic with exponential backoff, or use the fallback to OpenAI that v1 already includes. The fallback is the mitigation — make sure it is tested by temporarily using an invalid Anthropic key.
+
+**Hardcoding model names as strings without a constant.**
+```python
+model="claude-sonnet-4-6"    # scattered across the codebase
+```
+Model names change when Anthropic releases new versions. Retired model names fail silently or return errors. Define model names as constants at the top of the file — one place to update when the model is upgraded.
+
+---
+
 ## Troubleshooting
 
 **Server starts but `curl /analyze` returns 500:**
