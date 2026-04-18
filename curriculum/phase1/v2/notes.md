@@ -142,6 +142,30 @@ ROUTING_TIERS["nim"] = "openai/meta/llama-3.1-8b-instruct"        # Phase 5
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Calculate the real cost difference between tiers using the AOIS call profile (~280 tokens total per call):
+> ```
+> Premium (claude-opus-4-6):   $3/M input + $15/M output
+>   Per call: 130 tokens input × $3/M = $0.00039
+>             150 tokens output × $15/M = $0.00225
+>   Total per call: ~$0.0026
+>
+> Standard (gpt-4o-mini):      $0.15/M input + $0.60/M output
+>   Per call: 130 × $0.15/M = $0.0000195
+>             150 × $0.60/M = $0.00009
+>   Total per call: ~$0.0001
+>
+> Fast (groq/llama-3.1-8b-instant): ~$0.05/M input + $0.08/M output
+>   Total per call: ~$0.00002
+> ```
+> At 10,000 calls/day — all premium: ~$26/day.
+> At 10,000 calls/day — 20% premium, 80% fast: ~$5.36/day.
+>
+> The routing tier logic saves ~80% on a real production workload. These numbers explain why v2 exists.
+
+---
+
 ## The tool definition: now in OpenAI format
 
 v1 used Anthropic's native format:
