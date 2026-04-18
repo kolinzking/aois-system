@@ -559,15 +559,35 @@ A mismatch here means a broken deploy. Catching it in `helm template` costs noth
 > ```bash
 > helm template aois ./charts/aois -f charts/aois/values.prod.yaml | grep -A2 "resources:"
 > ```
-> You should see `memory: 512Mi` and `cpu: 200m` for requests (from `values.prod.yaml`).
+> Expected output:
+> ```yaml
+>         resources:
+>           requests:
+>             memory: 512Mi
+>             cpu: 200m
+>           limits:
+>             memory: 1Gi
+>             cpu: 1000m
+> ```
 >
 > Now run without the prod overlay:
 > ```bash
 > helm template aois ./charts/aois | grep -A2 "resources:"
 > ```
-> You should see `memory: 256Mi` and `cpu: 100m` (from `values.yaml` defaults).
+> Expected output:
+> ```yaml
+>         resources:
+>           requests:
+>             memory: 256Mi
+>             cpu: 100m
+>           limits:
+>             memory: 512Mi
+>             cpu: 500m
+> ```
 >
-> This is Helm's merge in action. Values.prod.yaml wins on the keys it defines. Everything else falls through.
+> If your output differs, check: did you save both values files? Does `values.prod.yaml` have `resources.requests.memory: "512Mi"`? The quotes matter for YAML parsing — but Helm strips them in the rendered output.
+>
+> This is Helm's merge in action. `values.prod.yaml` wins on the keys it defines. Everything else falls through from `values.yaml`.
 
 ---
 
