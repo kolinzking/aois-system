@@ -441,6 +441,31 @@ If you do not have Langfuse configured, skip this step — the server still work
 
 ---
 
+## Common Mistakes
+
+**Instructor retries hiding a bad prompt.**
+Instructor retries validation failures automatically (default: `max_retries=1`). If your Pydantic model has a field that the model consistently gets wrong, Instructor retries and eventually succeeds — but the first attempt was a failure that cost tokens. Check Langfuse: if you see many retried calls on a specific field, the problem is in your prompt or field description, not the model. Fix the prompt, not the retry count.
+
+**Adding too many fields to the Pydantic model.**
+Every field in the model is something you are asking the model to fill in. If you have 15 fields, the model must produce 15 valid values — and will hallucinate values for fields it has no evidence for. Start with the minimum viable fields (severity, summary, suggested_action). Add fields only when you have a clear use for them and evidence that the model can fill them reliably.
+
+**Not checking Langfuse traces after building.**
+You added Langfuse. You wrote the tracing code. You called it once and confirmed it works. Then you never look at it again. This defeats the purpose. In every AOIS session, open Langfuse and check: What was the actual token count? Did any calls fail? What was the average latency? What did the prompts look like? Observability is only useful if you observe. Make checking Langfuse a habit, not an afterthought.
+
+**`max_retries=0` disabling retries silently.**
+```python
+client = instructor.from_anthropic(anthropic.Anthropic())
+# Default: max_retries=1 — Instructor will retry once on validation failure
+client = instructor.from_anthropic(anthropic.Anthropic(), max_retries=0)
+# max_retries=0 disables retries — any validation failure raises immediately
+```
+`max_retries=0` is NOT the default. If you set it to test something and forget to remove it, your production AOIS will raise exceptions on the first validation failure instead of retrying. Check your instantiation.
+
+**Confusing Instructor's retry with network retry.**
+Instructor retries when the model's response fails Pydantic validation — the model produced something that doesn't match the schema. This is not a network retry. If the Anthropic API is down, Instructor's `max_retries` does nothing — that is a different error class. Handle network failures separately with `tenacity` or `httpx` retry configuration.
+
+---
+
 ## Troubleshooting
 
 **`instructor.exceptions.InstructorRetryException: Max retries exceeded`:**
