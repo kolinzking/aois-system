@@ -461,6 +461,22 @@ confidence
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Read the actual Pydantic models in the AOIS source code and understand each field:
+> ```bash
+> grep -A 10 "class.*BaseModel" /workspaces/aois-system/main.py
+> ```
+> For each field: what type is it? What values does it accept? What happens if the LLM returns a different type?
+>
+> Then look at the v5 source which has `Literal` constraints:
+> ```bash
+> grep -n "Literal\|BaseModel\|Field" /workspaces/aois-system/main.py | head -20
+> ```
+> In v1, `severity: str` accepts anything. In v3+, `severity: Literal["P1","P2","P3","P4"]` rejects "Critical". You are looking at the evolution of type safety across versions.
+
+---
+
 ## Part 6 — Async/await
 
 FastAPI is async. Understanding why matters even if the pattern feels mechanical at first.
