@@ -1,0 +1,15 @@
+replicaCount: 2
+
+image:
+  tag: v7
+
+ingress:
+  host: aois.46.225.235.51.nip.io
+
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "200m"
+  limits:
+    memory: "1Gi"
+    cpu: "1000m"
