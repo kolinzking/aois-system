@@ -209,6 +209,27 @@ If the model hits `max_tokens` before finishing its response, the response is cu
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Calculate token costs before you make a single API call:
+> ```
+> System prompt: ~80 tokens
+> User message (average log): ~50 tokens
+> Response: ~150 tokens
+> Total per call: ~280 tokens
+>
+> At claude-opus-4-6 pricing ($15/M input, $75/M output):
+> Input cost per call:  280 × $15/1,000,000 = $0.0042
+> Output cost per call: 150 × $75/1,000,000 = $0.01125
+> Total per call: ~$0.016
+>
+> At 1,000 calls/day:  $16/day = $480/month
+> At 10,000 calls/day: $160/day = $4,800/month
+> ```
+> This is why prompt caching (v1) and routing to cheaper models (v2) matter. Write these numbers down. When you implement caching and see the savings, you will know exactly why you built it.
+
+---
+
 ## Part 6 — Raw curl call to Claude
 
 Before writing Python, see the raw HTTP exchange:
