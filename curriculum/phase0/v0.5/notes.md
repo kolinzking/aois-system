@@ -268,6 +268,38 @@ Pydantic is a data validation library. You define a model class with typed field
 
 This is the core of why v1's structured output is reliable.
 
+> **▶ STOP — do this now**
+>
+> Before reading the rest of Part 5, open a Python REPL and experiment:
+> ```python
+> python3 << 'EOF'
+> from pydantic import BaseModel
+> from typing import Literal
+>
+> class IncidentAnalysis(BaseModel):
+>     summary: str
+>     severity: Literal["P1", "P2", "P3", "P4"]
+>     confidence: float
+>
+> # Test 1: valid data
+> a = IncidentAnalysis(summary="disk full", severity="P2", confidence=0.9)
+> print("Valid:", a.model_dump())
+>
+> # Test 2: wrong severity value
+> try:
+>     b = IncidentAnalysis(summary="disk full", severity="Critical", confidence=0.9)
+> except Exception as e:
+>     print("Invalid severity:", type(e).__name__)
+>
+> # Test 3: wrong type for confidence
+> try:
+>     c = IncidentAnalysis(summary="disk full", severity="P1", confidence="high")
+> except Exception as e:
+>     print("Invalid confidence:", type(e).__name__)
+> EOF
+> ```
+> `Literal["P1","P2","P3","P4"]` rejects "Critical" at validation time. This is the exact model that v1's Claude tool use must satisfy — and why `"enum"` in the tool schema is essential.
+
 ### Basic model
 
 ```python
