@@ -40,3 +40,12 @@ probes:
     periodSeconds: 10
 
 secretName: aois-secrets
+
+keda:
+  enabled: false        # set true in values.prod.yaml to activate
+  minReplicas: 1        # 0 = scale-to-zero (requires non-CPU trigger)
+  maxReplicas: 10
+  cooldownPeriod: 300   # seconds before scaling back down after last event
+  pollingInterval: 30   # seconds between KEDA metric checks
+  cpu:
+    targetUtilization: "50"   # percent — scale up when CPU exceeds this
