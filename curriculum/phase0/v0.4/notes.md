@@ -576,35 +576,117 @@ Watch the flow:
 
 ## Common Mistakes
 
-**Binding to `127.0.0.1` instead of `0.0.0.0`.**
+**Binding to `127.0.0.1` instead of `0.0.0.0`** *(recognition)*
+`127.0.0.1` is the loopback interface — only processes on the same machine can connect. In containers and VMs, the "same machine" is the container, not your laptop. This is the most common cause of "works on my machine, connection refused everywhere else."
+
+*(recall — trigger it)*
 ```bash
-uvicorn main:app --host 127.0.0.1 --port 8000   # only reachable from localhost
-uvicorn main:app --host 0.0.0.0  --port 8000    # reachable from any interface
+# Start server on loopback only
+uvicorn main:app --host 127.0.0.1 --port 8001 &
+sleep 2
+
+curl http://127.0.0.1:8001/health           # works — same machine
+MY_IP=$(hostname -I | awk '{print $1}')
+curl http://$MY_IP:8001/health              # fails
 ```
-`127.0.0.1` is the loopback address — only processes on the same machine can connect. `0.0.0.0` means "listen on all interfaces." In containers and VMs, you almost always want `0.0.0.0` or the service is invisible to the outside world. This is the most common cause of "I can curl from inside but not from outside."
-
-**Confusing HTTP 401 and 403.**
-`401 Unauthorized` means: you did not provide credentials (or they are invalid). The server does not know who you are.
-`403 Forbidden` means: the server knows who you are (authenticated) but you do not have permission to do this.
-The error name `401 Unauthorized` is historically misleading — it really means "unauthenticated." `403` is the actual "unauthorized" in the real meaning of the word.
-
-**Missing `Content-Type: application/json` on POST requests.**
+Expected on second curl:
+```
+curl: (7) Failed to connect to 10.x.x.x port 8001: Connection refused
+```
+Kill it, restart correctly:
 ```bash
-# This will fail — server receives the body as a string, not parsed JSON
-curl -X POST http://localhost:8000/analyze -d '{"log": "error"}'
+kill %1 2>/dev/null; sleep 1
+uvicorn main:app --host 0.0.0.0 --port 8001 &
+sleep 2
+curl http://$MY_IP:8001/health              # now works
+kill %1 2>/dev/null
+```
+`Connection refused` on the server's real IP = bound to loopback. Check the bind address first.
 
-# This works — server knows to parse body as JSON
-curl -X POST http://localhost:8000/analyze \
+---
+
+**Missing `Content-Type: application/json` on POST requests** *(recognition)*
+Without the header, the server receives the body as raw text — it does not know to parse it as JSON. FastAPI returns `422 Unprocessable Entity`, which looks like a server bug but is a client mistake.
+
+*(recall — trigger it)*
+```bash
+# Start AOIS if not running
+uvicorn main:app --host 0.0.0.0 --port 8000 &
+sleep 3
+
+# Wrong — no Content-Type header
+curl -s -X POST http://localhost:8000/analyze \
+  -d '{"log": "OOMKilled pod"}' | python3 -m json.tool
+```
+Expected response:
+```json
+{
+  "detail": [
+    {
+      "type": "missing",
+      "loc": ["body"],
+      "msg": "Field required"
+    }
+  ]
+}
+```
+Fix — add the header:
+```bash
+curl -s -X POST http://localhost:8000/analyze \
   -H "Content-Type: application/json" \
-  -d '{"log": "error"}'
+  -d '{"log": "OOMKilled pod"}' | python3 -m json.tool
 ```
-FastAPI returns `422 Unprocessable Entity` when the body cannot be parsed. Always include `-H "Content-Type: application/json"` when sending JSON.
+Expected: valid AOIS JSON response. `422 Unprocessable Entity` = either wrong Content-Type or malformed JSON body.
 
-**Debugging without `-v` in curl.**
-When a request fails, `curl url` only shows the response body. You cannot see the status code, the response headers, or the request headers being sent. Always debug with `curl -v` or at minimum `curl -I` (headers only). The status code and response headers explain 90% of failures.
+---
 
-**Assuming DNS resolution is the same inside containers.**
-`localhost` inside a Docker container resolves to the container itself, not your host machine. If your AOIS container tries to reach a service at `localhost:5432` (Postgres), it fails — Postgres is on the host or another container. In Docker Compose, services are reachable by their service name: `postgres:5432`. This is the most common networking confusion when moving from local to containerized development.
+**Debugging without `-v` in curl** *(recognition)*
+`curl url` only shows the response body. When a request fails you cannot see the status code, which headers were sent, or what the server actually returned. Without `-v` you are debugging blind.
+
+*(recall — trigger it)*
+```bash
+# Silent failure — what went wrong?
+curl http://localhost:8000/nonexistent
+```
+Expected: some error body, but you cannot see the HTTP status code.
+
+Now with `-v`:
+```bash
+curl -v http://localhost:8000/nonexistent 2>&1
+```
+Expected (in the verbose output):
+```
+< HTTP/1.1 404 Not Found
+< content-type: application/json
+```
+You now see `404` — the endpoint does not exist. Without `-v` you had a body with no context. With `-v` you have the full picture in 2 seconds. Always use `curl -v` when debugging. Always.
+
+---
+
+**`localhost` inside a container is not your host machine** *(recognition)*
+Inside a Docker container, `localhost` resolves to the container's own loopback — not your laptop. A service running on your host at `localhost:5432` is invisible to a container using `localhost:5432`. In Docker Compose, services reach each other by service name.
+
+*(recall — trigger it)*
+```bash
+# Start a simple test server on your host
+python3 -m http.server 9999 &
+sleep 1
+
+# From your host — works fine
+curl http://localhost:9999
+
+# From inside a container — fails
+docker run --rm alpine sh -c "wget -q -O- http://localhost:9999 || echo 'FAILED'"
+```
+Expected: host curl succeeds, container wget prints `FAILED`. The container's `localhost` is itself, not your host.
+
+Fix for Docker Compose — use service name:
+```yaml
+# In docker-compose.yml, AOIS reaches Postgres as:
+DATABASE_URL: postgresql://user:pass@postgres:5432/aois
+# NOT: postgresql://user:pass@localhost:5432/aois
+```
+Kill the test server: `kill %1`
 
 ---
 
