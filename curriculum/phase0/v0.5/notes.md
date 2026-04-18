@@ -198,6 +198,28 @@ It ends up in git history. Even if you remove it in the next commit, `git log -p
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Test that your `.env` loads correctly and the key is accessible:
+> ```python
+> python3 << 'EOF'
+> from dotenv import load_dotenv
+> import os
+>
+> # Before load_dotenv — key is not in environment
+> print("Before load_dotenv:", os.getenv("ANTHROPIC_API_KEY"))
+>
+> load_dotenv()
+>
+> # After load_dotenv — key is loaded
+> key = os.getenv("ANTHROPIC_API_KEY")
+> print("After load_dotenv:", key[:15] + "..." if key else "MISSING")
+> EOF
+> ```
+> If the first line prints `None` but the second prints a key prefix, `load_dotenv()` is working correctly. If both print `None`, check that your `.env` file exists and contains the key.
+
+---
+
 ## Part 4 — Type hints
 
 Type hints tell you and your tools what type a variable holds. Python does not enforce them at runtime (unless you use Pydantic or mypy), but they make code readable and catch bugs.
