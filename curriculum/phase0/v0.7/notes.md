@@ -548,6 +548,49 @@ This is why `SYSTEM_PROMPT` is a module-level constant. If the prompt text were 
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Measure the cost difference between cached and uncached calls. Make two consecutive calls to the API and compare the `usage` field:
+> ```python
+> import anthropic, os
+> from dotenv import load_dotenv
+> load_dotenv()
+>
+> client = anthropic.Anthropic()
+> SYSTEM = "You are AOIS, an AI Operations Intelligence System. Analyze Kubernetes logs."
+>
+> def call_with_cache(log):
+>     response = client.messages.create(
+>         model="claude-haiku-4-5-20251001",
+>         max_tokens=200,
+>         system=[{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
+>         messages=[{"role": "user", "content": log}]
+>     )
+>     usage = response.usage
+>     print(f"Input tokens: {usage.input_tokens} | Cache write: {getattr(usage, 'cache_creation_input_tokens', 0)} | Cache read: {getattr(usage, 'cache_read_input_tokens', 0)}")
+>     return response
+>
+> print("=== Call 1 (cache miss — writing) ===")
+> call_with_cache("OOMKilled pod/payment-service")
+>
+> print("=== Call 2 (cache hit — reading) ===")
+> call_with_cache("CrashLoopBackOff pod/auth-service")
+> ```
+> Expected output:
+> ```
+> === Call 1 (cache miss — writing) ===
+> Input tokens: 28 | Cache write: 19 | Cache read: 0
+>
+> === Call 2 (cache hit — reading) ===
+> Input tokens: 9 | Cache write: 0 | Cache read: 19
+> ```
+> Call 1: the system prompt tokens were written to cache (cost: full price).
+> Call 2: the system prompt tokens were read from cache (cost: ~10% of full price).
+> The 19 cached tokens represent the system prompt. The 9 input tokens on call 2 are just the new user message — the model re-used the cached system prompt context.
+> This is exactly what v1 does for every AOIS call.
+
+---
+
 ## Common Mistakes
 
 **Assuming the model will return valid JSON without enforcing it.**
