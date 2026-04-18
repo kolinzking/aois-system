@@ -681,6 +681,27 @@ replicaset.apps/aois-6c76df6fd7   1         1         1       5m
 
 ---
 
+> **▶ STOP — do this now**
+>
+> With AOIS running on Kubernetes, trace the full request path from your terminal to the response:
+> ```bash
+> # Step 1: Your curl → Hetzner server IP
+> curl -v https://aois.46.225.235.51.nip.io/health 2>&1 | grep -E "< HTTP|SSL|Connected|TLS"
+>
+> # Step 2: The Ingress → Service → Pod routing
+> kubectl get ingress -n aois    # shows: host → service mapping
+> kubectl get service -n aois    # shows: service → port mapping
+> kubectl get endpoints -n aois  # shows: service → pod IP mapping
+>
+> # Step 3: Prove the pod is answering
+> POD=$(kubectl get pod -n aois -l app=aois -o jsonpath='{.items[0].metadata.name}')
+> kubectl exec -n aois $POD -- wget -qO- http://localhost:8000/health
+> ```
+> You just traced the request through: nip.io DNS → Hetzner IP → k3s Ingress → Service → Pod → FastAPI.
+> This is the same path on AWS EKS, just with an AWS Load Balancer instead of the Hetzner IP. The Kubernetes concepts are identical.
+
+---
+
 ## Troubleshooting
 
 **Pod stuck in `ImagePullBackOff`:**
