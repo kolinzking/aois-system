@@ -633,28 +633,132 @@ Expected: shows which files were added and how many lines.
 
 ## Common Mistakes
 
-**`git add .` staging unintended files.**
-`git add .` adds everything in the current directory — including `.env`, compiled binaries, `__pycache__`, and any temporary files you created. Always run `git status` before `git add` and `git diff --staged` before `git commit` to confirm exactly what is staged. Use `.gitignore` proactively. If you accidentally commit `.env`, the credential is compromised — rotate the API key immediately, do not just delete the commit.
+**`git add .` staging unintended files** *(recognition)*
+`git add .` adds everything in the current directory — including `.env`, `__pycache__`, and any temp files. If `.env` gets committed, the credential is compromised. Rotate the key immediately — deleting the commit is not enough, the key is in the history.
 
-**`.gitignore` is not retroactive.**
-Adding `.env` to `.gitignore` after you have already committed it does nothing — git still tracks it. `.gitignore` only prevents untracked files from being accidentally staged. To stop tracking a file that is already committed:
+*(recall — trigger it)*
 ```bash
-git rm --cached .env
-git commit -m "stop tracking .env"
+# Create a fake secret file
+echo "MY_SECRET=supersecret123" > /tmp/test_secret.env
+cd /tmp && git init test_repo && cd test_repo
+echo "MY_SECRET=supersecret123" > secret.env
+echo "normal content" > app.py
+git add .
+git status
 ```
-After this, `.env` stays on disk (not deleted) but git ignores future changes to it.
+Expected:
+```
+Changes to be staged:
+  new file: app.py
+  new file: secret.env    ← staged accidentally
+```
+Now unstage it:
+```bash
+git restore --staged secret.env
+echo "secret.env" >> .gitignore
+git status
+```
+Expected: `secret.env` is now untracked and ignored. `app.py` is still staged. Habit: always run `git status` before `git add`, `git diff --staged` before `git commit`.
 
-**Committing without reading `git diff --staged`.**
-Every commit should be intentional. Run `git diff --staged` before every `git commit`. If you see something unexpected, unstage it with `git restore --staged <file>`. The habit of reading the diff before committing catches most accidental commits.
+---
 
-**Confusing `git pull` with `git fetch`.**
-`git fetch` downloads changes from remote but does not touch your working directory — safe to run anytime. `git pull` = `git fetch` + `git merge` — it modifies your working tree. When in doubt about what is on the remote, `git fetch` first, then inspect with `git log origin/main`, then merge manually.
+**`.gitignore` is not retroactive** *(recognition)*
+Once a file is committed, `.gitignore` has no effect on it. Git continues tracking it forever — including all future changes — until you explicitly stop tracking it.
 
-**Force-pushing to shared branches.**
-`git push --force` rewrites the remote branch history. Anyone who has pulled that branch now has a diverged history and a confusing reconciliation ahead of them. Never force-push to `main`. If you need to undo a commit on main, use `git revert` (creates a new commit that undoes the change, history intact) not `git reset --hard` + force push.
+*(recall — trigger it)*
+```bash
+cd /tmp/test_repo
+echo "COMMITTED_SECRET=abc123" > already_tracked.env
+git add already_tracked.env && git commit -m "oops"
 
-**Branch name confusion after detached HEAD.**
-If you check out a specific commit (`git checkout abc1234`), git enters "detached HEAD" state — you are not on any branch. Commits you make here are not saved to any branch and will be garbage-collected. If you find yourself in detached HEAD and want to keep your work: `git checkout -b my-branch-name` to save it to a new branch.
+# Now try to ignore it
+echo "already_tracked.env" >> .gitignore
+echo "COMMITTED_SECRET=changed" > already_tracked.env
+git status
+```
+Expected:
+```
+Changes not staged for commit:
+  modified: already_tracked.env    ← still tracked despite being in .gitignore
+```
+`.gitignore` had no effect because the file is already in git history. Fix:
+```bash
+git rm --cached already_tracked.env
+git commit -m "stop tracking already_tracked.env"
+echo "COMMITTED_SECRET=changed" > already_tracked.env
+git status
+```
+Expected: `already_tracked.env` now shows as untracked. The file is still on disk, git no longer watches it.
+
+---
+
+**Detached HEAD state** *(recognition)*
+Checking out a specific commit SHA puts git into detached HEAD — you are not on any branch. Commits made in this state are not attached to any branch and will be lost when you switch away.
+
+*(recall — trigger it)*
+```bash
+cd /tmp/test_repo
+COMMIT=$(git log --oneline | tail -1 | awk '{print $1}')
+git checkout $COMMIT
+```
+Expected warning:
+```
+Note: switching to 'abc1234'.
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+```
+```bash
+echo "work done in detached head" > detached_work.txt
+git add . && git commit -m "this commit is homeless"
+git checkout main
+git log --oneline   # the commit you just made is gone from the log
+```
+Fix — if you made commits in detached HEAD and want to keep them:
+```bash
+git checkout -b rescue-branch   # do this BEFORE switching away
+```
+From now on: if you see "detached HEAD state" in git output, immediately run `git checkout -b name-for-this-work`.
+
+---
+
+**Confusing `git pull` with `git fetch`** *(recognition)*
+`git fetch` downloads remote changes safely — does not touch your working tree. `git pull` = fetch + merge — it modifies your files. In an active working tree, a surprise `git pull` can create merge conflicts mid-task.
+
+*(recall — trigger it)*
+```bash
+cd /tmp/test_repo
+git fetch origin 2>/dev/null || echo "no remote — fetch is safe, showed nothing"
+
+# See what fetch gives you without touching working tree
+git log HEAD..origin/main --oneline 2>/dev/null || echo "no upstream commits to show"
+```
+The key observation: `git fetch` ran and your files did not change. Now contrast with what `git pull` would have done — merged those remote commits into your branch. Habit: `git fetch` first to see what is there, then decide whether to merge.
+
+---
+
+**Force-pushing rewrites shared history** *(recognition)*
+`git push --force` replaces the remote branch history with your local history. Anyone who has already pulled that branch now has diverged history. The correct undo for a public commit is `git revert`, not `git reset + force push`.
+
+*(recall — trigger it)*
+```bash
+cd /tmp/test_repo
+git checkout -b force-push-demo
+echo "commit 1" > f1.txt && git add . && git commit -m "commit 1"
+echo "commit 2" > f2.txt && git add . && git commit -m "commit 2"
+git log --oneline   # see both commits
+
+# Simulate: you want to undo commit 2 the wrong way
+git reset --hard HEAD~1
+git log --oneline   # commit 2 is gone locally
+
+# The correct way — revert instead of reset:
+git checkout main
+echo "bad commit" > bad.txt && git add . && git commit -m "bad commit"
+git revert HEAD --no-edit   # creates a new commit that undoes it
+git log --oneline           # both the bad commit AND its revert are in history
+```
+History is preserved. Anyone who pulled `bad commit` can cleanly merge the revert. No diverged history.
 
 ---
 
