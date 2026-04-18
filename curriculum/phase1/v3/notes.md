@@ -321,6 +321,31 @@ You cannot improve what you cannot measure. Langfuse is what makes improvement s
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Think through what you would need to answer these questions WITHOUT Langfuse:
+> ```
+> Question: "Is the premium tier being used more than the fast tier?"
+> Without Langfuse: manually scrape server logs, parse JSON, count rows. 1+ hour of work.
+> With Langfuse: filter by model name in the dashboard. 30 seconds.
+>
+> Question: "What is the average cost per request this week?"
+> Without Langfuse: extract token counts from logs, look up prices, calculate. Tedious and error-prone.
+> With Langfuse: cost per call is already tracked and summed.
+>
+> Question: "Did a deployment on Tuesday increase retry rates?"
+> Without Langfuse: no retry data was logged. You cannot answer this.
+> With Langfuse: retry count per call is automatically captured.
+> ```
+>
+> Now look at what Langfuse captures automatically vs what you would have to log manually:
+> ```bash
+> grep -n "langfuse\|callback\|trace" /workspaces/aois-system/curriculum/phase1/v3/main.py
+> ```
+> Two lines of setup. Everything else is automatic.
+
+---
+
 ## Running and testing v3
 
 Check the archived v3 code:
