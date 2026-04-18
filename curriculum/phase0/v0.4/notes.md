@@ -574,6 +574,40 @@ Watch the flow:
 
 ---
 
+## Common Mistakes
+
+**Binding to `127.0.0.1` instead of `0.0.0.0`.**
+```bash
+uvicorn main:app --host 127.0.0.1 --port 8000   # only reachable from localhost
+uvicorn main:app --host 0.0.0.0  --port 8000    # reachable from any interface
+```
+`127.0.0.1` is the loopback address — only processes on the same machine can connect. `0.0.0.0` means "listen on all interfaces." In containers and VMs, you almost always want `0.0.0.0` or the service is invisible to the outside world. This is the most common cause of "I can curl from inside but not from outside."
+
+**Confusing HTTP 401 and 403.**
+`401 Unauthorized` means: you did not provide credentials (or they are invalid). The server does not know who you are.
+`403 Forbidden` means: the server knows who you are (authenticated) but you do not have permission to do this.
+The error name `401 Unauthorized` is historically misleading — it really means "unauthenticated." `403` is the actual "unauthorized" in the real meaning of the word.
+
+**Missing `Content-Type: application/json` on POST requests.**
+```bash
+# This will fail — server receives the body as a string, not parsed JSON
+curl -X POST http://localhost:8000/analyze -d '{"log": "error"}'
+
+# This works — server knows to parse body as JSON
+curl -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"log": "error"}'
+```
+FastAPI returns `422 Unprocessable Entity` when the body cannot be parsed. Always include `-H "Content-Type: application/json"` when sending JSON.
+
+**Debugging without `-v` in curl.**
+When a request fails, `curl url` only shows the response body. You cannot see the status code, the response headers, or the request headers being sent. Always debug with `curl -v` or at minimum `curl -I` (headers only). The status code and response headers explain 90% of failures.
+
+**Assuming DNS resolution is the same inside containers.**
+`localhost` inside a Docker container resolves to the container itself, not your host machine. If your AOIS container tries to reach a service at `localhost:5432` (Postgres), it fails — Postgres is on the host or another container. In Docker Compose, services are reachable by their service name: `postgres:5432`. This is the most common networking confusion when moving from local to containerized development.
+
+---
+
 ## Troubleshooting
 
 **"Connection refused" when hitting localhost:8000:**
