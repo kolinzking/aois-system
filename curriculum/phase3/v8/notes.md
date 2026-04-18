@@ -542,25 +542,141 @@ Then `https://argocd.46.225.235.51.nip.io` reaches the UI directly.
 
 ## Common Mistakes
 
-**Pushing broken Helm templates to `main`.**
-ArgoCD watches `main` and immediately tries to sync on every push. If you push a template with a syntax error, ArgoCD enters a `ComparisonError` state and stops syncing — including future good pushes. Always run `helm lint ./charts/aois` and `helm template` locally before pushing to main. Never use main as a scratch branch when ArgoCD is watching it.
+**Pushing broken Helm templates to `main`** *(recognition)*
+ArgoCD watches `main` and immediately tries to sync on every push. A template with a syntax error puts ArgoCD into `ComparisonError` — blocking all future syncs, including good ones. Your fix push does not deploy until ArgoCD recovers.
 
-**Manual kubectl edits feel like they're fighting ArgoCD.**
-You change something with `kubectl edit` and it reverts. You change it again, it reverts again. This is `selfHeal: true` working as intended — you are fighting the design. The correct path: change the value in `values.prod.yaml`, commit, push. If you need to make an emergency change that bypasses ArgoCD, temporarily disable auto-sync: `argocd app set aois --sync-policy none`, make your fix, then re-enable.
+*(recall — trigger it)*
+```bash
+# Introduce a deliberate Go template syntax error
+# Edit charts/aois/templates/deployment.yaml — break a template expression
+# Change: {{.Values.image.tag}} to {{.Values.image.tag}   (missing closing brace)
+git add charts/aois/templates/deployment.yaml
+git commit -m "test: broken template"
+git push
+```
+Wait 3 minutes then check ArgoCD status:
+```bash
+argocd app get aois
+# Health:   Unknown
+# Sync:     ComparisonError
+# Message:  failed to load target state: failed to generate manifest
+```
+Now push a fix — ArgoCD is blocked on every push until the broken template is fixed:
+```bash
+# Revert the broken template
+git revert HEAD
+git push
+# Wait 3 minutes or: argocd app sync aois
+```
+Prevention — always run before pushing:
+```bash
+helm lint ./charts/aois
+helm template aois ./charts/aois -f charts/aois/values.prod.yaml > /dev/null && echo "Template OK"
+```
 
-**Not setting `prune: true` and accumulating orphaned resources.**
-You remove a template from the chart and push. The resource stays in the cluster because ArgoCD, without `prune: true`, never deletes resources. Over time the cluster fills with stale Deployments, Services, and ConfigMaps that nobody manages. Always enable `prune: true`.
+---
 
-**Confusing sync failure with application failure.**
-`ComparisonError` or `SyncFailed` = ArgoCD could not render or apply the templates. This is a chart/values problem. The application may still be running on the old version.
-`Health: Degraded` = ArgoCD applied successfully but the pod is crashing. This is an application problem.
-These require different fixes. `argocd app get aois --show-operation` shows which one you have.
+**Manual `kubectl edit` reverts immediately — fighting selfHeal** *(recognition)*
+With `selfHeal: true`, ArgoCD compares the live cluster to git every 3 minutes and corrects any drift. Manual kubectl edits are overwritten by design — this is not a bug.
 
-**ArgoCD's 3-minute poll makes deploys feel slow.**
-After `git push`, ArgoCD polls every 3 minutes by default. If your change does not appear deployed within a few seconds, it has not been ignored — it is waiting for the poll. Run `argocd app sync aois` to trigger immediately. Set up the GitHub webhook (covered in the notes) to get sub-second triggering.
+*(recall — trigger it)*
+```bash
+# Manually scale the deployment
+kubectl scale deployment aois --replicas=5 -n aois
+kubectl get deployment aois -n aois
+# DESIRED: 5 — your change applied
+```
+Wait 3 minutes (or trigger: `argocd app sync aois`):
+```bash
+kubectl get deployment aois -n aois
+# DESIRED: 2 — ArgoCD reverted to values.prod.yaml
+```
+This is correct behavior — the git file is the truth. Fix: if you want 5 replicas, change `replicaCount: 5` in `values.prod.yaml`, commit, push. ArgoCD will sync it.
 
-**Uninstalling Helm before registering the ArgoCD Application.**
-If you `helm uninstall aois` and then the ArgoCD Application fails to sync (e.g., GitHub is unreachable), AOIS is down with no easy rollback. Safer sequence: (1) apply the ArgoCD Application and confirm it syncs to Synced/Healthy, (2) then remove Helm ownership if needed. ArgoCD should own the deployment before Helm releases it.
+For emergency bypasses during an incident:
+```bash
+argocd app set aois --sync-policy none    # disable auto-sync
+kubectl scale deployment aois --replicas=5 -n aois   # make emergency change
+# ... resolve incident ...
+argocd app set aois --sync-policy automated   # re-enable
+```
+
+---
+
+**No `prune: true` — deleted resources accumulate in the cluster** *(recognition)*
+Without `prune: true`, ArgoCD never deletes resources. You remove a Service from the chart and push — the Service stays in the cluster forever. Over weeks, the cluster fills with stale resources that nobody manages and nobody knows about.
+
+*(recall — trigger it)*
+```bash
+# Temporarily remove prune from the Application
+kubectl patch application aois -n argocd \
+  --type json \
+  -p '[{"op": "remove", "path": "/spec/syncPolicy/automated/prune"}]'
+
+# Now delete a template — rename ingress.yaml to ingress.yaml.disabled
+mv charts/aois/templates/ingress.yaml charts/aois/templates/ingress.yaml.disabled
+git add -A && git commit -m "test: remove ingress" && git push
+
+# Force sync
+argocd app sync aois
+```
+Expected: ArgoCD syncs successfully, but:
+```bash
+kubectl get ingress -n aois
+# NAME   CLASS   HOSTS                               ...
+# aois   nginx   aois.46.225.235.51.nip.io          # still there!
+```
+The Ingress was not deleted. ArgoCD is `Synced` but the old resource remains.
+
+Fix: restore `prune: true` and re-sync. Now the orphaned Ingress is deleted. Restore your template after:
+```bash
+mv charts/aois/templates/ingress.yaml.disabled charts/aois/templates/ingress.yaml
+```
+
+---
+
+**Confusing sync status with health status — they're independent** *(recognition)*
+`Synced` means ArgoCD applied the manifests. `Healthy` means the application is actually running. A pod can crash after a successful sync — ArgoCD shows `Synced` and `Degraded` simultaneously. These are two different dimensions.
+
+*(recall — trigger it)*
+```bash
+# Set an invalid image tag to cause pods to fail after a clean sync
+# Edit values.prod.yaml: image.tag: v999-does-not-exist
+git add charts/aois/values.prod.yaml
+git commit -m "test: bad image tag"
+git push
+argocd app sync aois
+```
+Expected after sync:
+```bash
+argocd app get aois
+# Sync Status:    Synced    ← ArgoCD applied the manifest — that part worked
+# Health Status:  Degraded  ← pods are in ImagePullBackOff
+```
+`argocd app get aois --show-operation` shows the operation succeeded. The problem is in the application layer, not the gitops layer.
+
+Fix: revert the values change, push, sync again. `argocd app get aois --show-operation` is the first command to run when diagnosing any ArgoCD problem — it shows exactly which phase failed.
+
+---
+
+**ArgoCD's 3-minute poll makes deploys feel broken** *(recognition)*
+After `git push`, ArgoCD polls every 3 minutes by default. If you push and watch for 30 seconds expecting immediate deployment, nothing happens — which looks like ArgoCD is broken or ignoring the push.
+
+*(recall — trigger it)*
+```bash
+# Push a real change
+echo "# comment" >> charts/aois/templates/deployment.yaml
+git add -A && git commit -m "test: force push" && git push
+
+# Immediately check ArgoCD
+argocd app get aois
+# OutOfSync — but not deploying yet. It's waiting for the 3-minute poll.
+```
+You can either wait, or force immediate sync:
+```bash
+argocd app sync aois    # trigger immediately
+```
+For production, configure the GitHub webhook to eliminate polling entirely — ArgoCD deploys within seconds of a push instead of up to 3 minutes later. The webhook setup in the notes converts ArgoCD from poll-mode to push-mode.
 
 ---
 
