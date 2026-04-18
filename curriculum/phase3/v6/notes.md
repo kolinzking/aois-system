@@ -82,6 +82,29 @@ The Kubernetes model is: **you declare what you want, the cluster makes it happe
 k3s is Kubernetes, stripped down for single-node and edge deployments:
 - Same `kubectl` commands, same YAML manifests, same APIs as full k8s
 - Ships as a single ~60MB binary (vs hundreds of components in full k8s)
+
+> **▶ STOP — do this now**
+>
+> Before touching Kubernetes, map the Docker Compose concepts to their Kubernetes equivalents:
+> ```
+> Docker Compose → Kubernetes
+> ─────────────────────────────────────────
+> service: aois   → Deployment + Service
+> image:          → spec.containers[].image
+> ports:          → Service.spec.ports
+> env_file: .env  → Secret (ANTHROPIC_API_KEY etc)
+> depends_on:     → readinessProbe
+> restart: always → spec.restartPolicy: Always
+> networks:       → (built-in — every pod in same namespace can communicate)
+> volumes:        → PersistentVolumeClaim
+> ```
+>
+> Open `docker-compose.yml` side by side with `k8s/deployment.yaml`:
+> ```bash
+> cat /workspaces/aois-system/docker-compose.yml | grep -v "^#" | head -25
+> cat /workspaces/aois-system/k8s/deployment.yaml | head -30
+> ```
+> Find each Docker Compose concept in the Kubernetes manifest. The mapping is exact — Kubernetes just has more verbosity and more power.
 - Built-in: Traefik (ingress controller), CoreDNS (internal DNS), local-path storage
 - Runs fine on a 2-core 4GB RAM server — the Hetzner CX22
 
