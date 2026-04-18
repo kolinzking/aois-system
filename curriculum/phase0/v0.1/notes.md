@@ -273,6 +273,29 @@ The `x` bits are now set.
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Create a test script, set permissions wrong, observe the error, then fix it:
+> ```bash
+> echo '#!/bin/bash
+> echo "permissions work"' > /tmp/test_perms.sh
+>
+> # Try to run it without execute bit
+> ls -la /tmp/test_perms.sh          # notice: no x bits
+> /tmp/test_perms.sh                 # fails with Permission denied
+>
+> # Fix it
+> chmod +x /tmp/test_perms.sh
+> ls -la /tmp/test_perms.sh          # now shows x bits
+> /tmp/test_perms.sh                 # works: "permissions work"
+>
+> # Check the .env file permissions
+> ls -la /workspaces/aois-system/.env 2>/dev/null || echo "no .env yet"
+> ```
+> Every script you write in this curriculum needs `chmod +x` before it will run. Now you know why.
+
+---
+
 ## Part 6 — Processes
 
 A process is any running program. Your FastAPI server, Redis, Postgres, the shell you are typing in — all processes, all have a process ID (PID).
