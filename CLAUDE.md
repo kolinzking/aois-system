@@ -509,29 +509,50 @@ Make the outputs trustworthy and systematically optimal.
 - Both in `~/.claude/settings.json`
 
 ### Current Position
-- **v5 complete. Phase 0 (v0.1–v0.7), Phase 1 (v1–v3), and Phase 2 (v4–v5) done. Next: v6 — k3s on Hetzner.**
+- **v6 complete. Phase 0 (v0.1–v0.7), Phase 1 (v1–v3), Phase 2 (v4–v5), Phase 3 v6 done. Next: v7 — Helm chart.**
 
-### What's been built (v1–v5)
+### What's been built (v1–v6)
 - **v1**: FastAPI + Claude (prompt caching) + OpenAI fallback, structured Pydantic output (summary, severity P1–P4, suggested_action, confidence)
 - **v2**: LiteLLM gateway — 4 routing tiers (Claude premium → GPT-4o-mini → Groq fast → Ollama local), cost tracking per request
 - **v3**: Instructor for guaranteed validated output + Langfuse tracing (tokens, cost, latency per call)
 - **v4**: Multi-stage Dockerfile (non-root, minimal image), Docker Compose (AOIS + Redis + Postgres), Trivy scan
 - **v5**: Security hardening — rate limiting (slowapi), input sanitization (5KB limit, injection pattern stripping), hardened system prompt, output blocklist (destructive action detection), payload size middleware
+- **v6**: k3s on Hetzner, GHCR image push, k8s manifests (Namespace/Secret/Deployment/Service/Ingress), cert-manager + Let's Encrypt + nip.io — AOIS live at https://aois.46.225.235.51.nip.io
+
+### Curriculum notes structure (mastery-level)
+Each phase has three layers:
+- `00-introduction.md` — opens first in IDE, sets the frame for the phase
+- `vN/notes.md` — deep runbook notes per version, each ending with a Mastery Checkpoint
+- `looking-forward.md` — closes the phase, bridges to the next
+
+**Enrichments completed this session:**
+- All `summary.md` files renamed to `00-introduction.md` (sorts before version folders in IDE)
+- `phase3/00-introduction.md` created (was missing)
+- `looking-forward.md` bridge files added to all 4 phases (Phase 0–3)
+- `v0.1/notes.md`: added full `awk` and `sed` tutorial (Part 9.5) — they were used in sysinfo.sh but never taught
+- `v0.7/notes.md`: added "What the Model is NOT Doing" section — 4 critical misconceptions that affect system design
+- Every `notes.md` (v0.1–v6): added Mastery Checkpoint section with 6–8 practical verification tasks each
 
 ### Current root-level state
-- `/main.py` — v5 implementation (active)
+- `/main.py` — v5 implementation (active, served from k3s)
 - `/Dockerfile` — v4 multi-stage build
 - `/docker-compose.yml` — AOIS + Redis + Postgres
 - `/requirements.txt` — consolidated dependencies
 - `/test.py` — tier routing + cost comparison test suite
-- `/curriculum/` — archived per-version source + notes
+- `/k8s/` — Kubernetes manifests (namespace, secret, deployment, service, ingress, clusterissuer)
+- `/curriculum/` — mastery-level notes (Phase 0–3, all versions)
+- `/README.md` — full table of contents with progress tracking
 
-### What v6 builds next
-- Provision Hetzner VPS with Terraform
-- k3s install, kubeconfig, kubectl
-- Raw k8s manifests: Deployment, Service, Ingress, ConfigMap, Secret
-- cert-manager + Let's Encrypt: AOIS on HTTPS
-- Liveness/readiness probes, resource limits, HPA
+### Hetzner cluster
+- Server: 46.225.235.51 (root access, k3s running)
+- Live URL: https://aois.46.225.235.51.nip.io
+- Image: ghcr.io/kolinzking/aois:v6
+
+### What v7 builds next
+- Package the `k8s/` manifests as a Helm chart
+- `values.yaml` replaces all hardcoded strings (image tag, hostname, replicas, resource limits)
+- `helm install aois ./charts/aois -f values.prod.yaml`
+- Same chart deploys to Hetzner k3s now, AWS EKS in v12
 
 ---
 
