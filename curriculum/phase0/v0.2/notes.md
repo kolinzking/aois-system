@@ -918,3 +918,40 @@ v1 replaces `analyze_with_regex()` with `analyze_with_claude()`. The infrastruct
 - **Phase 3 (v8)**: ArgoCD hook scripts are bash
 - **Phase 9 (v28)**: GitHub Actions `run:` steps are bash — every CI step you write uses these patterns
 - **The pattern**: When you see a CI pipeline fail, you debug it by running the bash commands locally. This version gives you that skill.
+
+---
+
+## Mastery Checkpoint
+
+Do not move to v0.3 until every one of these works and you understand why.
+
+**1. Prove set -euo pipefail does what you think it does**
+Write a 3-line script. Line 1: `set -euo pipefail`. Line 2: a command that will fail (e.g., `cat /nonexistent_file`). Line 3: `echo "This should never print"`. Run it. Verify line 3 never executes. Now remove `set -e` and run again — observe the difference.
+
+**2. Write a function that returns meaningful exit codes**
+Write a function `check_file_exists()` that takes a filename as argument and returns 0 if the file exists, 1 if it does not, and 2 if no argument was provided. Test all three cases. Use `echo $?` after each call to verify the correct exit code.
+
+**3. Loop with error handling**
+Write a for loop that checks ports 8000, 6379, 5432 (FastAPI, Redis, Postgres). For each port, print either "port XXXX: open" or "port XXXX: closed". Handle the case where `lsof` is not installed (graceful fallback).
+
+**4. Understand variable scoping**
+Write a script with a global variable `NAME="global"`. Inside a function, use `local NAME="local"`. Print `$NAME` inside the function and print `$NAME` after the function call. Verify the global variable was not changed. Then deliberately remove `local` and observe what happens.
+
+**5. Text processing pipeline**
+Run `log_analyzer.sh` on the sample log. Now reproduce its "Line Counts" section using a single pipeline from scratch — no functions, no script, just a pipe chain using `grep`, `wc`, and `echo`. You should be able to count ERROR, WARN, and INFO lines in three separate commands.
+
+**6. The "why AI" moment**
+Run `log_analyzer.sh` with this log:
+```bash
+echo "auth service connection pool exhausted: 500/500 connections used, new requests queuing, response times degrading from 200ms to 45000ms, database node running at 99% CPU" | tee /tmp/pool_exhausted.log && bash /workspaces/aois-system/practice/log_analyzer.sh /tmp/pool_exhausted.log
+```
+Severity should come back P4 with "No patterns matched." But this is a P1 incident. Write down exactly what you would need to add to `log_analyzer.sh` to handle this case. Then imagine writing handlers for 50 more incident types. That is why v1 exists.
+
+**7. Script argument validation**
+Modify `log_analyzer.sh` to accept a third optional argument: `--json` flag. If `--json` is passed, the output should be simple JSON instead of formatted text:
+```json
+{"severity": "P1", "reasons": "CrashLoopBackOff detected", "error_count": 6}
+```
+This requires: argument parsing with `case` or checking `$3`, conditional output formatting.
+
+**The mastery bar**: you can write a bash script from scratch to automate a real task — validate inputs, process files, use functions with proper exit codes, pipe text through grep/awk/sed. The bash you write in Phase 9 CI pipelines is this, at scale.
