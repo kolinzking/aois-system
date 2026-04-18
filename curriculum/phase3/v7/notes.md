@@ -653,30 +653,122 @@ A mismatch here means a broken deploy. Catching it in `helm template` costs noth
 
 ## Common Mistakes
 
-**Mixing `kubectl apply` and `helm upgrade` on the same resources.**
-After `helm install`, Helm owns those resources. If you then run `kubectl apply -f k8s/deployment.yaml` on the same Deployment, you bypass Helm — Helm's stored state no longer matches the cluster. The next `helm upgrade` will fight the manually-applied state. Fix: delete the orphaned resources and let Helm manage everything, or use `helm uninstall` and start fresh.
+**Mixing `kubectl apply` and `helm upgrade` on the same resources** *(recognition)*
+After `helm install`, Helm owns those resources and tracks state in a cluster Secret. If you then run `kubectl apply -f k8s/deployment.yaml` on the same Deployment, Helm's stored state no longer matches the cluster. The next `helm upgrade` will fight the manually-applied change.
 
-**`--set` syntax for nested values.**
+*(recall — trigger it)*
 ```bash
-# Wrong — this is shell syntax, not Helm syntax
-helm upgrade aois ./charts/aois --set image: {tag: v8}
+# After helm install, manually apply the old k8s manifest
+kubectl apply -f k8s/deployment.yaml -n aois
 
-# Correct — use dot notation for nested keys
-helm upgrade aois ./charts/aois --set image.tag=v8
+# Now try helm upgrade
+helm upgrade aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
 ```
-`--set` uses dot-separated paths. Always verify with `helm get values aois -n aois` after upgrading to confirm the value took effect.
+Expected: Helm either silently overwrites your manual change or throws a conflict error depending on the field. Run `helm status aois -n aois` and `kubectl get deployment aois -n aois -o yaml | grep -A2 managedFields` to see the fighting ownership annotations.
 
-**Forgetting `-n namespace`.**
-`helm list` without `-n aois` shows releases in the `default` namespace. Your AOIS release is in `aois`. Running `helm upgrade aois` without `-n aois` will either fail ("release not found") or upgrade the wrong release if one named `aois` happens to exist in `default`. Always include `-n aois` in every Helm command.
+Fix: once Helm is installed, never touch those resources with kubectl. If you made manual changes, reconcile them: delete the kubectl-applied resources and re-run `helm upgrade`, or `helm uninstall` and start fresh.
 
-**`helm upgrade` failing with "release not found" on first deploy.**
-`helm upgrade` requires the release to already exist. On first deploy, use `helm install`. For idempotent behavior in CI: `helm upgrade --install` works for both first install and subsequent upgrades.
+---
 
-**Typo in values key silently ignored.**
-If you write `replicasCount: 2` instead of `replicaCount: 2` in `values.prod.yaml`, Helm does not error. It uses the default from `values.yaml` (1 replica). The typo is silently ignored. Always verify with `helm template` before deploying and `helm get values` after deploying.
+**Wrong `--set` syntax for nested values** *(recognition)*
+`--set` uses dot-separated paths for nested keys. Shell syntax or YAML syntax passed to `--set` is silently wrong and may set nothing or cause a parse error.
 
-**Editing secrets in-place before `helm install`.**
-The `aois-secrets` Secret in the cluster was created with `kubectl create secret`. Helm does not manage it — it was created outside the chart. Do not add the Secret to the chart without planning the migration. Adding it to the chart and running `helm install` will fail with "resource already exists." Either keep it external (current approach) or delete the existing Secret and let Helm create it.
+*(recall — trigger it)*
+```bash
+# Wrong — shell-style syntax
+helm upgrade aois ./charts/aois --set "image: {tag: v8}" -n aois
+```
+Expected:
+```
+Error: failed parsing --set data: key "image: {tag: v8}" has no value
+```
+Or worse — it parses but does nothing meaningful. Now try the correct form:
+```bash
+helm upgrade aois ./charts/aois --set image.tag=v8 -n aois
+```
+Verify it took effect:
+```bash
+helm get values aois -n aois | grep tag
+# tag: v8
+```
+Rule: `--set` takes `key.nested_key=value`. No spaces around `=`, no YAML braces, dot-notation for nesting.
+
+---
+
+**Forgetting `-n namespace` on every Helm command** *(recognition)*
+`helm list` without `-n aois` shows releases in the `default` namespace. Running `helm upgrade aois` without `-n aois` either fails with "release not found" or upgrades the wrong release.
+
+*(recall — trigger it)*
+```bash
+helm list            # no -n flag
+```
+Expected:
+```
+NAME    NAMESPACE    REVISION    ...
+# empty — your release is not in 'default'
+```
+Compare:
+```bash
+helm list -n aois
+# NAME    NAMESPACE    REVISION    STATUS      CHART          APP VERSION
+# aois    aois         1           deployed    aois-0.7.0     v7
+```
+Fix: always include `-n aois` in every Helm command. Set an alias if you find yourself forgetting:
+```bash
+alias h='helm -n aois'
+h list        # now works without -n
+```
+
+---
+
+**`helm upgrade` when the release doesn't exist yet** *(recognition)*
+`helm upgrade` requires the release to already exist. On first deploy, it fails with "release not found." `helm install` is for first deploy; `helm upgrade` is for subsequent ones. For CI, use `--install` to handle both cases.
+
+*(recall — trigger it)*
+```bash
+# Uninstall to simulate a fresh cluster
+helm uninstall aois -n aois
+
+# Now try upgrade instead of install
+helm upgrade aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
+```
+Expected:
+```
+Error: UPGRADE FAILED: release: not found
+```
+Fix:
+```bash
+helm install aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
+# or for idempotent CI/CD:
+helm upgrade --install aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
+```
+`--install` installs on first run, upgrades on subsequent runs. This is the pattern to use in GitHub Actions.
+
+---
+
+**Typo in values key silently ignored** *(recognition)*
+If you write `replicasCount: 2` instead of `replicaCount: 2` in `values.prod.yaml`, Helm does not error. It creates a new key `replicasCount` (unused), and the default `replicaCount: 1` from `values.yaml` is used silently. You deploy thinking you have 2 replicas and you have 1.
+
+*(recall — trigger it)*
+```bash
+# Add a typo to values.prod.yaml
+echo "replicasCount: 3" >> charts/aois/values.prod.yaml   # typo: replicasCount
+
+helm upgrade aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
+
+# Check actual replicas
+kubectl get deployment aois -n aois
+```
+Expected: DESIRED shows 1 (default from values.yaml), not 3. Helm silently used the default.
+
+Diagnose with:
+```bash
+helm template aois ./charts/aois -f charts/aois/values.prod.yaml | grep replicas
+# replicas: 1    -- the template rendered with the default
+helm get values aois -n aois
+# replicasCount: 3    -- typo key is stored, but unused
+```
+Fix: check `helm template` output before every deploy. Remove the typo from `values.prod.yaml`.
 
 ---
 
