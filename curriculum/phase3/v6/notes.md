@@ -830,6 +830,43 @@ kubectl create secret generic aois-secrets \
 
 ---
 
+**cert-manager certificate stuck in Pending — missing ClusterIssuer** *(recognition)*
+If `kubectl describe certificate aois-tls -n aois` shows `Waiting for HTTP-01 challenge` but the challenge never completes, the most common causes are: the ClusterIssuer doesn't exist, or port 80 is blocked on the server so Let's Encrypt cannot reach it for validation. Let's Encrypt validates via HTTP before issuing TLS — it must be reachable from the internet.
+
+*(recall — trigger it)*
+```bash
+# Check if the ClusterIssuer exists
+kubectl get clusterissuer
+# If empty output, the ClusterIssuer was never applied — cert-manager has no issuer to use
+
+# Check the certificate status
+kubectl describe certificate aois-tls -n aois | grep -A10 "Status"
+
+# Check if challenges were created (they represent Let's Encrypt's HTTP-01 attempts)
+kubectl get challenges -n aois
+kubectl describe challenge -n aois
+```
+Expected when ClusterIssuer is missing:
+```
+Events:
+  Warning  IssuerNotFound  cert-manager  Referenced "ClusterIssuer" not found: "letsencrypt-prod"
+```
+Expected when port 80 is blocked:
+```
+Events:
+  Warning  PresentChallenge  cert-manager  Error presenting challenge: HTTP-01 challenge failed
+```
+Diagnose port 80:
+```bash
+# From a machine outside your network, verify port 80 reaches the server
+curl -v http://46.225.235.51/.well-known/acme-challenge/test
+# Must not return "Connection refused" — must reach Traefik
+```
+Fix: In Hetzner Cloud console → Firewalls → verify port 80 is open (not just 443). cert-manager needs both.
+Also verify: `dig aois.46.225.235.51.nip.io` resolves to `46.225.235.51` — nip.io must be working.
+
+---
+
 **`kubectl apply` after Helm takes ownership** *(recognition)*
 Once Helm manages AOIS (v7+), using `kubectl apply` on the same resources creates state Helm does not know about. On the next `helm upgrade`, Helm either overwrites your manual change or enters a conflict state where the live resource differs from both the Helm chart and your manual apply.
 
