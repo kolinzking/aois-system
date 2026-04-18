@@ -447,7 +447,7 @@ When Groq API key is missing, LiteLLM raises an error, the fallback logic catche
 
 ## Common Mistakes
 
-**Model name format differences between providers.**
+**Model name format — wrong prefix routes to wrong provider** *(recognition)*
 LiteLLM uses prefixed model names to identify the provider:
 ```python
 "anthropic/claude-sonnet-4-6"    # Anthropic via LiteLLM
@@ -455,20 +455,105 @@ LiteLLM uses prefixed model names to identify the provider:
 "groq/llama3-8b-8192"            # Groq
 "ollama/llama3"                  # Ollama local
 ```
-Passing `"claude-sonnet-4-6"` without the `anthropic/` prefix causes LiteLLM to default to OpenAI and fail with an authentication error against the wrong provider. Always check LiteLLM's documentation for the exact model name format for each provider.
+Passing `"claude-sonnet-4-6"` without the `anthropic/` prefix causes LiteLLM to default to OpenAI and fail with an authentication error — against the wrong provider. The error message says OpenAI rejected the key, not that you named the model wrong, which makes it hard to diagnose.
 
-**Fallback configured but never tested — silent single point of failure.**
-You added OpenAI as a fallback. But have you confirmed it actually triggers? Set `ANTHROPIC_API_KEY="invalid"` temporarily and make a request. If the fallback works, the response will come from GPT-4o-mini. If it does not work, you discover it in production when Anthropic has an outage — not in testing.
-
-**No budget limit on LiteLLM — a routing bug drains credits.**
-If a routing condition has a bug that sends every request to Claude Opus instead of Haiku, your API bill will be 60x higher than expected. LiteLLM supports budget limits:
+*(recall — trigger it)*
 ```python
-litellm.max_budget = 10.0   # dollars — raises exception if exceeded
+import litellm, os
+from dotenv import load_dotenv
+load_dotenv()
+# Wrong: missing anthropic/ prefix
+response = litellm.completion(
+    model="claude-sonnet-4-6",   # <-- no prefix
+    messages=[{"role": "user", "content": "hello"}]
+)
 ```
-Set a daily budget limit during development. Learn to read the cost tracking output before removing the limit.
+Expected error:
+```
+litellm.exceptions.AuthenticationError: OpenAIException - 
+Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-ant-...
+```
+LiteLLM tried OpenAI, sent your Anthropic key, and OpenAI rejected it. Fix:
+```python
+model="anthropic/claude-sonnet-4-6"   # correct
+```
+The prefix is the provider. Always check LiteLLM's model list page for exact strings.
 
-**`tier` parameter from user not validated.**
-If `tier` is a free-form string from the request body, a user can send `tier: "premium_override"` and get routed to your most expensive model. Validate the tier value against a fixed set: `if tier not in ("premium", "standard", "fast", "local"): raise HTTPException(422)`. Never let user input directly control resource consumption without validation.
+---
+
+**Fallback configured but never tested — silent single point of failure** *(recognition)*
+You added OpenAI as a fallback. But have you confirmed it actually triggers? If it does not work, you discover this during an Anthropic outage in production — not in a test environment where fixing it takes 30 seconds.
+
+*(recall — trigger it)*
+```bash
+# Temporarily break the primary key
+ANTHROPIC_API_KEY="sk-ant-INVALID" uvicorn main:app --port 8001
+```
+```bash
+curl -s -X POST http://localhost:8001/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"log": "pod OOMKilled", "tier": "premium"}' | python3 -m json.tool
+```
+Expected if fallback works:
+```json
+{"provider": "openai", "model": "gpt-4o-mini", ...}
+```
+Expected if fallback is broken:
+```json
+{"detail": "Internal Server Error"}
+```
+Fix: check that the `except` clause in `analyze()` actually calls the fallback provider and that `OPENAI_API_KEY` is loaded in the environment.
+One memory hook: **if you have not broken it in a test, your fallback does not exist in practice.**
+
+---
+
+**No budget limit — a routing bug silently drains credits** *(recognition)*
+If a routing condition has a bug that sends every request to Claude Opus instead of Haiku, your API bill will be 60x higher than expected. There is no default safeguard.
+
+*(recall — trigger it)*
+```python
+# Add this immediately after imports — before any litellm.completion calls
+import litellm
+litellm.max_budget = 0.01   # 1 cent — will trip almost immediately
+
+# Now make a single request
+response = litellm.completion(
+    model="anthropic/claude-opus-4-7",
+    messages=[{"role": "user", "content": "hello"}]
+)
+```
+Expected error after the first or second call:
+```
+litellm.exceptions.BudgetExceededError: Budget has been exceeded! 
+Current cost: $0.012 | Max budget: $0.01
+```
+This is the safeguard firing correctly. Fix for development:
+```python
+litellm.max_budget = 10.0   # $10 daily cap during dev
+```
+Remove or raise it before production. The point is to set it consciously, not leave it unset.
+
+---
+
+**`tier` not validated — user controls which model you pay for** *(recognition)*
+If `tier` is a free-form string from the request body, a user can send `tier: "premium_override"` or `tier: "claude-opus"` and trigger arbitrary routing. Never let user input directly control resource consumption without validation.
+
+*(recall — trigger it)*
+```bash
+# Send an unrecognized tier value
+curl -s -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"log": "disk full", "tier": "ultra_expensive_secret_tier"}'
+```
+What happens depends on your routing code. If `ROUTING_TIERS.get(tier, ROUTING_TIERS["standard"])` is the fallback, the request silently falls to standard — no error, and no way for you to detect the abuse. If there is no fallback, you get a `KeyError` which surfaces as a 500.
+
+Fix: explicit allowlist before routing:
+```python
+VALID_TIERS = {"premium", "standard", "fast", "local"}
+if tier not in VALID_TIERS:
+    raise HTTPException(status_code=422, detail=f"Invalid tier. Choose from: {VALID_TIERS}")
+```
+Now any unexpected tier value returns a 422 with an actionable message — no silent misrouting.
 
 ---
 
