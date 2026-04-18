@@ -426,3 +426,45 @@ The fallback only tries `standard`. If you want premium → standard → fast �
 - **Phase 5 (v13-v14)**: `ROUTING_TIERS["nim"] = "..."` and `ROUTING_TIERS["vllm"] = "..."` — NIM and vLLM added as tiers. The routing logic never changes.
 - **Phase 7 (v23)**: LangGraph agent nodes each call `analyze(log, tier)`. The tier is chosen based on severity: P1 incidents go to premium, batch P4 analysis goes to standard.
 - **The principle**: LiteLLM is the abstraction layer that makes all of this possible. You write routing logic once. New providers are one line.
+
+---
+
+## Mastery Checkpoint
+
+LiteLLM and multi-tier routing are production patterns used in every serious AI application. These exercises make them concrete.
+
+**1. Cost comparison — the numbers that matter**
+Run the tier comparison test with the same log across at least two tiers (premium and standard). Record the exact `cost_usd` returned. Now calculate: if this analysis runs 10,000 times per day, what is the monthly cost for each tier? What is the annual difference between routing everything to premium vs routing to standard? This arithmetic is what drives real architectural decisions.
+
+**2. Understand LiteLLM normalization**
+In v1, parsing Anthropic response was different from OpenAI response:
+- Anthropic: `for block in response.content: if block.type == "tool_use":...`  
+- OpenAI: `json.loads(response.choices[0].message.content)`
+
+In v2 with LiteLLM: `response.choices[0].message.tool_calls[0].function.arguments` — same for both.
+
+Write out the exact code path for one request through the premium tier (Claude) and trace every variable until you get to `IncidentAnalysis(**data, ...)`. Then trace the same path for standard tier (GPT-4o-mini). Where exactly are the paths identical? Where are they different? (Answer: the only difference is the `model` string passed to `litellm.completion()` — everything else is identical.)
+
+**3. Add a new tier**
+Add a fifth tier called `"batch"` that maps to `"groq/llama-3.1-70b-versatile"` (or any other available model). Add it to `ROUTING_TIERS`. Test it with a curl command. Verify `provider` and `cost_usd` in the response show the correct values. This exercise proves the routing layer is truly extensible.
+
+**4. Understand the fallback logic exhaustively**
+The fallback tries `standard` if the primary tier fails. But what if:
+- The requested tier is already `standard` and it fails?
+- The fallback itself fails?
+- The tier name is unrecognized?
+Trace through the code for each case. Write the expected behavior. Then verify by temporarily breaking the standard tier (change the model name to something invalid) and testing.
+
+**5. Cost-aware routing decision**
+Given this incident data:
+- P1 alert: "payment service down, all users affected" → which tier?
+- P4 summary: "disk at 45%, within normal range" → which tier?
+- P3 warning: "cert expires in 14 days" → which tier?
+- Batch analysis of 1000 P4 logs overnight → which tier?
+
+Write the tier selection logic as a Python function: `def choose_tier(severity: str, is_batch: bool) -> str`. This function will appear in Phase 7 when the LangGraph agent routes different investigation steps to different tiers.
+
+**6. The provider abstraction test**
+Without changing any of the analysis logic (the `analyze()` function), make AOIS default to the `standard` tier instead of `premium` by changing one variable. Test that the behavior is identical. Then change it back. This is the power of the abstraction — provider changes at one point, behavior unchanged everywhere.
+
+**The mastery bar**: You understand why routing layers exist, how LiteLLM normalizes provider responses, and can calculate cost implications of routing decisions. The LiteLLM pattern is what makes AOIS enterprise-flexible — the same application can route to Anthropic, OpenAI, Groq, Bedrock, or a local model with zero code changes outside the routing table.
