@@ -779,6 +779,37 @@ Fix: check `helm template` output before every deploy. Remove the typo from `val
 
 ---
 
+**Editing secrets in-place before `helm install`** *(recognition)*
+The `aois-secrets` Secret in the cluster was created with `kubectl create secret`. Helm does not manage it — it was created outside the chart. Do not add the Secret to the chart without planning the migration. Adding it to the chart and running `helm install` will fail with "resource already exists." Either keep it external (current approach) or delete the existing Secret and let Helm create it.
+
+*(recall — trigger it)*
+```bash
+# Try adding the Secret to the Helm chart and installing
+# First: copy the secret manifest into charts/aois/templates/secret.yaml
+# Then attempt install:
+helm install aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
+```
+Expected:
+```
+Error: rendered manifests contain a resource that already exists in the cluster
+Secret "aois-secrets" in namespace "aois" exists and cannot be imported into the current release
+```
+Helm refuses because the Secret was not created by this Helm release and has no `helm.sh/chart` annotation. Fix option 1 — keep it external (recommended for secrets):
+```bash
+# Remove secret.yaml from the chart — keep using kubectl for secrets
+rm charts/aois/templates/secret.yaml
+helm install aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
+```
+Fix option 2 — adopt the secret into Helm:
+```bash
+# Delete the kubectl-created secret, let Helm recreate it
+kubectl delete secret aois-secrets -n aois
+helm install aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
+```
+The difference matters: option 1 means the secret lives outside GitOps (good for secrets). Option 2 means the secret value must be in `values.yaml` or passed via `--set` (risky — values files may be committed to git).
+
+---
+
 ## Troubleshooting
 
 **`Error: release aois already exists`**
