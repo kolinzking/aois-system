@@ -1,4 +1,5 @@
 # v4 — Docker: Containerizing AOIS
+⏱ **Estimated time: 4–6 hours**
 
 ## What this version builds
 
