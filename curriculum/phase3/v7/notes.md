@@ -703,7 +703,7 @@ Rule: `--set` takes `key.nested_key=value`. No spaces around `=`, no YAML braces
 ---
 
 **Forgetting `-n namespace` on every Helm command** *(recognition)*
-`helm list` without `-n aois` shows releases in the `default` namespace. Running `helm upgrade aois` without `-n aois` either fails with "release not found" or upgrades the wrong release.
+`helm list` without `-n aois` shows releases in the `default` namespace. Your AOIS release is in `aois`. Running `helm upgrade aois` without `-n aois` will either fail ("release not found") or upgrade the wrong release if one named `aois` happens to exist in `default`. Always include `-n aois` in every Helm command.
 
 *(recall — trigger it)*
 ```bash
