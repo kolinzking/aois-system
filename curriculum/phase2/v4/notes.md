@@ -168,6 +168,27 @@ The command that runs when the container starts. JSON array format (`["cmd", "ar
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Before building, read the Dockerfile and answer these questions:
+> ```bash
+> cat /workspaces/aois-system/Dockerfile
+> ```
+> 1. How many stages are there? (Look for `FROM` lines)
+> 2. What is installed in the builder stage that is NOT in the final image?
+> 3. What user does the container run as? (Look for `USER`)
+> 4. What files are copied from the builder into the final image?
+>
+> Write down your answers, then build and verify:
+> ```bash
+> docker build -t aois:v4-check . 2>&1 | tail -5
+> docker run --rm aois:v4-check whoami          # should NOT be root
+> docker image ls aois:v4-check                 # check image size
+> ```
+> If you knew the answers before building — you read a Dockerfile correctly.
+
+---
+
 ## Part 3 — Building and checking the image
 
 ### Step 1: Build
