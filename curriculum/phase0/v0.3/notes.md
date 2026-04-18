@@ -388,6 +388,22 @@ Implements four security layers as specified in OWASP LLM Top 10:
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Read 5 recent commit messages from this repo and rate them:
+> ```bash
+> git log --oneline -10
+> ```
+> For each message, ask: does it tell you what changed AND why? Does it use a conventional prefix (feat:, fix:, chore:)? Would you understand it 6 months from now without looking at the diff?
+>
+> Then look at a full commit with body:
+> ```bash
+> git log --format="%H %s" -5 | head -1 | cut -d' ' -f1 | xargs git show --stat
+> ```
+> See the files changed and the commit message together. This is what a recruiter sees when they browse your GitHub. Message quality matters.
+
+---
+
 ## Part 6 — Branches
 
 A branch is an independent line of development. Use it when you want to try something without affecting the main codebase.
