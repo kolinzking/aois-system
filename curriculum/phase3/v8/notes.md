@@ -661,8 +661,8 @@ Fix: revert the values change, push, sync again. `argocd app get aois --show-ope
 
 ---
 
-**ArgoCD's 3-minute poll makes deploys feel broken** *(recognition)*
-After `git push`, ArgoCD polls every 3 minutes by default. If you push and watch for 30 seconds expecting immediate deployment, nothing happens — which looks like ArgoCD is broken or ignoring the push.
+**ArgoCD's 3-minute poll makes deploys feel slow** *(recognition)*
+After `git push`, ArgoCD polls every 3 minutes by default. If your change does not appear deployed within a few seconds, it has not been ignored — it is waiting for the poll. Run `argocd app sync aois` to trigger immediately. Set up the GitHub webhook (covered in the notes) to get sub-second triggering.
 
 *(recall — trigger it)*
 ```bash
