@@ -421,6 +421,33 @@ When Groq API key is missing, LiteLLM raises an error, the fallback logic catche
 
 ---
 
+## Common Mistakes
+
+**Model name format differences between providers.**
+LiteLLM uses prefixed model names to identify the provider:
+```python
+"anthropic/claude-sonnet-4-6"    # Anthropic via LiteLLM
+"gpt-4o-mini"                    # OpenAI — no prefix needed (default provider)
+"groq/llama3-8b-8192"            # Groq
+"ollama/llama3"                  # Ollama local
+```
+Passing `"claude-sonnet-4-6"` without the `anthropic/` prefix causes LiteLLM to default to OpenAI and fail with an authentication error against the wrong provider. Always check LiteLLM's documentation for the exact model name format for each provider.
+
+**Fallback configured but never tested — silent single point of failure.**
+You added OpenAI as a fallback. But have you confirmed it actually triggers? Set `ANTHROPIC_API_KEY="invalid"` temporarily and make a request. If the fallback works, the response will come from GPT-4o-mini. If it does not work, you discover it in production when Anthropic has an outage — not in testing.
+
+**No budget limit on LiteLLM — a routing bug drains credits.**
+If a routing condition has a bug that sends every request to Claude Opus instead of Haiku, your API bill will be 60x higher than expected. LiteLLM supports budget limits:
+```python
+litellm.max_budget = 10.0   # dollars — raises exception if exceeded
+```
+Set a daily budget limit during development. Learn to read the cost tracking output before removing the limit.
+
+**`tier` parameter from user not validated.**
+If `tier` is a free-form string from the request body, a user can send `tier: "premium_override"` and get routed to your most expensive model. Validate the tier value against a fixed set: `if tier not in ("premium", "standard", "fast", "local"): raise HTTPException(422)`. Never let user input directly control resource consumption without validation.
+
+---
+
 ## Troubleshooting
 
 **"LiteLLM API key not found for provider":**
