@@ -507,7 +507,13 @@ If you look at the traces and all values make sense, you are observing correctly
 ---
 
 **`max_retries=0` disabling retries silently** *(recognition)*
-`max_retries=0` is not the default. If you set it to debug something and forget to remove it, your production AOIS will raise `InstructorRetryException` on the first validation failure instead of recovering.
+```python
+client = instructor.from_anthropic(anthropic.Anthropic())
+# Default: max_retries=1 — Instructor will retry once on validation failure
+client = instructor.from_anthropic(anthropic.Anthropic(), max_retries=0)
+# max_retries=0 disables retries — any validation failure raises immediately
+```
+`max_retries=0` is NOT the default. If you set it to test something and forget to remove it, your production AOIS will raise exceptions on the first validation failure instead of retrying. Check your instantiation.
 
 *(recall — trigger it)*
 ```python
