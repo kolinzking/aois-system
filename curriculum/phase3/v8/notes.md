@@ -577,7 +577,7 @@ helm template aois ./charts/aois -f charts/aois/values.prod.yaml > /dev/null && 
 ---
 
 **Manual `kubectl edit` reverts immediately — fighting selfHeal** *(recognition)*
-With `selfHeal: true`, ArgoCD compares the live cluster to git every 3 minutes and corrects any drift. Manual kubectl edits are overwritten by design — this is not a bug.
+You change something with `kubectl edit` and it reverts. You change it again, it reverts again. This is `selfHeal: true` working as intended — you are fighting the design. The correct path: change the value in `values.prod.yaml`, commit, push. If you need to make an emergency change that bypasses ArgoCD, temporarily disable auto-sync: `argocd app set aois --sync-policy none`, make your fix, then re-enable.
 
 *(recall — trigger it)*
 ```bash
