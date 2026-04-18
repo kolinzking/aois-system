@@ -715,51 +715,200 @@ JSON: {
 
 ## Common Mistakes
 
-**Not calling `load_dotenv()` before `os.getenv()`.**
+**Not calling `load_dotenv()` before `os.getenv()`** *(recognition)*
+`os.getenv()` reads the process environment at the exact moment it is called. If `.env` has not been loaded yet, the variable is not in the environment and `getenv` returns `None`. The error surfaces later when you try to use `None` as an API key.
+
+*(recall — trigger it)*
 ```python
+# Run this in a Python file or python3 -c
 import os
 from dotenv import load_dotenv
 
-api_key = os.getenv("ANTHROPIC_API_KEY")   # WRONG ORDER — reads before loading .env
+# Wrong order
+key = os.getenv("ANTHROPIC_API_KEY")
 load_dotenv()
-```
-`os.getenv()` reads the process environment at the moment it is called. If you call it before `load_dotenv()`, the `.env` values are not yet loaded and you get `None`. Always call `load_dotenv()` at the top of the file, before any `os.getenv()` calls.
+print(f"Wrong order result: {key!r}")   # prints None even if .env has the key
 
-**Mutable default arguments in function definitions.**
+# Correct order
+load_dotenv()
+key = os.getenv("ANTHROPIC_API_KEY")
+print(f"Correct order result: {key!r}")  # prints the actual key
+```
+Run it:
+```bash
+python3 -c "
+import os; from dotenv import load_dotenv
+key = os.getenv('ANTHROPIC_API_KEY'); load_dotenv()
+print('Wrong order:', repr(key))
+load_dotenv()
+key = os.getenv('ANTHROPIC_API_KEY')
+print('Correct order:', repr(key))
+"
+```
+Expected:
+```
+Wrong order: None
+Correct order: 'sk-ant-api03-...'
+```
+`load_dotenv()` is always the first line after imports. Non-negotiable.
+
+---
+
+**Mutable default arguments** *(recognition)*
+Default argument values are created once when Python parses the function definition — not each time the function is called. A list or dict default is shared across every call. Mutations accumulate silently.
+
+*(recall — trigger it)*
 ```python
-def add_log(message, logs=[]):        # WRONG — the list is created once and shared across all calls
+python3 << 'EOF'
+def add_log(message, logs=[]):
     logs.append(message)
     return logs
 
-def add_log(message, logs=None):      # CORRECT — create a new list on each call
+print(add_log("first call"))
+print(add_log("second call"))
+print(add_log("third call"))
+EOF
+```
+Expected:
+```
+['first call']
+['first call', 'second call']
+['first call', 'second call', 'third call']
+```
+The same list grows across all three calls. Fix — use `None` as the sentinel:
+```python
+python3 << 'EOF'
+def add_log(message, logs=None):
     if logs is None:
         logs = []
     logs.append(message)
     return logs
-```
-Default argument values are evaluated once when the function is defined, not each time it is called. Using a mutable default (list, dict) means all calls share the same object. This is one of Python's most famous gotchas.
 
-**Missing `await` on async functions.**
+print(add_log("first call"))
+print(add_log("second call"))
+EOF
+```
+Expected:
+```
+['first call']
+['second call']
+```
+Each call gets a fresh list. From now on: never use `[]` or `{}` as a default argument.
+
+---
+
+**Missing `await` on async functions** *(recognition)*
+Forgetting `await` does not immediately raise an error — Python returns a coroutine object instead of the result. The object is truthy and has no expected attributes, so failures happen downstream and look unrelated.
+
+*(recall — trigger it)*
 ```python
-async def analyze(log: str):
-    result = call_claude(log)         # WRONG — call_claude is async, returns a coroutine, not the result
-    result = await call_claude(log)   # CORRECT — actually runs the coroutine and gets the value
+python3 << 'EOF'
+import asyncio
+
+async def fetch_data():
+    await asyncio.sleep(0)
+    return {"status": "ok"}
+
+async def main():
+    # Wrong — no await
+    result = fetch_data()
+    print(f"Without await: {result}")
+    print(f"Type: {type(result)}")
+
+    # Try to use it like the dict we expected
+    try:
+        print(result["status"])
+    except TypeError as e:
+        print(f"Error: {e}")
+
+    # Correct
+    result = await fetch_data()
+    print(f"With await: {result}")
+
+asyncio.run(main())
+EOF
 ```
-Forgetting `await` does not raise an error immediately. The function returns a coroutine object. You will see it behave as truthy, have no expected attributes, and cause cryptic downstream errors. If a result looks like `<coroutine object ...>`, you forgot `await`.
+Expected:
+```
+Without await: <coroutine object fetch_data at 0x...>
+Type: <class 'coroutine'>
+Error: 'coroutine' object is not subscriptable
+With await: {'status': 'ok'}
+```
+`'coroutine' object is not subscriptable` = forgot `await`. Every async function call needs `await`.
 
-**Pydantic v1 vs v2 syntax mixing.**
-Pydantic v2 (used in this project) changed several APIs:
-- `model.dict()` → `model.model_dump()`
-- `model.json()` → `model.model_dump_json()`
-- `validator` decorator → `field_validator`
-Copying examples from older blog posts or Stack Overflow answers from before 2023 will give you v1 syntax that raises `AttributeError` in v2. Check Pydantic's version: `python3 -c "import pydantic; print(pydantic.__version__)"`.
+---
 
-**Using `float` for `confidence` in Pydantic without bounds.**
+**Pydantic v1 vs v2 syntax** *(recognition)*
+Pydantic v2 changed several method names. v1 code raises `AttributeError` in v2 — the method simply does not exist.
+
+*(recall — trigger it)*
 ```python
-confidence: float   # accepts any float — negative, > 1.0, infinity
-confidence: float = Field(ge=0.0, le=1.0)   # constrained to valid range
+python3 << 'EOF'
+from pydantic import BaseModel
+
+class Item(BaseModel):
+    name: str
+    value: int
+
+item = Item(name="test", value=42)
+
+# v1 syntax — breaks in v2
+try:
+    print(item.dict())
+except AttributeError as e:
+    print(f"v1 method failed: {e}")
+
+# v2 syntax — correct
+print(item.model_dump())
+EOF
 ```
-Pydantic validates types but not ranges unless you add constraints. A model can return `confidence: 42.0` with no error unless you add `Field(ge=0.0, le=1.0)`. Always constrain numeric fields that have a meaningful range.
+Expected:
+```
+v1 method failed: 'Item' object has no attribute 'dict'
+{'name': 'test', 'value': 42}
+```
+When you copy code from a pre-2023 tutorial and see `AttributeError: has no attribute 'dict'`, it is a v1/v2 mismatch. Replace `dict()` with `model_dump()`, `json()` with `model_dump_json()`.
+
+---
+
+**Float fields with no range constraint** *(recognition)*
+Pydantic validates that a value is a float — but not that it is within a meaningful range. A confidence score of `42.0` or `-0.5` passes type validation silently.
+
+*(recall — trigger it)*
+```python
+python3 << 'EOF'
+from pydantic import BaseModel, Field
+
+class Unconstrained(BaseModel):
+    confidence: float
+
+class Constrained(BaseModel):
+    confidence: float = Field(ge=0.0, le=1.0)
+
+# Unconstrained accepts nonsense
+u = Unconstrained(confidence=42.0)
+print(f"Unconstrained accepted: {u.confidence}")
+
+# Constrained catches it
+try:
+    c = Constrained(confidence=42.0)
+except Exception as e:
+    print(f"Constrained rejected: {e}")
+
+c = Constrained(confidence=0.85)
+print(f"Constrained accepted valid: {c.confidence}")
+EOF
+```
+Expected:
+```
+Unconstrained accepted: 42.0
+Constrained rejected: 1 validation error for Constrained
+confidence
+  Input should be less than or equal to 1 [...]
+Constrained accepted valid: 0.85
+```
+Any numeric field with a meaningful range gets `Field(ge=..., le=...)`. The model catching bad output early is always better than downstream code crashing on an impossible value.
 
 ---
 
