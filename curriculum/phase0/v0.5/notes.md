@@ -713,6 +713,56 @@ JSON: {
 
 ---
 
+## Common Mistakes
+
+**Not calling `load_dotenv()` before `os.getenv()`.**
+```python
+import os
+from dotenv import load_dotenv
+
+api_key = os.getenv("ANTHROPIC_API_KEY")   # WRONG ORDER — reads before loading .env
+load_dotenv()
+```
+`os.getenv()` reads the process environment at the moment it is called. If you call it before `load_dotenv()`, the `.env` values are not yet loaded and you get `None`. Always call `load_dotenv()` at the top of the file, before any `os.getenv()` calls.
+
+**Mutable default arguments in function definitions.**
+```python
+def add_log(message, logs=[]):        # WRONG — the list is created once and shared across all calls
+    logs.append(message)
+    return logs
+
+def add_log(message, logs=None):      # CORRECT — create a new list on each call
+    if logs is None:
+        logs = []
+    logs.append(message)
+    return logs
+```
+Default argument values are evaluated once when the function is defined, not each time it is called. Using a mutable default (list, dict) means all calls share the same object. This is one of Python's most famous gotchas.
+
+**Missing `await` on async functions.**
+```python
+async def analyze(log: str):
+    result = call_claude(log)         # WRONG — call_claude is async, returns a coroutine, not the result
+    result = await call_claude(log)   # CORRECT — actually runs the coroutine and gets the value
+```
+Forgetting `await` does not raise an error immediately. The function returns a coroutine object. You will see it behave as truthy, have no expected attributes, and cause cryptic downstream errors. If a result looks like `<coroutine object ...>`, you forgot `await`.
+
+**Pydantic v1 vs v2 syntax mixing.**
+Pydantic v2 (used in this project) changed several APIs:
+- `model.dict()` → `model.model_dump()`
+- `model.json()` → `model.model_dump_json()`
+- `validator` decorator → `field_validator`
+Copying examples from older blog posts or Stack Overflow answers from before 2023 will give you v1 syntax that raises `AttributeError` in v2. Check Pydantic's version: `python3 -c "import pydantic; print(pydantic.__version__)"`.
+
+**Using `float` for `confidence` in Pydantic without bounds.**
+```python
+confidence: float   # accepts any float — negative, > 1.0, infinity
+confidence: float = Field(ge=0.0, le=1.0)   # constrained to valid range
+```
+Pydantic validates types but not ranges unless you add constraints. A model can return `confidence: 42.0` with no error unless you add `Field(ge=0.0, le=1.0)`. Always constrain numeric fields that have a meaningful range.
+
+---
+
 ## Troubleshooting
 
 **"ModuleNotFoundError: No module named 'pydantic'":**
