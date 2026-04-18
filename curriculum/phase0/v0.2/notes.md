@@ -920,40 +920,123 @@ These two failures are exactly what v1 solves.
 
 ## Common Mistakes
 
-**Forgetting to quote variables.**
+**Forgetting to quote variables** *(recognition)*
+When a variable contains spaces, bash splits it into multiple words on expansion. Unquoted `$name` becomes `John Smith` — two words — which breaks `[ ]` comparisons and for loops in ways that look random.
+
+*(recall — trigger it)*
 ```bash
 name="John Smith"
-if [ $name == "John Smith" ]; then   # WRONG: expands to [ John Smith == "John Smith" ] — three words, broken syntax
-if [ "$name" == "John Smith" ]; then  # CORRECT: expands to [ "John Smith" == "John Smith" ]
+if [ $name == "John Smith" ]; then echo "ok"; fi
 ```
-Always quote variables in conditionals. Unquoted variables with spaces cause "too many arguments" errors that are baffling to debug.
-
-**Using `=` vs `==` in `[ ]`.**
-Both work in bash, but `=` is POSIX-standard for `[ ]` and `==` is bash-specific. Inside `[[ ]]` (double brackets), `==` also enables glob matching. For consistency: use `[ "$var" = "value" ]` in portable scripts, use `[[ "$var" == "value" ]]` when you need regex or glob matching.
-
-**Not handling exit codes explicitly.**
+Expected error:
+```
+bash: [: too many arguments
+```
+Fix:
 ```bash
-mkdir /tmp/logs
-cp app.log /tmp/logs/
+if [ "$name" == "John Smith" ]; then echo "ok"; fi
 ```
-If `mkdir` fails (permission denied, disk full), the script continues and `cp` fails too — but with a confusing error message about the destination not existing. Use `|| exit 1` or `set -e` at the top of the script. With `set -e`, any command that fails immediately stops the script.
+From now on, `too many arguments` in a bash condition = unquoted variable with spaces.
 
-**Missing the shebang line.**
-If you forget `#!/bin/bash` at the top and run `./script.sh`, your system uses `/bin/sh` (a different, more limited shell). Bash-specific syntax like `[[ ]]`, `declare`, and `${var^^}` will fail with cryptic errors. Always start scripts with `#!/bin/bash`.
+---
 
-**Command substitution syntax confusion.**
+**Using `=` vs `==` in `[ ]`** *(recognition)*
+Both work in bash's `[ ]`, but `=` is the POSIX standard. Inside `[[ ]]`, `==` additionally enables glob matching. The distinction matters when writing portable scripts vs bash-only scripts.
+
+*(recall — trigger it)*
 ```bash
-date=$(date +%Y-%m-%d)   # correct — $(command) is modern syntax
-date=`date +%Y-%m-%d`    # also works but avoid — backticks are harder to read and nest
+# See glob matching only works in [[ ]]
+file="error_2026.log"
+[ "$file" == error_* ] && echo "matched"    # no output — [ ] treats error_* as a literal string
+[[ "$file" == error_* ]] && echo "matched"  # matched — [[ ]] performs glob expansion
 ```
-Use `$(...)` always. Backtick syntax is legacy and causes nesting nightmares.
+Expected: first command produces no output, second prints `matched`. This is the concrete difference — `[[ ]]` gives you pattern matching, `[ ]` does not.
 
-**`for` loop variable not quoted.**
+---
+
+**Not handling exit codes explicitly** *(recognition)*
+When a command fails inside a script, bash continues to the next line by default. The next command fails too — but with a confusing error about symptoms, not the root cause.
+
+*(recall — trigger it)*
 ```bash
-files="file1 file2 file with spaces"
-for f in $files; do echo "$f"; done   # WRONG — splits "file with spaces" into three items
+# Simulate: try to copy into a directory that failed to create
+cat > /tmp/test_exits.sh << 'EOF'
+#!/bin/bash
+mkdir /root/protected_dir        # will fail — no permission
+cp /etc/hostname /root/protected_dir/  # will also fail — but with a misleading error
+echo "Script completed"
+EOF
+chmod +x /tmp/test_exits.sh && bash /tmp/test_exits.sh
 ```
-For files with spaces, use arrays: `files=("file1" "file2" "file with spaces")`.
+Expected output:
+```
+mkdir: cannot create directory '/root/protected_dir': Permission denied
+cp: cannot create regular file '/root/protected_dir/hostname': No such file or directory
+Script completed
+```
+The script ran to the end despite two failures. `cp` blames a missing directory, not the real cause. Fix — add `set -e` at the top:
+```bash
+#!/bin/bash
+set -e
+mkdir /root/protected_dir
+cp /etc/hostname /root/protected_dir/
+echo "Script completed"
+```
+Expected: script stops at `mkdir` failure. `Script completed` never prints. `set -e` turns every command failure into an immediate exit.
+
+---
+
+**Missing the shebang line** *(recognition)*
+Without `#!/bin/bash`, the OS uses `/bin/sh` to run the script. `/bin/sh` is POSIX shell — it does not support bash-specific syntax. The error messages point at syntax, not the real cause.
+
+*(recall — trigger it)*
+```bash
+cat > /tmp/no_shebang.sh << 'EOF'
+name="hello"
+if [[ "$name" == "hello" ]]; then
+    echo "bash syntax works"
+fi
+EOF
+chmod +x /tmp/no_shebang.sh
+sh /tmp/no_shebang.sh    # force /bin/sh explicitly
+```
+Expected error:
+```
+/tmp/no_shebang.sh: 2: [[: not found
+```
+`[[` is a bash builtin — `/bin/sh` does not have it. Fix: add `#!/bin/bash` as the first line. Then `bash /tmp/no_shebang.sh` works correctly.
+
+---
+
+**`for` loop over unquoted string variable** *(recognition)*
+A string variable containing spaces is split by bash into separate words when unquoted. A filename like `"log file.txt"` becomes two loop iterations: `log` and `file.txt`.
+
+*(recall — trigger it)*
+```bash
+files="report.log error log.txt"
+for f in $files; do
+    echo "Processing: $f"
+done
+```
+Expected output:
+```
+Processing: report.log
+Processing: error
+Processing: log.txt
+```
+`"error log.txt"` was split into `error` and `log.txt` — three items instead of two. Fix using an array:
+```bash
+files=("report.log" "error log.txt")
+for f in "${files[@]}"; do
+    echo "Processing: $f"
+done
+```
+Expected:
+```
+Processing: report.log
+Processing: error log.txt
+```
+`"${files[@]}"` preserves each element as a single word, spaces included.
 
 ---
 
