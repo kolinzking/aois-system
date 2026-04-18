@@ -1,4 +1,5 @@
 # v0.2 — Bash Scripting: The Glue of DevOps
+⏱ **Estimated time: 4–6 hours**
 
 ## What this version is about
 
