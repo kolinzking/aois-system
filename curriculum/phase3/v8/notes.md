@@ -540,6 +540,30 @@ Then `https://argocd.46.225.235.51.nip.io` reaches the UI directly.
 
 ---
 
+## Common Mistakes
+
+**Pushing broken Helm templates to `main`.**
+ArgoCD watches `main` and immediately tries to sync on every push. If you push a template with a syntax error, ArgoCD enters a `ComparisonError` state and stops syncing — including future good pushes. Always run `helm lint ./charts/aois` and `helm template` locally before pushing to main. Never use main as a scratch branch when ArgoCD is watching it.
+
+**Manual kubectl edits feel like they're fighting ArgoCD.**
+You change something with `kubectl edit` and it reverts. You change it again, it reverts again. This is `selfHeal: true` working as intended — you are fighting the design. The correct path: change the value in `values.prod.yaml`, commit, push. If you need to make an emergency change that bypasses ArgoCD, temporarily disable auto-sync: `argocd app set aois --sync-policy none`, make your fix, then re-enable.
+
+**Not setting `prune: true` and accumulating orphaned resources.**
+You remove a template from the chart and push. The resource stays in the cluster because ArgoCD, without `prune: true`, never deletes resources. Over time the cluster fills with stale Deployments, Services, and ConfigMaps that nobody manages. Always enable `prune: true`.
+
+**Confusing sync failure with application failure.**
+`ComparisonError` or `SyncFailed` = ArgoCD could not render or apply the templates. This is a chart/values problem. The application may still be running on the old version.
+`Health: Degraded` = ArgoCD applied successfully but the pod is crashing. This is an application problem.
+These require different fixes. `argocd app get aois --show-operation` shows which one you have.
+
+**ArgoCD's 3-minute poll makes deploys feel slow.**
+After `git push`, ArgoCD polls every 3 minutes by default. If your change does not appear deployed within a few seconds, it has not been ignored — it is waiting for the poll. Run `argocd app sync aois` to trigger immediately. Set up the GitHub webhook (covered in the notes) to get sub-second triggering.
+
+**Uninstalling Helm before registering the ArgoCD Application.**
+If you `helm uninstall aois` and then the ArgoCD Application fails to sync (e.g., GitHub is unreachable), AOIS is down with no easy rollback. Safer sequence: (1) apply the ArgoCD Application and confirm it syncs to Synced/Healthy, (2) then remove Helm ownership if needed. ArgoCD should own the deployment before Helm releases it.
+
+---
+
 ## Troubleshooting
 
 **`ComparisonError: failed to load target state: failed to generate manifest`**
