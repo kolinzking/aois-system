@@ -444,7 +444,7 @@ If you do not have Langfuse configured, skip this step — the server still work
 ## Common Mistakes
 
 **Instructor retries hiding a bad prompt** *(recognition)*
-Instructor retries validation failures automatically (default: `max_retries=1`). If your Pydantic model has a field that the model consistently gets wrong, Instructor retries and eventually succeeds — but the first attempt was a failure that cost tokens. The symptom is not an error — it is elevated latency and token counts you cannot explain.
+Instructor retries validation failures automatically (default: `max_retries=1`). If your Pydantic model has a field that the model consistently gets wrong, Instructor retries and eventually succeeds — but the first attempt was a failure that cost tokens. Check Langfuse: if you see many retried calls on a specific field, the problem is in your prompt or field description, not the model. Fix the prompt, not the retry count. The symptom is not an error — it is elevated latency and token counts you cannot explain.
 
 *(recall — trigger it)*
 Add a field the model cannot reliably fill from a log line:
