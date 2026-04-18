@@ -409,6 +409,26 @@ Without both of these, lines with spaces or backslashes behave unexpectedly.
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Write a for loop from scratch that prints each dependency in `requirements.txt`:
+> ```bash
+> for dep in $(cat /workspaces/aois-system/requirements.txt); do
+>     echo "Dependency: $dep"
+> done
+> ```
+> Then modify it to only print lines containing the word "fast":
+> ```bash
+> for dep in $(cat /workspaces/aois-system/requirements.txt); do
+>     if echo "$dep" | grep -qi "fast"; then
+>         echo "FastAPI-related: $dep"
+>     fi
+> done
+> ```
+> This is the loop + conditional pattern. You just wrote your first useful loop over real project data.
+
+---
+
 ## Part 5 — Functions
 
 ```bash
