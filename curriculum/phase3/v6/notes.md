@@ -702,6 +702,43 @@ replicaset.apps/aois-6c76df6fd7   1         1         1       5m
 
 ---
 
+## Common Mistakes
+
+**Forgetting `-n aois` — commands run in the wrong namespace.**
+```bash
+kubectl get pods                  # shows pods in 'default' namespace — AOIS is not there
+kubectl get pods -n aois          # shows AOIS pods — correct
+```
+Without `-n namespace`, kubectl defaults to the `default` namespace. Every AOIS resource is in the `aois` namespace. You will spend time confused about why kubectl shows nothing when everything is running fine. Set `kubectl config set-context --current --namespace=aois` to make `aois` the default for this context — then you can omit `-n aois` in most commands.
+
+**`ImagePullBackOff` because `ghcr-secret` is missing or wrong.**
+When the pod cannot pull the image, it shows `ImagePullBackOff`. The most common cause: the `ghcr-secret` was created with the wrong GitHub token (expired, wrong scope, wrong username). Verify:
+```bash
+kubectl get secret ghcr-secret -n aois -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d
+```
+Confirm the `auth` field decodes to `username:token` and the token has `read:packages` scope on GitHub.
+
+**Liveness probe too aggressive — kills healthy pods during startup.**
+If `initialDelaySeconds` is too small (e.g., 5 seconds) and AOIS takes 10 seconds to load the model and start accepting requests, the liveness probe fails during startup and Kubernetes kills the pod — immediately restarting it in a crash loop. This looks identical to an application crash. Always set `initialDelaySeconds` to at least 1.5× your observed startup time.
+
+**Editing base64-encoded Secrets by hand.**
+```bash
+kubectl edit secret aois-secrets -n aois
+# The values are base64-encoded — editing them directly is error-prone
+```
+A base64 string with a trailing newline is different from one without. A typo in base64 is invisible until the application tries to use the secret and gets a garbled API key. Use `kubectl create secret --dry-run=client -o yaml | kubectl apply -f -` to update secrets safely.
+
+**cert-manager certificate stuck in Pending — missing ClusterIssuer.**
+If `kubectl describe certificate aois-tls -n aois` shows `Waiting for HTTP-01 challenge` but the challenge never completes, verify:
+1. The ClusterIssuer exists: `kubectl get clusterissuer`
+2. The Ingress is reachable from the internet on port 80 (Let's Encrypt validates via HTTP before issuing TLS)
+3. The nip.io domain resolves to your Hetzner IP: `dig aois.46.225.235.51.nip.io`
+
+**`kubectl apply` vs `helm upgrade` after v7.**
+Once Helm manages AOIS (v7+), never use `kubectl apply` on the same resources. `kubectl apply` makes changes outside Helm's knowledge. Helm's next upgrade will either fight the manual change or overwrite it. Pick one: kubectl OR helm, for the same set of resources. After v7: always helm.
+
+---
+
 ## Troubleshooting
 
 **Pod stuck in `ImagePullBackOff`:**
