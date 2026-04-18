@@ -1,4 +1,5 @@
 # v0.7 — How LLMs Work: Before You Call One
+⏱ **Estimated time: 2–4 hours**
 
 ## What this version is about
 
