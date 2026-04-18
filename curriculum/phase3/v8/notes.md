@@ -682,6 +682,41 @@ For production, configure the GitHub webhook to eliminate polling entirely — A
 
 ---
 
+**Uninstalling Helm before the ArgoCD Application is healthy** *(recognition)*
+If you `helm uninstall aois` and then the ArgoCD Application fails to sync (e.g., GitHub is unreachable, template error, missing values), AOIS is down with no easy rollback. Safer sequence: (1) apply the ArgoCD Application and confirm it syncs to `Synced/Healthy`, (2) then remove Helm ownership if needed. ArgoCD should own the deployment before Helm releases it.
+
+*(recall — trigger it)*
+```bash
+# Simulate the unsafe sequence
+helm uninstall aois -n aois   # AOIS goes down
+
+# Now break something in the chart to prevent ArgoCD from syncing
+echo "bad: yaml: [" >> charts/aois/values.prod.yaml
+git add -A && git commit -m "test: simulate broken state" && git push
+
+# ArgoCD tries to sync but fails — AOIS is still down
+argocd app sync aois
+# Error: ComparisonError — can't render templates
+argocd app get aois
+# Health: Missing   Sync: ComparisonError
+# AOIS is down and ArgoCD cannot recover it
+```
+You are now in a bad state: Helm is gone, ArgoCD is broken, AOIS is offline.
+
+Fix: restore the chart, push, ArgoCD recovers. Then proceed.
+```bash
+# Revert the breaking change
+git revert HEAD
+git push
+argocd app sync aois   # now recovers
+```
+Safe sequence going forward:
+1. `kubectl apply -f argocd/application.yaml`
+2. `argocd app wait aois --health --timeout 120`  ← wait for Healthy
+3. Only then: `helm uninstall aois -n aois` if needed
+
+---
+
 ## Troubleshooting
 
 **`ComparisonError: failed to load target state: failed to generate manifest`**
