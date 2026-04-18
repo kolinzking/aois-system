@@ -461,7 +461,7 @@ Now send a log through and watch Langfuse. You will see retry attempts as the mo
 ---
 
 **Too many Pydantic fields — the model must fill all of them** *(recognition)*
-Every field in the model is something you are asking the model to produce. A model given 15 fields will hallucinate values for fields it has no evidence for. Start minimal. Add fields only when you have confirmed the model can fill them reliably.
+Every field in the model is something you are asking the model to fill in. If you have 15 fields, the model must produce 15 valid values — and will hallucinate values for fields it has no evidence for. Start with the minimum viable fields (severity, summary, suggested_action). Add fields only when you have a clear use for them and evidence that the model can fill them reliably.
 
 *(recall — trigger it)*
 ```python
