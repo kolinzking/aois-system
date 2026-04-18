@@ -1,7 +1,7 @@
 replicaCount: 2
 
 image:
-  tag: v7
+  tag: v9
 
 ingress:
   host: aois.46.225.235.51.nip.io
@@ -13,3 +13,11 @@ resources:
   limits:
     memory: "1Gi"
     cpu: "1000m"
+
+keda:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 5
+  cooldownPeriod: 300
+  cpu:
+    targetUtilization: "60"
