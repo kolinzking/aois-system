@@ -443,26 +443,102 @@ If you do not have Langfuse configured, skip this step — the server still work
 
 ## Common Mistakes
 
-**Instructor retries hiding a bad prompt.**
-Instructor retries validation failures automatically (default: `max_retries=1`). If your Pydantic model has a field that the model consistently gets wrong, Instructor retries and eventually succeeds — but the first attempt was a failure that cost tokens. Check Langfuse: if you see many retried calls on a specific field, the problem is in your prompt or field description, not the model. Fix the prompt, not the retry count.
+**Instructor retries hiding a bad prompt** *(recognition)*
+Instructor retries validation failures automatically (default: `max_retries=1`). If your Pydantic model has a field that the model consistently gets wrong, Instructor retries and eventually succeeds — but the first attempt was a failure that cost tokens. The symptom is not an error — it is elevated latency and token counts you cannot explain.
 
-**Adding too many fields to the Pydantic model.**
-Every field in the model is something you are asking the model to fill in. If you have 15 fields, the model must produce 15 valid values — and will hallucinate values for fields it has no evidence for. Start with the minimum viable fields (severity, summary, suggested_action). Add fields only when you have a clear use for them and evidence that the model can fill them reliably.
-
-**Not checking Langfuse traces after building.**
-You added Langfuse. You wrote the tracing code. You called it once and confirmed it works. Then you never look at it again. This defeats the purpose. In every AOIS session, open Langfuse and check: What was the actual token count? Did any calls fail? What was the average latency? What did the prompts look like? Observability is only useful if you observe. Make checking Langfuse a habit, not an afterthought.
-
-**`max_retries=0` disabling retries silently.**
+*(recall — trigger it)*
+Add a field the model cannot reliably fill from a log line:
 ```python
-client = instructor.from_anthropic(anthropic.Anthropic())
-# Default: max_retries=1 — Instructor will retry once on validation failure
-client = instructor.from_anthropic(anthropic.Anthropic(), max_retries=0)
-# max_retries=0 disables retries — any validation failure raises immediately
+class IncidentAnalysis(BaseModel):
+    severity: str
+    summary: str
+    suggested_action: str
+    confidence: float
+    affected_service_team_slack_handle: str   # <-- impossible to know from a log
 ```
-`max_retries=0` is NOT the default. If you set it to test something and forget to remove it, your production AOIS will raise exceptions on the first validation failure instead of retrying. Check your instantiation.
+Now send a log through and watch Langfuse. You will see retry attempts as the model invents values like `"@sre-team"` or `"unknown"` — neither is validated as wrong by Pydantic (it is just a string), so it passes on a hallucinated value. Fix: remove fields that require knowledge not in the log. Every field is a hallucination risk.
 
-**Confusing Instructor's retry with network retry.**
-Instructor retries when the model's response fails Pydantic validation — the model produced something that doesn't match the schema. This is not a network retry. If the Anthropic API is down, Instructor's `max_retries` does nothing — that is a different error class. Handle network failures separately with `tenacity` or `httpx` retry configuration.
+---
+
+**Too many Pydantic fields — the model must fill all of them** *(recognition)*
+Every field in the model is something you are asking the model to produce. A model given 15 fields will hallucinate values for fields it has no evidence for. Start minimal. Add fields only when you have confirmed the model can fill them reliably.
+
+*(recall — trigger it)*
+```python
+class OverengineeredAnalysis(BaseModel):
+    severity: str
+    summary: str
+    suggested_action: str
+    confidence: float
+    root_cause: str
+    affected_components: list[str]
+    estimated_resolution_time: str
+    on_call_engineer: str           # model cannot know this
+    ticket_priority: str
+    business_impact_score: int      # model invents a number
+    related_incidents: list[str]    # model will hallucinate past incidents
+    deployment_correlation: str
+```
+Send a real log through. Inspect every field in the response. Count how many are genuine analysis vs invented strings. The hallucinated fields are more dangerous than no field — they look real.
+
+Fix: start with 4–5 fields maximum. Add one at a time and evaluate output quality before adding the next.
+
+---
+
+**`max_retries=0` disabling retries silently** *(recognition)*
+`max_retries=0` is not the default. If you set it to debug something and forget to remove it, your production AOIS will raise `InstructorRetryException` on the first validation failure instead of recovering.
+
+*(recall — trigger it)*
+```python
+import instructor, anthropic
+from pydantic import BaseModel
+
+class Result(BaseModel):
+    severity: Literal["P1", "P2", "P3", "P4"]  # strict enum
+    summary: str
+
+client = instructor.from_anthropic(anthropic.Anthropic(), max_retries=0)
+
+result = client.messages.create(
+    model="claude-haiku-4-5-20251001",
+    max_tokens=100,
+    messages=[{"role": "user", "content": "analyze: blah blah blah"}],
+    response_model=Result,
+)
+```
+Expected on a bad response (model output doesn't match enum):
+```
+instructor.exceptions.InstructorRetryException: 
+1 validation error for Result
+severity: Input should be 'P1', 'P2', 'P3' or 'P4'
+```
+Fix: remove `max_retries=0` or set `max_retries=2`. The default of 1 retry handles most transient model inconsistencies.
+
+---
+
+**Confusing Instructor's validation retry with a network retry** *(recognition)*
+Instructor retries when the model's response fails Pydantic validation — the model produced something that doesn't match the schema. If the Anthropic API is unreachable (network down, 5xx from Anthropic), `max_retries` in Instructor does nothing. That is a different failure mode that needs a different fix.
+
+*(recall — trigger it)*
+```bash
+# Simulate network failure by blocking the Anthropic endpoint
+# (or just use an invalid host)
+ANTHROPIC_BASE_URL="https://not-a-real-host.invalid" python3 - <<'EOF'
+import instructor, anthropic
+from pydantic import BaseModel
+
+client = instructor.from_anthropic(
+    anthropic.Anthropic(base_url="https://not-a-real-host.invalid"),
+    max_retries=5   # <-- this will NOT retry on network failure
+)
+# This raises immediately — no retries despite max_retries=5
+EOF
+```
+Expected error:
+```
+httpx.ConnectError: [Errno -2] Name or service not known
+```
+Instructor's retry loop never starts — the error happens before the response comes back. Fix: wrap the entire `client.messages.create()` call in `tenacity.retry` for network-level failures, and let Instructor handle validation-level retries separately. Two different retry strategies for two different failure modes.
 
 ---
 
