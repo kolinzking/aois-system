@@ -1,4 +1,5 @@
 # v0.5 — Python for This Project
+⏱ **Estimated time: 3–4 hours**
 
 ## What this version is about
 
