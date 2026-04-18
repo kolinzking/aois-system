@@ -336,6 +336,27 @@ The goal is zero **fixable** HIGH/CRITICAL vulnerabilities. An unfixable vulnera
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Run the Trivy scan and interpret every HIGH/CRITICAL finding:
+> ```bash
+> trivy image aois:latest --severity HIGH,CRITICAL 2>/dev/null | grep -E "HIGH|CRITICAL|Total"
+> ```
+> For each finding:
+> - Is there a "FIXED VERSION"? If yes: it is actionable — update the base image or package.
+> - If no fixed version: document it as accepted risk.
+>
+> Then understand what scanning caught:
+> ```bash
+> # Compare: what does the builder stage have vs the final image?
+> docker build --target builder -t aois:builder-only . 2>/dev/null
+> trivy image aois:builder-only --severity HIGH,CRITICAL 2>/dev/null | grep "Total:"
+> trivy image aois:latest --severity HIGH,CRITICAL 2>/dev/null | grep "Total:"
+> ```
+> The builder stage has more vulnerabilities (it has pip, gcc, etc). Multi-stage builds reduce your attack surface by not shipping build tools.
+
+---
+
 ## Part 5 — Docker Compose
 
 View the current compose file:
