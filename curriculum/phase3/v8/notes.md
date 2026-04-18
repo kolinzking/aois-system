@@ -1,4 +1,28 @@
 # v8 — ArgoCD: GitOps
+⏱ **Estimated time: 3–4 hours**
+
+## Prerequisites
+
+- v7 complete — Helm chart at `charts/aois/` with `values.prod.yaml`, verified with `helm template`
+- AOIS deployed and healthy: `curl https://aois.46.225.235.51.nip.io/health` returns `{"status":"healthy"}`
+- `kubectl` access to Hetzner cluster (`kubectl get nodes` works)
+- The repo is on GitHub (`git remote -v` shows `origin https://github.com/kolinzking/aois-system`)
+
+---
+
+## Learning Goals
+
+By the end of this version you will be able to:
+- Explain the GitOps model and why it inverts the traditional deploy workflow
+- Describe ArgoCD's components and what each one does
+- Read an ArgoCD Application manifest and explain every field
+- Distinguish Sync Status from Health Status and name all four problematic combinations
+- Perform a complete deploy cycle using only `git push` — no kubectl, no helm
+- Trigger rollback via ArgoCD CLI and via git revert
+- Diagnose sync failures and recovery from OutOfSync states
+- Explain what ArgoCD does NOT do (build images, run tests, manage secrets)
+
+---
 
 ## What This Is
 
