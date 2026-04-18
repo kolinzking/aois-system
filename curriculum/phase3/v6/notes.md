@@ -463,6 +463,30 @@ In v7 (Helm), you parameterize the hostname in a values file. In Phase 9 (CI/CD)
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Before applying manifests, read each file and predict what it creates:
+> ```bash
+> ls /workspaces/aois-system/k8s/
+> ```
+> For each `.yaml` file, read it and write down:
+> - What kind of k8s object does it create? (`kind:` field)
+> - What namespace does it go into?
+> - What is the purpose of this object in making AOIS accessible from the internet?
+>
+> Then apply them in order:
+> ```bash
+> kubectl apply -f /workspaces/aois-system/k8s/namespace.yaml
+> kubectl get namespace aois
+> kubectl apply -f /workspaces/aois-system/k8s/secret.yaml
+> kubectl get secret -n aois
+> kubectl apply -f /workspaces/aois-system/k8s/deployment.yaml
+> kubectl rollout status deployment/aois -n aois
+> ```
+> Watch the deployment rollout — this is the pod lifecycle: Pending → ContainerCreating → Running. If it stays in Pending, read the events: `kubectl describe pod -n aois`.
+
+---
+
 ## Part 7 — cert-manager and Let's Encrypt
 
 ### Install cert-manager
