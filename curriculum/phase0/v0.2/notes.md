@@ -918,6 +918,45 @@ These two failures are exactly what v1 solves.
 
 ---
 
+## Common Mistakes
+
+**Forgetting to quote variables.**
+```bash
+name="John Smith"
+if [ $name == "John Smith" ]; then   # WRONG: expands to [ John Smith == "John Smith" ] — three words, broken syntax
+if [ "$name" == "John Smith" ]; then  # CORRECT: expands to [ "John Smith" == "John Smith" ]
+```
+Always quote variables in conditionals. Unquoted variables with spaces cause "too many arguments" errors that are baffling to debug.
+
+**Using `=` vs `==` in `[ ]`.**
+Both work in bash, but `=` is POSIX-standard for `[ ]` and `==` is bash-specific. Inside `[[ ]]` (double brackets), `==` also enables glob matching. For consistency: use `[ "$var" = "value" ]` in portable scripts, use `[[ "$var" == "value" ]]` when you need regex or glob matching.
+
+**Not handling exit codes explicitly.**
+```bash
+mkdir /tmp/logs
+cp app.log /tmp/logs/
+```
+If `mkdir` fails (permission denied, disk full), the script continues and `cp` fails too — but with a confusing error message about the destination not existing. Use `|| exit 1` or `set -e` at the top of the script. With `set -e`, any command that fails immediately stops the script.
+
+**Missing the shebang line.**
+If you forget `#!/bin/bash` at the top and run `./script.sh`, your system uses `/bin/sh` (a different, more limited shell). Bash-specific syntax like `[[ ]]`, `declare`, and `${var^^}` will fail with cryptic errors. Always start scripts with `#!/bin/bash`.
+
+**Command substitution syntax confusion.**
+```bash
+date=$(date +%Y-%m-%d)   # correct — $(command) is modern syntax
+date=`date +%Y-%m-%d`    # also works but avoid — backticks are harder to read and nest
+```
+Use `$(...)` always. Backtick syntax is legacy and causes nesting nightmares.
+
+**`for` loop variable not quoted.**
+```bash
+files="file1 file2 file with spaces"
+for f in $files; do echo "$f"; done   # WRONG — splits "file with spaces" into three items
+```
+For files with spaces, use arrays: `files=("file1" "file2" "file with spaces")`.
+
+---
+
 ## Troubleshooting
 
 **Script runs but produces no output:**
