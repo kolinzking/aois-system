@@ -128,6 +128,24 @@ If `ping 8.8.8.8` works but `ping google.com` fails, it is a DNS problem. The ne
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Diagnose the network path to the Anthropic API:
+> ```bash
+> # Resolve the DNS name
+> nslookup api.anthropic.com
+>
+> # Check if the port is reachable
+> curl -sv https://api.anthropic.com 2>&1 | head -20
+>
+> # What port does HTTPS use?
+> # What port does HTTP use?
+> # If you can reach the IP but not the hostname — what is broken?
+> ```
+> Understanding this means when an API call fails with "connection refused" vs "SSL error" vs "timeout", you know exactly which layer is broken and where to look.
+
+---
+
 ## Part 3 — HTTP: the protocol of the web
 
 HTTP is a text-based protocol. Every API call — to Claude, to your FastAPI server, to GitHub — is an HTTP request. Understanding the raw format removes all abstraction.
