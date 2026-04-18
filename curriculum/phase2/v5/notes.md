@@ -550,7 +550,10 @@ The key insight: for AOIS, the actual risk is prompt injection into the LLM syst
 ---
 
 **Logging request bodies that contain secrets** *(recognition)*
-If a user sends their API key in a log line (it happens — engineers paste credentials into logs accidentally), your server logs become a credential store visible to anyone with log access.
+```python
+logger.info(f"Request: {request.body}")   # logs the entire payload
+```
+If a user sends their API key in a log line (it happens), your server logs become a credential store. Be deliberate about what gets logged. Log the request ID, the endpoint, the response status, and the latency — not the full request body. For debugging, use a flag that enables body logging only in development.
 
 *(recall — trigger it)*
 ```python
