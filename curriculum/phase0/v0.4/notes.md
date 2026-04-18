@@ -445,6 +445,22 @@ with open("output.json", "w") as f:
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Save a real API response and inspect it:
+> ```bash
+> # Hit the GitHub API and save the response
+> curl -s https://api.github.com/users/kolinzking > /tmp/github_response.json
+>
+> # Now extract specific fields
+> cat /tmp/github_response.json | python3 -m json.tool | head -20
+> cat /tmp/github_response.json | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['public_repos'])"
+> cat /tmp/github_response.json | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['login'])"
+> ```
+> This is how you call any REST API: send a request with curl, parse the JSON response with Python. The AOIS `/analyze` endpoint works exactly the same way — it receives JSON, returns JSON.
+
+---
+
 ## Part 8 — REST conventions
 
 REST is not a protocol or a standard. It is a set of conventions that most APIs follow to be predictable.
