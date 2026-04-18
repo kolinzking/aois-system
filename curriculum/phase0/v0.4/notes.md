@@ -1,4 +1,5 @@
 # v0.4 — Networking & HTTP: How the Internet Works
+⏱ **Estimated time: 2–3 hours**
 
 ## What this version is about
 
