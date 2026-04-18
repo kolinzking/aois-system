@@ -274,6 +274,24 @@ Unpacks the dict as keyword arguments, adds the two new fields, creates the Pyda
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Look at the archived v2 code and compare the `analyze` function to v1's `analyze_with_claude`:
+> ```bash
+> grep -A 20 "def analyze_with_claude" /workspaces/aois-system/curriculum/phase1/v1/main.py
+> grep -A 20 "def analyze" /workspaces/aois-system/curriculum/phase1/v2/main.py | head -25
+> ```
+> Count the lines in each. v1 has two functions totaling ~30 lines for two providers.
+> v2 has one function of ~15 lines that handles any provider.
+>
+> Now see how adding Groq in v2 requires zero new code — just a new entry in `ROUTING_TIERS`:
+> ```bash
+> grep -A 6 "ROUTING_TIERS" /workspaces/aois-system/curriculum/phase1/v2/main.py | head -10
+> ```
+> This is the architectural argument for LiteLLM. Not magic — just one interface.
+
+---
+
 ## The fallback logic
 
 ```python
