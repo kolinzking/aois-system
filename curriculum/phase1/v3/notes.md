@@ -159,6 +159,41 @@ What disappeared in v3:
 
 ---
 
+> **▶ STOP — do this now**
+>
+> See exactly what Instructor does that v2 does not. In v2, a bad severity value crashes silently. In v3, it retries:
+> ```python
+> python3 << 'EOF'
+> import instructor
+> from pydantic import BaseModel
+> from typing import Literal
+>
+> # Simulate what happens when a model returns wrong severity
+> class IncidentAnalysis(BaseModel):
+>     summary: str
+>     severity: Literal["P1", "P2", "P3", "P4"]
+>     suggested_action: str
+>     confidence: float
+>
+> # Without Instructor — you parse JSON manually and crash:
+> import json
+> bad_response = '{"summary":"disk full","severity":"Critical","suggested_action":"clean up","confidence":0.9}'
+> try:
+>     data = json.loads(bad_response)
+>     result = IncidentAnalysis(**data)
+>     print("v2 result:", result)
+> except Exception as e:
+>     print("v2 CRASHES:", type(e).__name__, str(e)[:100])
+>
+> # With Instructor — it catches this at validation and retries with the error
+> # (full demo requires API call; the point is: Instructor intercepts the ValidationError
+> #  and sends it back to the model with instruction to fix it)
+> print("\nInstructor wraps this retry loop automatically — you get correct output or a clear error after max_retries")
+> EOF
+> ```
+
+---
+
 ## Part 3 — How Instructor's retry mechanism works
 
 When the model returns invalid data:
