@@ -1,4 +1,5 @@
 # v3 — Instructor + Langfuse: Reliable Intelligence
+⏱ **Estimated time: 3–4 hours**
 
 ## What this version builds
 
