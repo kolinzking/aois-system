@@ -635,8 +635,10 @@ mv charts/aois/templates/ingress.yaml.disabled charts/aois/templates/ingress.yam
 
 ---
 
-**Confusing sync status with health status — they're independent** *(recognition)*
-`Synced` means ArgoCD applied the manifests. `Healthy` means the application is actually running. A pod can crash after a successful sync — ArgoCD shows `Synced` and `Degraded` simultaneously. These are two different dimensions.
+**Confusing sync failure with application failure — they're independent** *(recognition)*
+`ComparisonError` or `SyncFailed` = ArgoCD could not render or apply the templates. This is a chart/values problem. The application may still be running on the old version.
+`Health: Degraded` = ArgoCD applied successfully but the pod is crashing. This is an application problem.
+These require different fixes. `argocd app get aois --show-operation` shows which one you have.
 
 *(recall — trigger it)*
 ```bash
