@@ -113,6 +113,23 @@ What `git status` shows:
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Run `git status` right now in your AOIS repo and interpret every line:
+> ```bash
+> cd /workspaces/aois-system
+> git status
+> ```
+> For each line of output, identify which of the three areas it describes (working directory, staging, or repository). If the output says "nothing to commit, working tree clean" — that means all three areas are in sync. If you see modified files — those are in the working directory, not yet staged.
+>
+> Now check the log to see the snapshot history:
+> ```bash
+> git log --oneline -10
+> ```
+> Each line is a snapshot. The hash on the left uniquely identifies that exact state of every file in the project.
+
+---
+
 ## Part 3 — Daily workflow
 
 ### Check what state everything is in
