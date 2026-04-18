@@ -130,6 +130,27 @@ class IncidentAnalysis(BaseModel):
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Open a Python REPL and test Pydantic validation directly:
+> ```python
+> from pydantic import BaseModel
+> class IncidentAnalysis(BaseModel):
+>     summary: str
+>     severity: str
+>     suggested_action: str
+>     confidence: float
+>
+> # Try these — predict whether each succeeds or fails before running:
+> print(IncidentAnalysis(summary="disk full", severity="P2", suggested_action="clear logs", confidence=0.9))
+> print(IncidentAnalysis(summary="disk full", severity="P2", suggested_action="clear logs", confidence="high"))
+> print(IncidentAnalysis(summary="disk full", severity="P2"))
+> ```
+> The third call fails with a `ValidationError` listing the missing field.
+> FastAPI uses this same validation — an API request missing `suggested_action` gets a 422 back automatically. No code you wrote does that.
+
+---
+
 ### Section 3 — The system prompt
 
 ```python
