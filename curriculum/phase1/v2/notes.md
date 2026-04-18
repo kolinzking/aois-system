@@ -455,7 +455,7 @@ LiteLLM uses prefixed model names to identify the provider:
 "groq/llama3-8b-8192"            # Groq
 "ollama/llama3"                  # Ollama local
 ```
-Passing `"claude-sonnet-4-6"` without the `anthropic/` prefix causes LiteLLM to default to OpenAI and fail with an authentication error — against the wrong provider. The error message says OpenAI rejected the key, not that you named the model wrong, which makes it hard to diagnose.
+Passing `"claude-sonnet-4-6"` without the `anthropic/` prefix causes LiteLLM to default to OpenAI and fail with an authentication error against the wrong provider. Always check LiteLLM's documentation for the exact model name format for each provider. The error message says OpenAI rejected the key, not that you named the model wrong, which makes it hard to diagnose.
 
 *(recall — trigger it)*
 ```python
