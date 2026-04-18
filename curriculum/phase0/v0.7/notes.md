@@ -551,3 +551,75 @@ The intelligence is the same. v1 wraps it so anything can call it reliably.
 - **Phase 7 (v20)**: When AOIS uses tools like `get_pod_logs`, the same token + context concepts apply. A 10,000-line log file would consume the entire context window — you must think about what to send to the model.
 - **Phase 5 (v15)**: Fine-tuning changes the probability distributions the model learned. You are no longer steering a general-purpose model with prompts — you are using a model that was specifically trained on SRE incident data.
 - **The cost model**: Everything in this project has a cost per call. From Phase 2 onwards, every decision (which tier, when to cache, how much context to include) has a dollar amount attached to it. Understanding tokens is understanding cost.
+
+---
+
+## Deep Dive: What the Model is NOT Doing
+
+These misconceptions trip up engineers who then design systems incorrectly. Read them once, internalize them.
+
+**The model does not "read" your prompt.** It does not parse it for meaning. It predicts the most likely continuation of the token sequence that includes your prompt. When you write a clear system prompt, you are not instructing the model — you are placing tokens that shift the probability distribution toward the responses you want. This is why rephrasing a prompt changes the output: different tokens, different probabilities, different predictions.
+
+**The model does not "think" step by step.** Standard completion predicts one token at a time, no deliberation. When Claude appears to reason, it is because the training data contains extensive examples of step-by-step reasoning. The model produces reasoning-like text because reasoning-like text was in the distribution it learned. Extended thinking mode (used in v3 and v15) is a genuine exception — it does allow iterative reasoning before the final response.
+
+**The model does not "remember" previous conversations** unless you explicitly include them in the context window. Every call starts fresh. This is why v20 (Mem0) matters — memory is an engineering problem you have to solve, not something the model provides.
+
+**The model does not "understand" infrastructure.** When it correctly classifies an OOMKilled pod as P2, it is not applying SRE knowledge. It has seen enough SRE-written incident reports and Kubernetes documentation in its training data that it correctly predicts what text an expert would write. The predictions are often extremely accurate — but the mechanism is pattern completion, not understanding.
+
+**Why this matters for AOIS design:**
+- If the model does not have a concept in its training data, it will hallucinate one (v33 tests for this)
+- If the context window fills up, earlier context becomes less influential (v20 must manage this)
+- Temperature 0 gives you reproducibility, not guaranteed correctness — the deterministic prediction can still be wrong
+- Prompt injection works because the model treats all text as tokens to complete, regardless of whether you intended it as instructions or data
+
+---
+
+## Mastery Checkpoint
+
+The concepts in v0.7 are foundational to every decision you make from v1 to v34. These exercises prove they are internalized, not just read.
+
+**1. Calculate cost before calling the API**
+Before running any API call, estimate the cost:
+- Write the system prompt you plan to use (approximately 300 tokens based on AOIS's prompt)
+- Estimate the user message (the log you are sending, ~50 tokens)
+- Estimate the response (~200 tokens)
+- Calculate: input cost + output cost at standard rates
+Then run the call and compare your estimate to `usage.input_tokens` and `usage.output_tokens`. Get within 20% on your estimate.
+
+**2. Prove prompt caching works with real numbers**
+Run the 3-call caching test from Part 10. Record the exact token numbers for all three calls:
+- Call 1: `cache_creation_input_tokens` should be non-zero, `cache_read_input_tokens` should be 0
+- Call 2+: `cache_creation_input_tokens` should be 0, `cache_read_input_tokens` should be non-zero
+Calculate the cost difference between Call 1 and Call 2 (cached). The cached call should cost approximately 10% of the uncached call for the system prompt tokens.
+
+**3. The temperature experiment**
+Run `raw_claude.py` three times with `temperature=0.0`. Record the exact text each time. Then change to `temperature=0.9` and run three more times. Compare:
+- At temperature 0: are the responses identical? (They should be very similar, potentially identical)
+- At temperature 0.9: are the responses different? (They should vary)
+For AOIS, why is temperature 0.0 the correct choice?
+
+**4. The JSON fragility demonstration**
+Run Part 8 (asking Claude to return JSON directly) 10 times. Count:
+- How many times did it return clean JSON that `json.loads` parsed successfully?
+- How many times did it add preamble or postamble text?
+- What specific phrases triggered the failures?
+This is empirical evidence for why tool use exists.
+
+**5. Context window reasoning**
+Given these numbers:
+- Claude's context window: 200,000 tokens
+- AOIS system prompt: ~300 tokens
+- Average log line: ~50 tokens
+- Average response: ~200 tokens
+- A 10,000-line log file: approximately how many tokens?
+
+Answer: a 10,000-line log file would be approximately 500,000 tokens — larger than Claude's entire context window. When AOIS investigates an incident in Phase 7 by reading pod logs with `get_pod_logs`, you cannot just dump the entire log file. You must select, summarize, or chunk. This constraint drives the design of the agent memory system in v20.
+
+**6. The "why tool use" comparison in one session**
+In a single Python session, do both:
+1. Ask Claude for JSON directly (Part 8) — observe the raw text
+2. Use tool use with `tool_choice: force` (as in v1) — observe the structured response
+
+Write a one-paragraph explanation of what tool use actually does mechanically: it does not "teach" the model to return JSON. It changes the API contract — instead of generating text, the model must generate a function call in JSON format. The JSON is part of the protocol, not the content.
+
+**The mastery bar**: You understand LLMs well enough to make intelligent engineering decisions. When someone proposes "just ask the model nicely for structured JSON", you know why that fails in production. When someone asks about cost optimization, you know the levers: caching, tier routing, max_tokens, model selection. When someone asks about context management, you understand the constraint. These mental models guide every decision from v1 to v34.
