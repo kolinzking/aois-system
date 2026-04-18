@@ -528,7 +528,7 @@ docker compose down -v        # stop, remove containers AND volumes (wipes datab
 ## Common Mistakes
 
 **COPY before installing dependencies — breaking layer cache** *(recognition)*
-Docker builds layers sequentially. When a layer changes, all layers after it are rebuilt. Copying source code before installing dependencies means every code change re-runs pip install — what should take 2 seconds takes 60 seconds.
+Docker builds layers sequentially. When a layer changes, all layers after it are rebuilt. Copying source code before installing dependencies means every code change re-runs pip install — what should take 2 seconds takes 60 seconds. Always install dependencies first, copy code second.
 
 *(recall — trigger it)*
 Create a Dockerfile with the wrong order:
