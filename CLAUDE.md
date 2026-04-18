@@ -509,15 +509,16 @@ Make the outputs trustworthy and systematically optimal.
 - Both in `~/.claude/settings.json`
 
 ### Current Position
-- **v6 complete. Phase 0 (v0.1–v0.7), Phase 1 (v1–v3), Phase 2 (v4–v5), Phase 3 v6 done. Next: v7 — Helm chart.**
+- **v7 complete. Phase 0 (v0.1–v0.7), Phase 1 (v1–v3), Phase 2 (v4–v5), Phase 3 v6–v7 done. Next: v8 — ArgoCD GitOps.**
 
-### What's been built (v1–v6)
+### What's been built (v1–v7)
 - **v1**: FastAPI + Claude (prompt caching) + OpenAI fallback, structured Pydantic output (summary, severity P1–P4, suggested_action, confidence)
 - **v2**: LiteLLM gateway — 4 routing tiers (Claude premium → GPT-4o-mini → Groq fast → Ollama local), cost tracking per request
 - **v3**: Instructor for guaranteed validated output + Langfuse tracing (tokens, cost, latency per call)
 - **v4**: Multi-stage Dockerfile (non-root, minimal image), Docker Compose (AOIS + Redis + Postgres), Trivy scan
 - **v5**: Security hardening — rate limiting (slowapi), input sanitization (5KB limit, injection pattern stripping), hardened system prompt, output blocklist (destructive action detection), payload size middleware
 - **v6**: k3s on Hetzner, GHCR image push, k8s manifests (Namespace/Secret/Deployment/Service/Ingress), cert-manager + Let's Encrypt + nip.io — AOIS live at https://aois.46.225.235.51.nip.io
+- **v7**: Helm chart — `charts/aois/` with templates, values.yaml (defaults), values.prod.yaml (2 replicas, higher resources), `helm template` renders clean output
 
 ### Curriculum notes structure (mastery-level)
 Each phase has three layers:
