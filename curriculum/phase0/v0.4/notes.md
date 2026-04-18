@@ -570,3 +570,72 @@ Read the response body — FastAPI's 422 includes the exact field that failed va
 - **Phase 3 (v6)**: Kubernetes networking is layers built on top of this — pods have IPs, Services expose ports, Ingress handles routing
 - **Phase 6 (v16)**: OpenTelemetry traces show you HTTP request spans — you will read them because you understand the request lifecycle
 - **Phase 7 (v20)**: When AOIS uses tools like `get_pod_logs`, those tools make HTTP calls to the Kubernetes API — same mechanism
+
+---
+
+## Mastery Checkpoint
+
+HTTP is how every service in this project communicates. These exercises prove you understand the protocol, not just the tool.
+
+**1. Read a full -v output with no confusion**
+Run:
+```bash
+curl -v https://api.github.com/users/kolinzking 2>&1 | head -50
+```
+For every line in the output, explain what it means. Identify: the DNS resolution line, the TCP connection line, the TLS handshake summary, each request header you sent, the response status line, each response header. You should be able to read this output like reading English.
+
+**2. Understand every HTTP status code you will encounter**
+Without looking them up, explain what these status codes mean and when AOIS returns each one:
+- `200 OK` — 
+- `201 Created` — 
+- `400 Bad Request` — 
+- `401 Unauthorized` — 
+- `403 Forbidden` — 
+- `404 Not Found` — 
+- `422 Unprocessable Entity` — 
+- `429 Too Many Requests` — 
+- `500 Internal Server Error` — 
+- `503 Service Unavailable` — 
+Then verify by deliberately triggering some of these from AOIS (try sending a request with a missing `log` field to get 422; try sending to a non-existent endpoint to get 404).
+
+**3. Parse a JSON response from the GitHub API**
+Run:
+```bash
+curl -s "https://api.github.com/users/kolinzking/repos?sort=updated" | \
+  python3 -c "
+import sys, json
+repos = json.load(sys.stdin)
+print(f'Total repos: {len(repos)}')
+for r in repos[:3]:
+    print(f'  {r[\"name\"]} — last updated: {r[\"updated_at\"]}')
+"
+```
+Now modify the Python to also print the language field for each repo. The point: you can navigate any JSON API response.
+
+**4. Understand headers by manipulating them**
+Send a request to AOIS without the `Content-Type: application/json` header. What happens? Why? Now send it with the wrong content type (`Content-Type: text/plain`). What changes?
+```bash
+# No Content-Type
+curl -s -X POST http://localhost:8000/analyze -d '{"log": "test"}'
+
+# Wrong Content-Type
+curl -s -X POST http://localhost:8000/analyze \
+  -H "Content-Type: text/plain" \
+  -d '{"log": "test"}'
+```
+FastAPI's response tells you exactly what is wrong. Read it.
+
+**5. Measure API latency**
+Use curl's timing output to measure how long each part of an AOIS request takes:
+```bash
+curl -s -o /dev/null -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"log": "OOMKilled pod/payment-service"}' \
+  -w "DNS: %{time_namelookup}s | Connect: %{time_connect}s | TTFB: %{time_starttransfer}s | Total: %{time_total}s\n"
+```
+TTFB (Time To First Byte) is how long before the server started responding. Total minus TTFB is how long the response took to transfer. The difference between Claude with cache and without cache should be visible here.
+
+**6. The full trace: from curl to Claude and back**
+With AOIS running, send a request while watching the server logs. Write down the complete journey of one byte of your log data: starting from the moment you press Enter, through TCP, HTTP parsing, FastAPI routing, Pydantic validation, the outbound Claude API call (another TCP connection, another HTTP request), the response parsing, the JSON serialization, and back to your terminal. If you can narrate this journey without gaps, you understand network programming.
+
+**The mastery bar**: HTTP is the plumbing of everything you build. When something breaks in Phase 3 (Kubernetes Ingress not routing), Phase 4 (Bedrock endpoint not responding), or Phase 6 (OTel trace not showing), HTTP knowledge is what lets you diagnose it. A curl command with `-v` is often the fastest debugging tool you have.
