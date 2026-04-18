@@ -279,6 +279,27 @@ Claude's response is a list of content blocks. There can be a `text` block (Clau
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Run the cache verification script from the notes right now — before reading further:
+> ```bash
+> python3 << 'EOF'
+> from dotenv import load_dotenv; import os, anthropic
+> load_dotenv()
+> client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+> SYSTEM = "You are AOIS — AI Operations Intelligence System, an expert SRE.\nAnalyze infrastructure logs and classify incidents.\n\nSeverity levels:\nP1 - Critical: production down\nP2 - High: degraded\nP3 - Medium: warning\nP4 - Low: preventive"
+> for i in range(3):
+>     r = client.messages.create(model="claude-opus-4-6", max_tokens=50,
+>         system=[{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
+>         messages=[{"role": "user", "content": "test"}])
+>     u = r.usage
+>     print(f"Call {i+1}: create={getattr(u,'cache_creation_input_tokens',0)} read={getattr(u,'cache_read_input_tokens',0)}")
+> EOF
+> ```
+> Call 1 should show `create=NNN read=0`. Calls 2 and 3 should show `create=0 read=NNN`. You just watched prompt caching activate in real time. The system prompt on calls 2 and 3 cost 10% of call 1.
+
+---
+
 ### Section 6 — The OpenAI fallback
 
 ```python
