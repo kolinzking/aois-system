@@ -1,4 +1,5 @@
 # v0.6 — Your First API (No AI)
+⏱ **Estimated time: 3–5 hours**
 
 ## What this version is about
 
