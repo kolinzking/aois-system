@@ -549,6 +549,7 @@ Each phase has three layers:
 - `/test.py` — tier routing + cost comparison test suite
 - `/k8s/` — Kubernetes manifests (namespace, secret, deployment, service, ingress, clusterissuer)
 - `/charts/aois/` — Helm chart (Chart.yaml, values.yaml, values.prod.yaml, templates/)
+- `/argocd/application.yaml` — ArgoCD Application resource (auto-sync, prune, selfHeal)
 - `/curriculum/` — mastery-level notes (Phase 0–3, all versions)
 - `/README.md` — full table of contents with progress tracking
 
