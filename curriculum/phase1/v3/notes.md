@@ -485,6 +485,27 @@ Fix: start with 4–5 fields maximum. Add one at a time and evaluate output qual
 
 ---
 
+**Not checking Langfuse traces after building** *(recognition)*
+You added Langfuse. You wrote the tracing code. You called it once and confirmed it works. Then you never look at it again. This defeats the purpose. In every AOIS session, open Langfuse and check: What was the actual token count? Did any calls fail? What was the average latency? What did the prompts look like? Observability is only useful if you observe. Make checking Langfuse a habit, not an afterthought.
+
+*(recall — trigger it)*
+```bash
+# Generate a few analyze calls (use the test suite or curl)
+python3 test.py
+
+# Now open Langfuse and find the traces
+# cloud.langfuse.com → your project → Traces
+```
+For each trace, check:
+- `usage.input_tokens` — is the system prompt being cached? (cache_read_input_tokens should be nonzero on calls 2+)
+- `usage.output_tokens` — is the model producing the expected length response?
+- `latency` — does it spike on retried calls? A retry adds the full model latency again.
+- `cost` — multiply by 10,000 to see your daily cost at scale
+
+If you look at the traces and all values make sense, you are observing correctly. If you have never opened Langfuse since setting it up, run the test suite now, open Langfuse, and spend 10 minutes reading the traces before continuing. That 10 minutes prevents weeks of debugging blind.
+
+---
+
 **`max_retries=0` disabling retries silently** *(recognition)*
 `max_retries=0` is not the default. If you set it to debug something and forget to remove it, your production AOIS will raise `InstructorRetryException` on the first validation failure instead of recovering.
 
