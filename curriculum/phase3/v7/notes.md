@@ -671,7 +671,14 @@ Fix: once Helm is installed, never touch those resources with kubectl. If you ma
 ---
 
 **Wrong `--set` syntax for nested values** *(recognition)*
-`--set` uses dot-separated paths for nested keys. Shell syntax or YAML syntax passed to `--set` is silently wrong and may set nothing or cause a parse error.
+```bash
+# Wrong — this is shell syntax, not Helm syntax
+helm upgrade aois ./charts/aois --set image: {tag: v8}
+
+# Correct — use dot notation for nested keys
+helm upgrade aois ./charts/aois --set image.tag=v8
+```
+`--set` uses dot-separated paths. Always verify with `helm get values aois -n aois` after upgrading to confirm the value took effect.
 
 *(recall — trigger it)*
 ```bash
