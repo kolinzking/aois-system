@@ -612,3 +612,59 @@ uvicorn mock_api:app --port 8001
 - **Phase 1 (v1)**: `analyze_with_regex()` becomes `analyze_with_claude()`. The FastAPI app, models, endpoint, and test commands are identical. This is the transformation point.
 - **Phase 2 (v5)**: Middleware (the request logger above) becomes security middleware — rate limiting, payload size checks. Same pattern, different purpose.
 - **Phase 8 (v26)**: The React dashboard calls these exact endpoints over WebSocket and HTTP. Understanding the API contract is essential for building the frontend.
+
+---
+
+## Mastery Checkpoint
+
+v0.6 is the inflection point — the last version before AI. After these exercises you will feel the limitation viscerally, which makes v1 land hard.
+
+**1. Add a new pattern to the regex analyzer and test its limits**
+Add a pattern for "database connection pool exhausted" that returns P2. Test it with exactly the right wording. Then test with slightly different wording: "DB connection pool full", "connection pool at capacity", "too many database connections". Count how many variants work and how many return P4. This is what it means to maintain a regex-based system at scale.
+
+**2. Understand every component of the FastAPI stack**
+Answer these without running a command — then verify:
+- What does `@app.post("/analyze", response_model=IncidentAnalysis)` actually do? (Two things: route binding AND response validation)
+- What is the difference between a `400` and a `422` in FastAPI?
+- What does `--reload` do in the uvicorn command and when would you NOT want it?
+- What does `async def analyze(data: LogInput)` vs `def analyze(data: LogInput)` mean for performance?
+- What happens if `analyze_with_regex()` returns `None`?
+
+**3. Test the validation boundary**
+FastAPI validates at two levels: Pydantic schema validation (422) and your code's HTTPException (400+). Send requests that trigger both:
+- Schema validation failure: missing field, wrong type
+- Business logic failure: any input your code deliberately rejects
+Verify the response status code and body for each.
+
+**4. Write a new endpoint from scratch**
+Add a `GET /analyze/stats` endpoint to `mock_api.py` that returns:
+```json
+{
+  "version": "0.6.0",
+  "known_patterns": 7,
+  "severity_distribution": {"P1": 1, "P2": 2, "P3": 2, "P4": 2}
+}
+```
+No regex analysis needed — just aggregate the `PATTERNS` list. Write the response model first as a Pydantic class. Then implement the endpoint. Test it with curl.
+
+**5. Feel the limitation**
+Send these 5 logs to the mock API. Record the severity returned for each. Then write down what the correct severity should be, reasoning like a senior SRE:
+1. `"auth service p50 latency 8s, baseline 50ms, 100% of users affected"`
+2. `"certificate for api.internal.example.com expired 2 hours ago"`
+3. `"TEST: simulating OOMKilled in staging for load test purposes, ignore"`
+4. `"database disk at 93% capacity on prod-postgres-primary, write operations failing"`
+5. `"GPU driver crash on inference-node-1, falling back to CPU inference, 10x slower"`
+
+How many did the regex get right? This is the argument for v1.
+
+**6. The architecture test**
+Close all the notes and, from memory, explain to yourself:
+- What FastAPI does (route, validate, respond)
+- What Pydantic does (schema validation, type coercion)
+- What uvicorn does (ASGI server, runs the event loop)
+- How a request flows from `curl` to your function and back
+- Why the test commands work identically in v0.6 and v1
+
+If you can explain all of these clearly, you are ready for Phase 1.
+
+**The mastery bar**: You should be able to rebuild this FastAPI app from scratch in 30 minutes — models, endpoint, middleware, and test commands. The framework is transparent; you understand what every line does.
