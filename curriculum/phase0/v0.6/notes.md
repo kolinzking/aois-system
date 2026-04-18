@@ -241,6 +241,24 @@ curl -X POST http://localhost:8000/analyze \
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Before building the full mock API, start the current AOIS server and test all three data input patterns:
+> ```bash
+> # Terminal 1
+> cd /workspaces/aois-system && uvicorn main:app --port 8000
+>
+> # Terminal 2 — test all three patterns
+> curl -s http://localhost:8000/health                     # path with no params
+> curl -s "http://localhost:8000/docs" | head -5           # query the OpenAPI docs endpoint
+> curl -s -X POST http://localhost:8000/analyze \
+>   -H "Content-Type: application/json" \
+>   -d '{"log": "test log"}' | python3 -m json.tool       # request body
+> ```
+> Stop the server when done. You just confirmed that v5 AOIS handles all three patterns. The mock API you are about to build follows the same pattern — just without the real AI.
+
+---
+
 ## Part 6 — The complete mock_api.py
 
 Create the file:
