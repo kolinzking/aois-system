@@ -655,6 +655,47 @@ v1 swaps `analyze_with_regex()` for `analyze_with_claude()`. Everything else —
 
 ---
 
+## Common Mistakes
+
+**Running FastAPI with `--reload` in production.**
+`--reload` watches your source files and restarts the server when they change. It is invaluable for development. In production it adds overhead, forks a subprocess to watch the filesystem, and can cause unexpected restarts if any file is touched (log rotation, temp file creation). Always start production with `uvicorn main:app --host 0.0.0.0 --port 8000` — no `--reload`.
+
+**Returning a plain Python dict instead of a Pydantic response model.**
+```python
+@app.get("/analyze")
+async def analyze():
+    return {"result": "ok"}           # works, but no validation, no schema in /docs
+    return AnalysisResponse(result="ok")  # correct — validated, documented, type-safe
+```
+FastAPI can serialize a dict, but returning a Pydantic model gives you automatic validation, automatic OpenAPI schema generation, and clear error messages when something is wrong. Use the model.
+
+**Not handling exceptions → generic 500.**
+```python
+@app.post("/analyze")
+async def analyze(request: AnalyzeRequest):
+    result = call_claude(request.log)   # if this raises, FastAPI returns 500 with no useful info
+```
+Wrap calls to external services (Claude, database) in try/except and raise `HTTPException` with a meaningful status code and detail:
+```python
+try:
+    result = call_claude(request.log)
+except anthropic.RateLimitError:
+    raise HTTPException(status_code=429, detail="Rate limit reached. Try again in 60 seconds.")
+```
+
+**CORS not configured for frontend access.**
+By default, browsers block cross-origin requests. If your React dashboard (running on port 3000) calls the FastAPI API (port 8000), the browser blocks it. Fix:
+```python
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_methods=["*"])
+```
+This is not needed for server-to-server calls (curl, other services) — only browsers enforce CORS.
+
+**`/docs` not working because of HTTPS in production.**
+FastAPI's Swagger UI at `/docs` loads its JavaScript from a CDN. If your service is on HTTPS but the CDN is blocked, `/docs` loads a blank page. This is common in air-gapped or strict network environments. For local development, always use HTTP — HTTPS adds this complication with no benefit.
+
+---
+
 ## Troubleshooting
 
 **"Address already in use" on port 8001:**
