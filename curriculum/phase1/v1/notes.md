@@ -1,4 +1,5 @@
 # v1 — AOIS Core: Log → Intelligence
+⏱ **Estimated time: 4–6 hours**
 
 ## What this version builds
 
