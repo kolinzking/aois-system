@@ -206,6 +206,21 @@ Tool use is Anthropic's mechanism for forcing structured output. You define a fu
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Read the `ANALYZE_TOOL` definition and change the `severity` enum to `["CRITICAL", "HIGH", "MEDIUM", "LOW"]`. Do not restart the server yet. Predict: what will AOIS return when you send an OOMKill log?
+>
+> Now restart the server and send the OOMKill test:
+> ```bash
+> curl -s -X POST http://localhost:8000/analyze -H "Content-Type: application/json" \
+>   -d '{"log": "OOMKilled pod/payment-service. Restarts: 14."}' | python3 -m json.tool
+> ```
+> The model is now constrained to return one of `["CRITICAL", "HIGH", "MEDIUM", "LOW"]` — it cannot say "P2" anymore. This proves the schema is not a suggestion to the model; it is a hard constraint enforced by the API protocol.
+>
+> Restore the enum to `["P1", "P2", "P3", "P4"]` before continuing.
+
+---
+
 ### Section 5 — The Claude analysis function
 
 ```python
