@@ -731,7 +731,11 @@ kubectl get pods    # now works without -n
 ---
 
 **`ImagePullBackOff` — the image pull secret is wrong** *(recognition)*
-When a pod cannot pull its image from GHCR, it enters `ImagePullBackOff`. The most common cause: the `ghcr-secret` has an expired token or wrong scope. The pod event says "unauthorized" but not which credential is wrong.
+When the pod cannot pull the image, it shows `ImagePullBackOff`. The most common cause: the `ghcr-secret` was created with the wrong GitHub token (expired, wrong scope, wrong username). Verify:
+```bash
+kubectl get secret ghcr-secret -n aois -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d
+```
+Confirm the `auth` field decodes to `username:token` and the token has `read:packages` scope on GitHub.
 
 *(recall — trigger it)*
 ```bash
