@@ -674,3 +674,58 @@ If this shows `1.x`, you need to upgrade.
 - **Phase 7 (v20)**: Agent tool definitions use Pydantic models to define tool input schemas. Same pattern.
 - **Phase 7 (v24)**: Pydantic AI framework is built entirely around this — it is Pydantic models all the way down.
 - **The core insight**: Every version of AOIS from v1 to v34 has a Pydantic model at its input and output boundaries. Once you understand Pydantic, you understand the data layer of the entire project.
+
+---
+
+## Mastery Checkpoint
+
+Pydantic and Python project hygiene underpin everything in Phase 1+. These exercises make them automatic.
+
+**1. Prove you understand validation by breaking it deliberately**
+Create an `IncidentAnalysis` instance with each of these invalid values, one at a time. Before running each one, predict the error message. Then verify:
+- `severity="p2"` (lowercase)
+- `severity="P5"` (out of range)
+- `confidence=2.0` (above max)
+- `confidence="high"` (wrong type)
+- `summary=None` (null where string expected)
+
+The ability to predict validation errors means you understand the type system.
+
+**2. Understand virtual environments completely**
+Answer these by testing, not reading:
+- What happens to `import anthropic` if you run Python without activating the venv?
+- What does `pip list` show inside vs outside the venv?
+- If you install a package without the venv activated, where does it go?
+- Run `which python3` inside and outside the venv. What changes?
+
+**3. The .env pattern must be muscle memory**
+Create a new Python file that:
+1. Loads `.env` with `load_dotenv()`
+2. Gets `ANTHROPIC_API_KEY` with `os.getenv()`
+3. Validates it is not None (print a clear error and exit if it is)
+4. Prints the first 15 characters of the key to confirm it loaded
+
+This exact pattern is in every version of AOIS. Write it from scratch without looking at `main.py`.
+
+**4. Model serialization round-trip**
+Create an `IncidentAnalysis` object. Serialize it to a JSON string with `model_dump_json()`. Parse that JSON string back into a Python dict with `json.loads()`. Then reconstruct an `IncidentAnalysis` from that dict using `**`. Verify the reconstructed object equals the original. This round-trip is how AOIS reads responses from the LLM API.
+
+**5. The five patterns from memory**
+Without looking at main.py or the notes, write a skeleton FastAPI app that demonstrates all five patterns:
+1. Module-level setup (load_dotenv, create client, define constant)
+2. Pydantic input and output models
+3. Try primary / except / try fallback
+4. FastAPI endpoint with response_model
+5. HTTPException for invalid input
+
+It does not need to call Claude — just the structure. If you can write this from memory, you understand the architecture of every Phase 1-5 version.
+
+**6. Type hints as documentation**
+Add type hints to this function:
+```python
+def analyze(log, tier="premium", max_retries=3):
+    pass
+```
+The hints should be precise: `log` is a non-empty string, `tier` is one of a specific set of values, `max_retries` is a positive integer, and the return type is `IncidentAnalysis`. Use `Literal` for `tier`. Now the function signature documents itself.
+
+**The mastery bar**: When you open main.py at any version, every import, every class definition, every type hint, and every pattern should be immediately recognizable. No line of Python in this project should be foreign after completing this version.
