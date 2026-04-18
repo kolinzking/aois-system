@@ -238,6 +238,21 @@ The first 7 characters (`abc1234`) are the commit hash — a unique identifier f
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Make a real change, go through the full add → commit cycle, then look at the result:
+> ```bash
+> cd /workspaces/aois-system
+> echo "# v0.3 practice" >> /tmp/practice_v03.txt
+> # (don't actually commit random files — instead, look at the diff on something that already changed)
+> git diff                    # see what changed since last commit
+> git log --oneline -5        # see the 5 most recent snapshots
+> git show HEAD               # see exactly what the last commit changed
+> ```
+> `git show HEAD` shows the diff for the most recent commit. This is how you read git history — not just the message, but the actual change. In a team setting, `git show <hash>` is how you investigate why a line of code was written.
+
+---
+
 ## Part 4 — .gitignore: what never enters the repo
 
 The `.gitignore` file lists patterns of files and directories that git should never track.
