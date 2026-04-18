@@ -527,25 +527,52 @@ docker compose down -v        # stop, remove containers AND volumes (wipes datab
 
 ## Common Mistakes
 
-**COPY before installing dependencies — breaking layer cache.**
+**COPY before installing dependencies — breaking layer cache** *(recognition)*
+Docker builds layers sequentially. When a layer changes, all layers after it are rebuilt. Copying source code before installing dependencies means every code change re-runs pip install — what should take 2 seconds takes 60 seconds.
+
+*(recall — trigger it)*
+Create a Dockerfile with the wrong order:
 ```dockerfile
-# WRONG — every code change invalidates the pip install layer
-COPY . .
+FROM python:3.12-slim
+WORKDIR /app
+COPY . .                          # <-- code copied first
 RUN pip install -r requirements.txt
-
-# CORRECT — requirements layer is cached until requirements.txt changes
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-COPY . .
 ```
-Docker builds layers sequentially. When a layer changes, all layers after it are rebuilt. Copying source code before installing dependencies means every code change re-runs pip install — what should take 2 seconds takes 60 seconds. Always install dependencies first, copy code second.
+Build it, then change one line in `main.py` and build again:
+```bash
+time docker build -t aois-wrong-order .    # build 1
+# edit main.py — change one comment
+time docker build -t aois-wrong-order .    # build 2 — watch pip reinstall
+```
+Expected: build 2 re-runs `pip install` despite requirements.txt being unchanged. Output shows `pip install` output again, build takes 45–90 seconds.
 
-**Not using `.dockerignore` — COPY copies your secrets.**
-`COPY . .` copies everything in the build context — including `.env`, `__pycache__`, `.git`, and any local test data. Without `.dockerignore`:
-- `.env` ends up in the image layer (secrets baked in)
-- `.git` adds megabytes to the image for no reason
-- `__pycache__` causes confusing behavior
+Fix — correct order:
+```dockerfile
+COPY requirements.txt .           # copy only what pip needs
+RUN pip install -r requirements.txt
+COPY . .                          # code goes last
+```
+Now `pip install` is only re-run when `requirements.txt` changes. Code edits rebuild in under 5 seconds.
 
+---
+
+**No `.dockerignore` — COPY bakes your secrets into the image** *(recognition)*
+`COPY . .` copies everything in the build context — including `.env`, `__pycache__`, `.git`, and any local test data. Your API key ends up in the image layer, visible to anyone who pulls the image.
+
+*(recall — trigger it)*
+```bash
+# Build without .dockerignore (rename it temporarily)
+mv .dockerignore .dockerignore.bak
+docker build -t aois-leaky .
+
+# Inspect the image layers for secret files
+docker run --rm aois-leaky ls -la /app/.env
+docker run --rm aois-leaky cat /app/.env
+```
+Expected: `.env` is in the image and readable — your `ANTHROPIC_API_KEY` is visible. Restore the protection:
+```bash
+mv .dockerignore.bak .dockerignore
+```
 Minimum `.dockerignore`:
 ```
 .env
@@ -554,15 +581,79 @@ __pycache__
 *.pyc
 .pytest_cache
 ```
+One memory hook: **if you can `cat /app/.env` from inside a running container, anyone who pulls your image can too.**
 
-**Running as root in the container.**
-The default Docker container runs as root (UID 0). If a container escape vulnerability exists, the attacker gets root on the host. The multi-stage Dockerfile adds `USER nonroot` — verify it is actually in your final stage. Check: `docker run --rm ghcr.io/kolinzking/aois:v7 whoami` should print `nonroot`, not `root`.
+---
 
-**Using `:latest` tag — not reproducible.**
-`FROM python:3.12` pulls whatever `latest` is at build time. If Python releases 3.12.8 while you are on 3.12.6, your next build uses a different base — subtly different behavior, different CVE profile. Pin the exact digest or version: `FROM python:3.12.6-slim`. In `Chart.yaml`, `appVersion: latest` is equally dangerous — pin to a specific tag.
+**Running as root in the container** *(recognition)*
+The default Docker container runs as root (UID 0). If a container escape vulnerability exists, the attacker gets root on the host. Your final stage should set `USER nonroot`.
 
-**`docker compose up` vs `docker compose up --build`.**
-`docker compose up` starts containers using cached images. If you changed `main.py`, the running container has the old code — there is no rebuild. Run `docker compose up --build` to rebuild images before starting. During development, you will forget this constantly. The symptom: your code change has no effect, even though compose says "Container started."
+*(recall — trigger it)*
+```bash
+# Check which user your built image runs as
+docker run --rm ghcr.io/kolinzking/aois:v7 whoami
+```
+Expected if correct: `nonroot`
+
+Expected if you forgot `USER nonroot`:
+```
+root
+```
+And with root confirmed:
+```bash
+docker run --rm ghcr.io/kolinzking/aois:v7 id
+# uid=0(root) gid=0(root) groups=0(root)
+```
+Fix: ensure your final stage Dockerfile contains:
+```dockerfile
+USER nonroot
+```
+After the fix, `whoami` inside the container returns `nonroot` and `id` shows UID 65532 (the nonroot user in distroless).
+
+---
+
+**Using `:latest` tag — not reproducible** *(recognition)*
+`FROM python:3.12` pulls whatever `latest` is at build time. When Python releases 3.12.8, your next build silently uses a different base — different CVE profile, potentially different behavior. Pin the exact version.
+
+*(recall — trigger it)*
+```bash
+# Pull the python:3.12 image and check what you actually got
+docker pull python:3.12
+docker inspect python:3.12 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['RepoDigests'])"
+```
+The digest changes each time Python releases a patch. Two engineers building from `FROM python:3.12` on different days get different images. Fix:
+```dockerfile
+FROM python:3.12.6-slim      # pinned minor version
+```
+Or pin the digest directly for complete reproducibility:
+```dockerfile
+FROM python:3.12.6-slim@sha256:abc123...   # immutable
+```
+
+---
+
+**`docker compose up` vs `docker compose up --build`** *(recognition)*
+`docker compose up` starts containers using cached images. If you changed `main.py`, the running container has the old code — compose does not rebuild automatically. During development, you will forget this repeatedly.
+
+*(recall — trigger it)*
+```bash
+docker compose up -d          # start AOIS
+curl localhost:8000/health    # confirm it's up
+
+# Now change main.py — add a visible header to /health response
+# (e.g., return {"status": "ok", "version": "v4-test"})
+
+docker compose up -d          # restart WITHOUT --build
+curl localhost:8000/health    # still shows old response — no "v4-test"
+```
+Expected: the change is invisible. The container is running the old image.
+
+Fix:
+```bash
+docker compose up --build -d  # rebuild first, then start
+curl localhost:8000/health    # now shows {"status": "ok", "version": "v4-test"}
+```
+One memory hook: **if your code change has no effect after a restart, you forgot `--build`.**
 
 ---
 
