@@ -488,6 +488,159 @@ find /tmp -mtime +7 -delete                     # delete files older than 7 days
 
 ---
 
+## Part 9.5 — Text processing: awk and sed
+
+These two tools appear throughout this curriculum — in `sysinfo.sh`, in Dockerfiles, in CI scripts, in every environment where you need to extract or transform text. Understanding them removes a major source of "what does this line do?" confusion.
+
+### awk: the column extractor and reporter
+
+`awk` processes text line by line. Each line is split into fields by whitespace (or a delimiter you specify). Fields are numbered: `$1`, `$2`, `$3`, ... `$NF` is the last field. `NR` is the current line number.
+
+The basic syntax:
+```bash
+awk 'pattern { action }' file
+```
+If pattern matches the current line, the action runs. If you omit the pattern, the action runs on every line.
+
+**Field extraction — the most common use:**
+```bash
+echo "codespace 1234 0.2 1.1 python3 main.py" | awk '{print $1, $2}'
+```
+Output:
+```
+codespace 1234
+```
+
+**Real example — extract memory info from `free -h`:**
+```bash
+free -h
+```
+Output:
+```
+               total        used        free      shared  buff/cache   available
+Mem:           7.7Gi       2.1Gi       3.9Gi        45Mi       1.7Gi       5.3Gi
+Swap:          1.0Gi          0B       1.0Gi
+```
+
+The `Mem:` line is row 2 (NR==2). The fields are: `$1=Mem:`, `$2=7.7Gi`, `$3=2.1Gi`, `$4=3.9Gi`, `$5=45Mi`, `$6=1.7Gi`, `$7=5.3Gi`.
+
+To print a formatted memory summary:
+```bash
+free -h | awk 'NR==2 {printf "Total: %s | Used: %s | Available: %s\n", $2, $3, $7}'
+```
+Output:
+```
+Total: 7.7Gi | Used: 2.1Gi | Available: 5.3Gi
+```
+
+This exact pattern is in `sysinfo.sh`. Now you can read it without confusion.
+
+**`printf` formatting in awk:**
+- `%s` — string
+- `%d` — integer
+- `%f` — float
+- `\n` — newline
+- `%-10s` — left-aligned, padded to 10 characters
+
+**Filtering with pattern:**
+```bash
+ps aux | awk '$3 > 1.0 {print $1, $2, $3, $11}'
+```
+This prints user, PID, CPU%, and command for any process using more than 1% CPU. The pattern `$3 > 1.0` is a numeric comparison on the third field.
+
+**Column formatting:**
+```bash
+ps aux | awk 'NR==1{print "USER       PID   CPU  MEM  CMD"} NR>1 && NR<=6 {printf "%-10s %-6s %4s %4s  %s\n", $1, $2, $3, $4, $11}'
+```
+- `NR==1` — print header on first line
+- `NR>1 && NR<=6` — process lines 2-6 (top 5 processes)
+- `%-10s` — left-justify in 10-char field
+- `%4s` — right-justify in 4-char field
+
+**Custom delimiter:**
+```bash
+awk -F: '{print $1, $3}' /etc/passwd    # -F: sets field separator to colon
+```
+Output: username and UID for every user in the system.
+
+**Counting:**
+```bash
+awk 'END {print NR " lines"}' /var/log/syslog
+```
+`END` runs after all lines are processed. `NR` is the total line count.
+
+**Arithmetic:**
+```bash
+# Calculate total size from du output
+du -s /workspaces/aois-system/* | awk '{sum += $1} END {print sum " KB total"}'
+```
+
+---
+
+### sed: the stream editor (find and replace at scale)
+
+`sed` edits text streams. The most common use is substitution:
+
+```bash
+sed 's/old/new/' file              # replace first occurrence per line
+sed 's/old/new/g' file             # replace ALL occurrences per line (g = global)
+sed 's/old/new/gi' file            # case-insensitive replace all
+sed -i 's/old/new/g' file          # edit the file in-place (modifies the actual file)
+```
+
+**Real example — change a version in requirements.txt:**
+```bash
+cat requirements.txt | grep fastapi
+```
+```
+fastapi==0.104.1
+```
+```bash
+sed -i 's/fastapi==0.104.1/fastapi==0.110.0/g' requirements.txt
+```
+
+**Deleting lines:**
+```bash
+sed '/DEBUG/d' app.log             # delete lines containing DEBUG
+sed '/^$/d' file                   # delete empty lines (^ = start, $ = end, ^$ = empty line)
+sed '1,5d' file                    # delete lines 1 through 5
+```
+
+**Printing specific lines:**
+```bash
+sed -n '10,20p' file               # print only lines 10-20 (-n suppresses default output, p = print)
+sed -n '/ERROR/p' app.log          # print only lines containing ERROR
+```
+
+**Extracting values from config-style files:**
+```bash
+# Given a file: KEY=value
+sed -n 's/^ANTHROPIC_API_KEY=//p' .env
+```
+This removes `ANTHROPIC_API_KEY=` from the start of matching lines and prints what remains — the value. Used in shell scripts to extract config values without loading the whole .env.
+
+**Multiple substitutions:**
+```bash
+sed -e 's/ERROR/[ERROR]/g' -e 's/WARN/[WARN]/g' app.log
+```
+
+**Why sed over Python for this?** When processing millions of log lines, sed (written in C, operates on streams) is orders of magnitude faster than Python string processing. It is the right tool when transformation is simple and volume is high.
+
+---
+
+### When to use which tool
+
+| Task | Tool |
+|------|------|
+| Extract specific columns/fields from text | `awk` |
+| Count lines, sum values, format output | `awk` |
+| Find and replace text | `sed` |
+| Delete or print specific lines | `sed` |
+| Search for matching lines | `grep` |
+| Complex transformation with logic | `awk` or Python |
+
+---
+
 ## Part 10 — Disk and memory
 
 ```bash
