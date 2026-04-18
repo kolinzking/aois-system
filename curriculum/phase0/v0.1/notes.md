@@ -1,4 +1,5 @@
 # v0.1 — Linux Essentials: Living in the Terminal
+⏱ **Estimated time: 3–5 hours**
 
 ## What this version is about
 
