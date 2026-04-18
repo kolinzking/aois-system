@@ -1,4 +1,5 @@
 # v5 — Security Hardening: OWASP API + LLM Top 10
+⏱ **Estimated time: 4–6 hours**
 
 ## What this version builds
 
