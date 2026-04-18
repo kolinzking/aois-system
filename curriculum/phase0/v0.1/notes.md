@@ -854,3 +854,54 @@ You do not need to memorise all of this at once. Run the commands. The muscle me
 - **Phase 3 (v6)**: You will SSH into your Hetzner VPS and use all of this to configure k3s
 - **Phase 6 (v16)**: `ps aux`, `top`, `df`, `free` become your first-response debugging tools before the observability stack is up
 - **Phase 7 (v20)**: When you give AOIS tools like `get_pod_logs`, those tools shell out to Linux commands under the hood
+
+---
+
+## Mastery Checkpoint
+
+These are not theoretical exercises. Run every one. Do not move to v0.2 until each of these works correctly and you understand why.
+
+**1. Navigate without disorientation**
+Open a fresh terminal. Without using `cd /workspaces/aois-system`, navigate to the curriculum directory and back to the project root using only relative paths. Then navigate to `/etc` using an absolute path and read the first 5 lines of `/etc/os-release`. Run `pwd` at each step to confirm where you are.
+
+**2. Understand every line of sysinfo.sh output**
+Run `sysinfo.sh`. For each line of output, identify exactly which command produced it and what each field means. Pay special attention to the lines that use `awk` — trace through the `NR==2 {printf...}` pattern and explain what `NR==2` does and why `$2`, `$3`, `$7` are the fields used.
+
+**3. Use pipes to answer a real question**
+Find the top 3 processes by memory usage on your system right now:
+```bash
+ps aux --sort=-%mem | head -4
+```
+Now understand every column in the output. What is `%MEM`? What is `VSZ` vs `RSS`? (RSS is the real physical memory used; VSZ includes virtual/mapped memory that may not be physically allocated.)
+
+**4. Demonstrate permission understanding**
+Create a file called `secret.txt` with some text in it. Set its permissions so only you (the owner) can read or write it, and absolutely no one else — not your group, not others. Verify with `ls -la`. Then add execute permission for yourself only. Verify again. Calculate the octal number for the final permission state.
+
+**5. Prove you understand stderr vs stdout**
+Run:
+```bash
+python3 -c "print('stdout message'); import sys; sys.stderr.write('stderr message\n')"
+```
+Now redirect stdout to `out.txt` and stderr to `err.txt` separately, in one command. Verify each file contains only the expected message. Then run again with both merged into a single file `combined.txt`.
+
+**6. Build a live-monitoring one-liner**
+Write a single pipe command (no scripts, just piped commands) that:
+- Lists all processes using Python
+- Shows only their PID and memory percentage
+- Sorts by memory (highest first)
+Expected format: two columns, PID and %MEM, for any Python process running.
+
+**7. Use awk and sed on real data**
+Run `free -h` and use `awk` to extract only the available memory value (the `available` column from the `Mem:` row). Print it as: `Available memory: X.XGi`.
+
+Then: take the file `/etc/os-release` and use `sed` to print only the line containing `PRETTY_NAME`, with `PRETTY_NAME=` stripped from the start, leaving only the OS name string.
+
+**8. Verify you can recover from common mistakes**
+1. Run `lsof -ti:8000 | xargs kill -9` — what happens when nothing is on port 8000? (It should do nothing, not error)
+2. Try to `rm -rf` a non-existent directory. What is the exit code? (`echo $?`)
+3. Run a command that you know will fail, then use `|| echo "it failed"` to handle it gracefully
+
+**9. The sysinfo.sh extension**
+Add a new section to `sysinfo.sh` that shows the 5 largest files in the project directory, formatted as: `SIZE  FILENAME`. Use `du`, `sort`, and `head`. The output should be human-readable sizes.
+
+**The mastery bar**: you are ready for v0.2 when you can run any Linux command in this file, read its output, understand every column, and know which flags to add to change the output. The terminal should feel like a tool, not a puzzle.
