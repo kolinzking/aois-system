@@ -1,4 +1,32 @@
 # v7 — Helm Chart: Packaging AOIS for Any Cluster
+⏱ **Estimated time: 2–3 hours**
+
+## Prerequisites
+
+- v6 complete — k3s running on Hetzner, AOIS accessible at `https://aois.46.225.235.51.nip.io`
+- Helm CLI installed:
+  ```bash
+  helm version
+  # version.BuildInfo{Version:"v3.xx.x", GitCommit:"...", GitTreeState:"clean", GoVersion:"go1.21.x"}
+  ```
+  If not installed: `curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash`
+- kubeconfig pointing at Hetzner (verified with `kubectl get nodes`)
+
+---
+
+## Learning Goals
+
+By the end of this version you will be able to:
+- Explain what Helm solves and why raw YAML breaks at scale
+- Read any Helm chart and understand every file's purpose
+- Write Go template syntax: value substitution, conditionals, `range` loops
+- Render, lint, and dry-run a chart before touching a cluster
+- Deploy, upgrade, roll back, and uninstall a release via Helm
+- Override values per environment without duplicating templates
+- Diagnose and recover from all common Helm failure states
+- Explain where Helm stores its release history and how rollback uses it
+
+---
 
 ## What This Is
 
