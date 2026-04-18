@@ -577,26 +577,147 @@ Call 3:
 
 ## Common Mistakes
 
-**Not using prompt caching — paying full price on every call.**
-If your system prompt is the same on every call (it is for AOIS), you must add `cache_control: {"type": "ephemeral"}` to the system prompt content block. Without it, every call pays full input token price. With it, calls 2+ pay ~10% of that price. On 1000 calls/day with a 500-token system prompt, caching saves roughly $1.35/day — or $490/year at current Anthropic pricing. This is not optional in production.
+**Not using prompt caching — paying full price on every call** *(recognition)*
+Without `cache_control`, every call sends the full system prompt and pays full input token price. The cache writes on call 1 and reads on every subsequent call at ~10% cost. This is not an optimization — it is standard practice for any repeated system prompt.
 
-**Using temperature for critical severity classification.**
+*(recall — trigger it)*
 ```python
-response = client.messages.create(..., temperature=0.7)
+python3 << 'EOF'
+import anthropic, os
+from dotenv import load_dotenv
+load_dotenv()
+client = anthropic.Anthropic()
+SYSTEM = "You are AOIS, an AI Operations Intelligence System that analyzes Kubernetes and infrastructure logs. You identify root causes, assess severity from P1 (critical) to P4 (low), and suggest remediation steps."
+
+def call(cache):
+    kwargs = {"type": "text", "text": SYSTEM}
+    if cache:
+        kwargs["cache_control"] = {"type": "ephemeral"}
+    r = client.messages.create(
+        model="claude-haiku-4-5-20251001", max_tokens=100,
+        system=[kwargs],
+        messages=[{"role": "user", "content": "OOMKilled pod/api"}]
+    )
+    u = r.usage
+    print(f"  input={u.input_tokens} write={getattr(u,'cache_creation_input_tokens',0)} read={getattr(u,'cache_read_input_tokens',0)}")
+
+print("WITHOUT cache_control (call 1, call 2):")
+call(False); call(False)
+print("WITH cache_control (call 1, call 2):")
+call(True); call(True)
+EOF
 ```
-For AOIS severity classification (P1/P2/P3/P4), temperature=0.7 means different runs of the same log may produce different severity levels. Use temperature=0 for classification tasks. Use higher temperature only when you want creative variation (e.g., generating suggestions with multiple options).
+Expected:
+```
+WITHOUT cache_control (call 1, call 2):
+  input=65 write=0 read=0   ← full price both times
+  input=65 write=0 read=0
+WITH cache_control (call 1, call 2):
+  input=9  write=56 read=0  ← write on first
+  input=9  write=0  read=56 ← read on second — ~10% of full price
+```
+Every AOIS call uses `cache_control` on the system prompt. No exceptions.
 
-**Treating the model's `suggested_action` as safe to execute automatically.**
-The model can suggest "delete the namespace" or "run rm -rf /var/data" in a suggested_action field. Without output validation (added in v5), AOIS would return that suggestion directly. Never auto-execute LLM suggestions without a human approval step or output blocklist. The model is right most of the time — but "most of the time" is not production-safe.
+---
 
-**Not handling `anthropic.RateLimitError`.**
-The Anthropic API has rate limits. Under load, calls will fail with 429. Without a retry strategy, AOIS returns a 500 error to the user. Add retry logic with exponential backoff, or use the fallback to OpenAI that v1 already includes. The fallback is the mitigation — make sure it is tested by temporarily using an invalid Anthropic key.
+**Temperature=0.7 for severity classification** *(recognition)*
+Higher temperature = more random token selection. For classification tasks (P1/P2/P3/P4), randomness means the same log can produce different severity levels on different runs. You cannot build reliable alerting on inconsistent output.
 
-**Hardcoding model names as strings without a constant.**
+*(recall — trigger it)*
 ```python
-model="claude-sonnet-4-6"    # scattered across the codebase
+python3 << 'EOF'
+import anthropic, os
+from dotenv import load_dotenv
+load_dotenv()
+client = anthropic.Anthropic()
+
+log = "disk usage at 87% on node/worker-1"
+results = {"temp0": [], "temp07": []}
+
+for i in range(4):
+    for temp, key in [(0, "temp0"), (0.7, "temp07")]:
+        r = client.messages.create(
+            model="claude-haiku-4-5-20251001", max_tokens=20,
+            temperature=temp,
+            messages=[{"role": "user", "content": f"Classify this log as P1/P2/P3/P4 only, one word: {log}"}]
+        )
+        results[key].append(r.content[0].text.strip())
+
+print(f"temperature=0:   {results['temp0']}")
+print(f"temperature=0.7: {results['temp07']}")
+EOF
 ```
-Model names change when Anthropic releases new versions. Retired model names fail silently or return errors. Define model names as constants at the top of the file — one place to update when the model is upgraded.
+Expected (approximate):
+```
+temperature=0:   ['P2', 'P2', 'P2', 'P2']   ← consistent
+temperature=0.7: ['P2', 'P3', 'P2', 'P3']   ← varies
+```
+Classification tasks: `temperature=0`. Creative generation: `temperature=0.5–1.0`.
+
+---
+
+**Not testing the fallback before relying on it** *(recognition)*
+The OpenAI fallback in v1 only activates when Anthropic fails. If the fallback has a bug or wrong configuration, you will not discover it until Anthropic has an outage — the worst possible time.
+
+*(recall — trigger it)*
+```bash
+# Temporarily break the Anthropic key
+REAL_KEY=$(grep ANTHROPIC_API_KEY .env | cut -d= -f2)
+echo "ANTHROPIC_API_KEY=invalid-key-for-testing" > /tmp/test.env
+
+# Test that fallback activates
+python3 << 'EOF'
+from dotenv import load_dotenv
+load_dotenv("/tmp/test.env")
+import os
+os.environ["ANTHROPIC_API_KEY"] = "invalid-key-for-testing"
+
+import httpx, json
+r = httpx.post("http://localhost:8000/analyze",
+    json={"log": "OOMKilled pod/test"},
+    timeout=30)
+data = r.json()
+print(f"Status: {r.status_code}")
+print(f"Provider: {data.get('provider', 'not shown')}")
+print(f"Error: {data.get('detail', 'no error')}")
+EOF
+```
+Expected: either the response shows `provider: openai` (fallback worked) or a specific error (fallback also failed). If you get a 500 with no detail, the fallback is broken. Fix it now, not during an outage.
+
+---
+
+**Hardcoded model name strings scattered across files** *(recognition)*
+Model names change when Anthropic releases new versions. A retired model returns an error. If the name is hardcoded in 5 places, you update 4 and miss 1.
+
+*(recall — trigger it)*
+```python
+python3 << 'EOF'
+import anthropic, os
+from dotenv import load_dotenv
+load_dotenv()
+client = anthropic.Anthropic()
+
+# Trigger the error you'll see when a model name is wrong
+try:
+    r = client.messages.create(
+        model="claude-3-wrong-model-name",
+        max_tokens=10,
+        messages=[{"role": "user", "content": "hi"}]
+    )
+except Exception as e:
+    print(f"Error type: {type(e).__name__}")
+    print(f"Error: {e}")
+EOF
+```
+Expected:
+```
+Error type: NotFoundError
+Error: Error code: 404 - {'type': 'error', 'error': {'type': 'not_found_error', 'message': 'model: claude-3-wrong-model-name'}}
+```
+This 404 with a model name in it = wrong model string. Fix with a constant at the top of the file:
+```python
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"   # one place to update
+```
 
 ---
 
