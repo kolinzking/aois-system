@@ -535,11 +535,11 @@ Each phase has three layers:
 - `v0.7/notes.md`: added "What the Model is NOT Doing" section — 4 critical misconceptions that affect system design
 - Every `notes.md` (v0.1–v6): added Mastery Checkpoint section with 6–8 practical verification tasks each
 
-### What v8 builds next
-- Install ArgoCD on the k3s cluster
-- Point it at this git repo
-- Push a change to `charts/aois/values.prod.yaml` → ArgoCD detects the diff and deploys automatically
-- Rollback in one command: `argocd app rollback aois`
+### What v9 builds next
+- Install KEDA on the cluster
+- Define a ScaledObject that watches a Kafka topic consumer lag
+- AOIS scales from 0 pods (idle) to N pods (under load) automatically
+- No Kafka yet — v9 uses a simpler scaler (CPU/HTTP) to learn the KEDA pattern first
 
 ### Current root-level state
 - `/main.py` — v5 implementation (active, served from k3s)
