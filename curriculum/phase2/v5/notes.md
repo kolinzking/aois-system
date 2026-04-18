@@ -503,6 +503,33 @@ HTTP status: 413.
 
 ---
 
+## Common Mistakes
+
+**Rate limiting by IP when users share an IP.**
+Slowapi's default rate limiter uses the client IP address. In a corporate network, VPN, or university, hundreds of users share the same IP (NAT). A rate limit of "10 requests per minute per IP" effectively limits your entire corporate user base to 10 requests per minute. For authenticated endpoints, rate limit by user ID. For public endpoints, IP is the only option — but set the limit generously.
+
+**Input sanitization that misses encoding bypasses.**
+Your regex strips `<script>` — but does it strip `%3Cscript%3E` (URL-encoded)? What about `\u003cscript\u003e` (Unicode escape)? What about double-encoded forms? Real-world attackers iterate through encoding variations. The defense: decode first, then sanitize. For log injection specifically, AOIS's sanitization is good enough — the actual risk is prompt injection, not XSS. Know which attack you are defending against.
+
+**Logging request bodies that contain secrets.**
+```python
+logger.info(f"Request: {request.body}")   # logs the entire payload
+```
+If a user sends their API key in a log line (it happens), your server logs become a credential store. Be deliberate about what gets logged. Log the request ID, the endpoint, the response status, and the latency — not the full request body. For debugging, use a flag that enables body logging only in development.
+
+**Security measures added but never tested.**
+You added rate limiting, input sanitization, and the output blocklist. Have you actually verified each one works?
+- Rate limiting: send 11 requests in 60 seconds and confirm you get 429 on the 11th
+- Input sanitization: send a log containing `IGNORE PREVIOUS INSTRUCTIONS` and confirm it is stripped
+- Output blocklist: manually call `detect_destructive_action` with "delete the cluster" and confirm it returns True
+
+Tests confirm the measure is implemented. Without running the test, you have no guarantee.
+
+**`slowapi` not applied to all routes.**
+If you add rate limiting to `/analyze` but forget `/health` or any other endpoint, those become unprotected — an attacker can use them for denial of service or information gathering without hitting your rate limit. Apply the rate limiter globally or verify every endpoint is covered.
+
+---
+
 ## Troubleshooting
 
 **Rate limiter not working (all requests return 200):**
