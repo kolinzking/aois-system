@@ -295,6 +295,36 @@ The response text is excellent. But you cannot do `response["severity"]`. You ge
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Make the raw curl call from the notes with your actual API key, then try to extract the severity:
+> ```bash
+> # After making the curl call, save the response
+> source /workspaces/aois-system/.env 2>/dev/null || export $(cat /workspaces/aois-system/.env | xargs)
+>
+> curl -s https://api.anthropic.com/v1/messages \
+>   -H "x-api-key: $ANTHROPIC_API_KEY" \
+>   -H "anthropic-version: 2023-06-01" \
+>   -H "content-type: application/json" \
+>   -d '{"model":"claude-haiku-4-5-20251001","max_tokens":200,"system":"You are an SRE.","messages":[{"role":"user","content":"Analyze: OOMKilled pod/payment-service. What severity?"}]}' \
+>   > /tmp/raw_response.json
+>
+> cat /tmp/raw_response.json | python3 -m json.tool
+>
+> # Now try to extract severity with regex:
+> python3 -c "
+> import json, re
+> d = json.load(open('/tmp/raw_response.json'))
+> text = d['content'][0]['text']
+> print('Response text:', text[:200])
+> m = re.search(r'P[1-4]', text)
+> print('Regex severity:', m.group() if m else 'NOT FOUND')
+> "
+> ```
+> Notice: the text response may contain "P2" but it might also say "Priority 2" or "High" — the regex only catches one variant. This exact fragility is what tool use in v1 eliminates.
+
+---
+
 ## Part 7 — The Python SDK call
 
 Create the script:
