@@ -704,38 +704,146 @@ replicaset.apps/aois-6c76df6fd7   1         1         1       5m
 
 ## Common Mistakes
 
-**Forgetting `-n aois` — commands run in the wrong namespace.**
+**Forgetting `-n aois` — commands run in the wrong namespace** *(recognition)*
+Without `-n namespace`, kubectl defaults to the `default` namespace. Every AOIS resource is in the `aois` namespace. You will spend time confused about why kubectl shows nothing when everything is running fine.
+
+*(recall — trigger it)*
 ```bash
-kubectl get pods                  # shows pods in 'default' namespace — AOIS is not there
-kubectl get pods -n aois          # shows AOIS pods — correct
+# Run this while AOIS is deployed and running
+kubectl get pods          # no -n flag
 ```
-Without `-n namespace`, kubectl defaults to the `default` namespace. Every AOIS resource is in the `aois` namespace. You will spend time confused about why kubectl shows nothing when everything is running fine. Set `kubectl config set-context --current --namespace=aois` to make `aois` the default for this context — then you can omit `-n aois` in most commands.
-
-**`ImagePullBackOff` because `ghcr-secret` is missing or wrong.**
-When the pod cannot pull the image, it shows `ImagePullBackOff`. The most common cause: the `ghcr-secret` was created with the wrong GitHub token (expired, wrong scope, wrong username). Verify:
+Expected:
+```
+No resources found in default namespace.
+```
+AOIS is running perfectly — you are just looking in the wrong place. Fix:
 ```bash
-kubectl get secret ghcr-secret -n aois -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d
+kubectl get pods -n aois
+# NAME                    READY   STATUS    RESTARTS   AGE
+# aois-7d9f4b8c6-xk2mj   1/1     Running   0          12m
 ```
-Confirm the `auth` field decodes to `username:token` and the token has `read:packages` scope on GitHub.
-
-**Liveness probe too aggressive — kills healthy pods during startup.**
-If `initialDelaySeconds` is too small (e.g., 5 seconds) and AOIS takes 10 seconds to load the model and start accepting requests, the liveness probe fails during startup and Kubernetes kills the pod — immediately restarting it in a crash loop. This looks identical to an application crash. Always set `initialDelaySeconds` to at least 1.5× your observed startup time.
-
-**Editing base64-encoded Secrets by hand.**
+Permanently fix by setting the default namespace for this context:
 ```bash
-kubectl edit secret aois-secrets -n aois
-# The values are base64-encoded — editing them directly is error-prone
+kubectl config set-context --current --namespace=aois
+kubectl get pods    # now works without -n
 ```
-A base64 string with a trailing newline is different from one without. A typo in base64 is invisible until the application tries to use the secret and gets a garbled API key. Use `kubectl create secret --dry-run=client -o yaml | kubectl apply -f -` to update secrets safely.
 
-**cert-manager certificate stuck in Pending — missing ClusterIssuer.**
-If `kubectl describe certificate aois-tls -n aois` shows `Waiting for HTTP-01 challenge` but the challenge never completes, verify:
-1. The ClusterIssuer exists: `kubectl get clusterissuer`
-2. The Ingress is reachable from the internet on port 80 (Let's Encrypt validates via HTTP before issuing TLS)
-3. The nip.io domain resolves to your Hetzner IP: `dig aois.46.225.235.51.nip.io`
+---
 
-**`kubectl apply` vs `helm upgrade` after v7.**
-Once Helm manages AOIS (v7+), never use `kubectl apply` on the same resources. `kubectl apply` makes changes outside Helm's knowledge. Helm's next upgrade will either fight the manual change or overwrite it. Pick one: kubectl OR helm, for the same set of resources. After v7: always helm.
+**`ImagePullBackOff` — the image pull secret is wrong** *(recognition)*
+When a pod cannot pull its image from GHCR, it enters `ImagePullBackOff`. The most common cause: the `ghcr-secret` has an expired token or wrong scope. The pod event says "unauthorized" but not which credential is wrong.
+
+*(recall — trigger it)*
+```bash
+# Create a secret with a deliberately bad token
+kubectl create secret docker-registry ghcr-secret-test \
+  --docker-server=ghcr.io \
+  --docker-username=kolinzking \
+  --docker-password=BADTOKEN \
+  -n aois
+
+# Patch the deployment to use this bad secret
+kubectl patch deployment aois -n aois \
+  -p '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"ghcr-secret-test"}]}}}}'
+
+# Watch the pod status
+kubectl get pods -n aois -w
+```
+Expected output after patch:
+```
+NAME                    READY   STATUS             RESTARTS
+aois-new-pod            0/1     ImagePullBackOff   0
+```
+Diagnosis:
+```bash
+kubectl describe pod -n aois -l app=aois | grep -A5 "Events"
+# Failed to pull image: unauthorized: unauthenticated
+```
+Fix: recreate the secret with a valid token that has `read:packages` scope, then roll back the patch. One memory hook: **ImagePullBackOff always means authentication or the image tag doesn't exist — check both.**
+
+---
+
+**Liveness probe too aggressive — kills healthy pods during startup** *(recognition)*
+If `initialDelaySeconds` is too small (e.g., 5 seconds) and AOIS takes 12 seconds to start, the liveness probe fails three times before the app is ready. Kubernetes kills the pod and restarts it — which fails again. This looks identical to an application crash from the outside.
+
+*(recall — trigger it)*
+```yaml
+# Apply this deliberately aggressive probe to see the crash loop
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 1    # <-- too small
+  periodSeconds: 3
+  failureThreshold: 1       # <-- fails on first miss
+```
+```bash
+kubectl apply -f - <<'EOF'
+# paste the above into your deployment
+EOF
+kubectl get pods -n aois -w
+```
+Expected:
+```
+NAME              READY   STATUS             RESTARTS
+aois-pod          0/1     Running            0
+aois-pod          0/1     Running            1          # killed and restarted
+aois-pod          0/1     CrashLoopBackOff   2
+```
+Fix:
+```yaml
+initialDelaySeconds: 20    # 1.5× observed startup time
+failureThreshold: 3        # tolerate 3 consecutive failures
+```
+Measure your actual startup time first: `kubectl logs -n aois -l app=aois | grep "Application startup complete"` and note the timestamp delta.
+
+---
+
+**Editing base64-encoded Secrets by hand** *(recognition)*
+`kubectl edit secret` shows base64-encoded values. A trailing newline, a missed `=` padding character, or any typo in a base64 string produces a silently different decoded value — your application gets a garbled API key and fails with an authentication error that looks unrelated to the secret edit.
+
+*(recall — trigger it)*
+```bash
+# See what hand-editing looks like
+kubectl get secret aois-secrets -n aois -o yaml
+# data:
+#   ANTHROPIC_API_KEY: c2stYW50LVJFQUFLRVK=    # hard to spot errors here
+```
+Manually base64-encode a string with a common mistake:
+```bash
+echo "my-api-key" | base64      # produces: bXktYXBpLWtleQo=
+echo -n "my-api-key" | base64   # produces: bXktYXBpLWtleQ==
+```
+The first has a trailing newline in the decoded value — your application gets `"my-api-key\n"` instead of `"my-api-key"`. An auth header with a newline is silently rejected.
+
+Fix — the safe pattern for updating secrets:
+```bash
+kubectl create secret generic aois-secrets \
+  --from-literal=ANTHROPIC_API_KEY="sk-ant-real-key" \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+`--dry-run=client -o yaml` generates correct base64 without manual encoding. `kubectl apply` applies it idempotently.
+
+---
+
+**`kubectl apply` after Helm takes ownership** *(recognition)*
+Once Helm manages AOIS (v7+), using `kubectl apply` on the same resources creates state Helm does not know about. On the next `helm upgrade`, Helm either overwrites your manual change or enters a conflict state where the live resource differs from both the Helm chart and your manual apply.
+
+*(recall — trigger it)*
+```bash
+# After v7 Helm install, manually edit the deployment replicas
+kubectl scale deployment aois --replicas=3 -n aois
+kubectl get deployment aois -n aois   # shows 3 replicas
+
+# Now run helm upgrade
+helm upgrade aois ./charts/aois -n aois
+
+# Check replicas after upgrade
+kubectl get deployment aois -n aois   # back to whatever values.yaml says
+```
+Expected: Helm has silently overwritten the manual change. The `kubectl scale` is gone. If `values.yaml` says `replicaCount: 1`, you are back to 1.
+
+Fix: after v7, all configuration changes go through `values.yaml` and `helm upgrade`. Never `kubectl apply` or `kubectl scale` Helm-managed resources. The git file is the truth, not the live cluster.
 
 ---
 
