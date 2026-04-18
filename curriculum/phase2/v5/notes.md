@@ -622,7 +622,7 @@ If any of these three tests fails, the security measure is broken. Untested secu
 ---
 
 **`slowapi` not applied to all routes** *(recognition)*
-If you add rate limiting to `/analyze` but forget `/health` or other endpoints, those routes are unprotected — an attacker can hit them without limit for reconnaissance or denial of service.
+If you add rate limiting to `/analyze` but forget `/health` or any other endpoint, those become unprotected — an attacker can use them for denial of service or information gathering without hitting your rate limit. Apply the rate limiter globally or verify every endpoint is covered.
 
 *(recall — trigger it)*
 ```bash
