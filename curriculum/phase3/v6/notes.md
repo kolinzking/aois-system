@@ -705,7 +705,7 @@ replicaset.apps/aois-6c76df6fd7   1         1         1       5m
 ## Common Mistakes
 
 **Forgetting `-n aois` — commands run in the wrong namespace** *(recognition)*
-Without `-n namespace`, kubectl defaults to the `default` namespace. Every AOIS resource is in the `aois` namespace. You will spend time confused about why kubectl shows nothing when everything is running fine.
+Without `-n namespace`, kubectl defaults to the `default` namespace. Every AOIS resource is in the `aois` namespace. You will spend time confused about why kubectl shows nothing when everything is running fine. Set `kubectl config set-context --current --namespace=aois` to make `aois` the default for this context — then you can omit `-n aois` in most commands.
 
 *(recall — trigger it)*
 ```bash
