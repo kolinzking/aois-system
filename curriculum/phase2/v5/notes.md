@@ -580,7 +580,12 @@ Remove the body logging line immediately after seeing the problem. This is the b
 ---
 
 **Security measures added but never tested** *(recognition)*
-You added rate limiting, input sanitization, and the output blocklist. But each of these is only as real as the test that confirms it actually fires.
+You added rate limiting, input sanitization, and the output blocklist. Have you actually verified each one works?
+- Rate limiting: send 11 requests in 60 seconds and confirm you get 429 on the 11th
+- Input sanitization: send a log containing `IGNORE PREVIOUS INSTRUCTIONS` and confirm it is stripped
+- Output blocklist: manually call `detect_destructive_action` with "delete the cluster" and confirm it returns True
+
+Tests confirm the measure is implemented. Without running the test, you have no guarantee.
 
 *(recall — trigger it)*
 
