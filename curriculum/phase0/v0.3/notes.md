@@ -633,3 +633,38 @@ Then add `.env` to `.gitignore` before anything else.
 - **Phase 3 (v8)**: ArgoCD watches the git repo. Every `git push` to main triggers a deployment. This is GitOps — git IS the source of truth for the cluster state.
 - **Phase 9 (v28)**: GitHub Actions runs on every push. The pipeline builds, tests, scans, and deploys automatically. Every workflow you write runs bash commands in response to git events.
 - **The CV angle**: By Phase 10, the commit history shows 34 versions of progressive complexity. That history is the evidence of your skills — more credible than any resume line.
+
+---
+
+## Mastery Checkpoint
+
+Git has no mystery after these exercises. Run every one before moving to v0.4.
+
+**1. Prove you understand the three areas**
+Make a change to any file. Run `git status` and identify which area it is in. Stage it with `git add`. Run `git status` again — what changed in the output? Now run `git restore --staged <file>` to unstage without discarding. Verify the change is still in the working directory. This cycle — working directory → staging area → commit — is the foundation of every git operation.
+
+**2. Understand what a commit actually contains**
+Run `git log --oneline -5`. Pick any commit. Run `git show <hash>`. Read the full output: who committed, when, the message, and the diff showing exactly what changed. Now run `git show <hash> --stat` to see just the file list and change counts. This is how you investigate "what changed in that deploy?"
+
+**3. The .gitignore must be airtight**
+Run `git status` and verify `.env` does not appear anywhere. Now temporarily add `.env` to staging (`git add -f .env`) — see how `-f` forces it past `.gitignore`. Immediately unstage it (`git restore --staged .env`). The `-f` exists for legitimate reasons but is also how accidents happen.
+
+**4. Write a commit message for every version you have built**
+Look at the current `git log --oneline`. If any commits say "checkpoint" or have unhelpful messages, practice writing what the message SHOULD have been. Use the format: `type: description of the change and its purpose`. Write at least 5 hypothetical commit messages for things you have built so far.
+
+**5. Use git log to answer a question**
+Answer these without running any commands other than git:
+- When was the last change made to `main.py`? (`git log --oneline -- main.py`)
+- What was changed in the most recent commit? (`git show HEAD`)
+- How many commits have been made since the beginning? (`git log --oneline | wc -l`)
+
+**6. Create a branch, make a change, merge it back**
+Create a branch called `test/mastery-check`. Add a file called `practice/mastery_note.txt` with any content. Commit it on the branch. Switch back to main and verify the file is gone. Merge the branch into main. Verify the file appears. Delete the branch. Delete the file and commit the cleanup. The entire cycle in one session.
+
+**7. Recover from a "mistake"**
+On main, make a change to any file and commit it. Then use `git revert HEAD` to create a reversal commit. Check `git log --oneline` — you should see two new commits: the change and its reversal. Your history is preserved; the mistake is undone. This is the safe way to undo on a shared branch.
+
+**8. Read git blame on main.py**
+Run `git blame main.py | head -30`. For each line shown: you can see the commit hash, author, date, and line number. This is how you answer "who changed this line and when?" in a production incident.
+
+**The mastery bar**: git should feel like a superpower, not a danger. You commit cleanly, you can undo safely, you can investigate history, and your `.gitignore` is protecting your secrets. The engineers who lose work or accidentally commit credentials are the ones who never understood the three areas and the safety rules.
