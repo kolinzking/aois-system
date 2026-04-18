@@ -564,6 +564,29 @@ You will see every endpoint, its input/output schemas, and an interactive form t
 
 ---
 
+> **▶ STOP — do this now**
+>
+> Test every endpoint in `mock_api.py` and record what `severity` each one returns:
+> ```bash
+> # OOMKilled
+> curl -s -X POST http://localhost:8001/analyze \
+>   -H "Content-Type: application/json" \
+>   -d '{"log": "OOMKilled pod/payment-service"}' | python3 -m json.tool
+>
+> # CrashLoopBackOff
+> curl -s -X POST http://localhost:8001/analyze \
+>   -H "Content-Type: application/json" \
+>   -d '{"log": "CrashLoopBackOff pod/auth-service restarts: 8"}' | python3 -m json.tool
+>
+> # Something the regex cannot recognize
+> curl -s -X POST http://localhost:8001/analyze \
+>   -H "Content-Type: application/json" \
+>   -d '{"log": "checkout p99 latency increased from 180ms to 12000ms"}' | python3 -m json.tool
+> ```
+> Record what `severity` and `suggested_action` the last test returns. That latency spike is P1 in any SRE handbook — but the regex has no rule for it. Write down exactly what v0.6 gets wrong. When v1 comes back with the right answer, you will know exactly what changed.
+
+---
+
 ## Part 8 — HTTPException: returning errors
 
 ```python
