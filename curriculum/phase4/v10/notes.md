@@ -72,6 +72,8 @@ Enter:
 - `Default region name` — `us-east-1`
 - `Default output format` — `json`
 
+**Where do the keys go?** `aws configure` writes to `~/.aws/credentials` — a file in your home directory, outside the repo. Git never tracks it. Never paste keys directly into a terminal command (e.g. `AWS_SECRET=sk-... aws ...`) — that lands in shell history. `aws configure` is the safe way: it prompts interactively and writes to the credentials file only.
+
 Verify AWS CLI is configured:
 ```bash
 aws sts get-caller-identity
