@@ -820,6 +820,7 @@ uvicorn mock_api:app --port 8001
 - **Phase 1 (v1)**: `analyze_with_regex()` becomes `analyze_with_claude()`. The FastAPI app, models, endpoint, and test commands are identical. This is the transformation point.
 - **Phase 2 (v5)**: Middleware (the request logger above) becomes security middleware — rate limiting, payload size checks. Same pattern, different purpose.
 - **Phase 8 (v26)**: The React dashboard calls these exact endpoints over WebSocket and HTTP. Understanding the API contract is essential for building the frontend.
+- **v1 (AOIS Core)**: The mock regex endpoint you built here is replaced in v1 with a real Claude API call. Same FastAPI structure, same routes — the AI drops in where the regex was.
 
 ---
 
