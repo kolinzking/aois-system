@@ -143,7 +143,7 @@ kubectl get nodes
 ```
 Expected:
 ```
-kolinzking@aois-cluster.us-east-1.eksctl.io
+aois-dev@aois-cluster.us-east-1.eksctl.io
 
 NAME                          STATUS   ROLES    AGE   VERSION
 ip-192-168-x-x.ec2.internal   Ready    <none>   2m    v1.31.x
