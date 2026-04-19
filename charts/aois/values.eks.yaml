@@ -1,0 +1,25 @@
+replicaCount: 1
+
+image:
+  repository: 739275471358.dkr.ecr.us-east-1.amazonaws.com/aois
+  tag: v12
+  pullPolicy: Always
+
+imagePullSecrets: []   # ECR auth via IRSA — no pull secret needed
+
+serviceAccount:
+  name: aois-service-account   # IRSA — pod inherits Bedrock IAM role
+
+ingress:
+  enabled: false   # no ingress controller on this cluster; use port-forward to test
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+keda:
+  enabled: false   # no KEDA installed on EKS yet
