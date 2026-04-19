@@ -299,47 +299,140 @@ You never created this HPA. KEDA created it. `3%/60%` means current CPU is 3%, t
 
 Generate load to push CPU above the 60% threshold and watch KEDA respond.
 
-Run a load test against the live endpoint:
-```bash
-# Install hey if not present
-go install github.com/rakyll/hey@latest
-# or use ab (apache bench): apt-get install apache2-utils
+**Load testing tools:**
 
-# Send 500 concurrent analyze requests
-hey -n 500 -c 20 -m POST \
+`hey` is the simplest option — a lightweight HTTP load generator written in Go.
+```bash
+# Install hey
+go install github.com/rakyll/hey@latest 2>/dev/null || \
+  wget -q https://hey-release.s3.us-east-2.amazonaws.com/hey_linux_amd64 -O /usr/local/bin/hey && \
+  chmod +x /usr/local/bin/hey
+
+# Verify
+hey --version
+```
+
+Alternatively use `ab` (Apache Bench, commonly pre-installed):
+```bash
+apt-get install -y apache2-utils 2>/dev/null
+ab -V
+```
+
+Run the load test against the live endpoint:
+```bash
+# Send 1000 requests, 20 concurrent — enough to push CPU above 60%
+hey -n 1000 -c 20 -m POST \
   -H "Content-Type: application/json" \
   -d '{"log": "pod OOMKilled in production namespace", "tier": "standard"}' \
   https://aois.46.225.235.51.nip.io/analyze
 ```
 
-In a separate terminal, watch what happens:
+In a second terminal, watch what happens:
 ```bash
-# Watch pods and HPA simultaneously
-watch -n 5 'echo "=== PODS ===" && kubectl get pods -n aois && echo "" && echo "=== HPA ===" && kubectl get hpa -n aois && echo "" && echo "=== SCALEDOBJECT ===" && kubectl get scaledobject -n aois'
+watch -n 5 'echo "=== PODS ===" && kubectl get pods -n aois && echo "" && \
+  echo "=== HPA ===" && kubectl get hpa -n aois && echo "" && \
+  echo "=== SCALEDOBJECT ===" && kubectl get scaledobject -n aois'
 ```
 
-Expected sequence:
-1. Load hits → CPU climbs above 60%
-2. KEDA detects the threshold breach (within `pollingInterval` seconds)
-3. HPA `REPLICAS` increases from 1 → 2 → 3
-4. New pods spin up (30–60 seconds to `Running`)
-5. Load distributes → CPU drops per pod
-6. When load stops → CPU drops → after `cooldownPeriod` (300s) → replicas back to 1
+Expected sequence with timing:
+```
+T+0s    Load starts → CPU climbs
+T+30s   KEDA polling interval fires → detects CPU > 60%
+T+35s   HPA updated: desiredReplicas: 2
+T+40s   Second pod starts ContainerCreating
+T+70s   Second pod Running → load splits across 2 pods → CPU per pod drops
+T+90s   Load ends → CPU drops below threshold
+T+390s  After cooldownPeriod (300s) → HPA updated: desiredReplicas: 1
+T+400s  Second pod Terminating → back to 1 replica
+```
 
 ```bash
-# After load test, watch the scale-down (takes cooldownPeriod seconds)
+# After load test, watch the scale-down
 kubectl get hpa -n aois -w
 ```
+Expected during scale-down:
+```
+NAME           REFERENCE         TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
+keda-hpa-aois  Deployment/aois   3%/60%    1         5         2          15m
+keda-hpa-aois  Deployment/aois   2%/60%    1         5         2          20m
+keda-hpa-aois  Deployment/aois   1%/60%    1         5         1          21m
+```
+The replica count dropping from 2 to 1 is KEDA's cooldown kicking in — it waited 300 seconds after CPU dropped before scaling down, preventing oscillation.
 
-If you cannot generate enough load to trigger the threshold, you can temporarily lower the threshold to trigger it manually:
+If you cannot generate enough load to cross 60%, lower the threshold for testing:
 ```bash
-# Override just the threshold for testing
 helm upgrade aois ./charts/aois -f charts/aois/values.prod.yaml \
   --set keda.cpu.targetUtilization=5 -n aois
-# Now any activity triggers scale-up
-# Reset after testing:
+# Any single request now triggers scale-up
+# Reset after:
 helm upgrade aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
 ```
+
+---
+
+## Step 4b: Read KEDA's Internal Decision Log
+
+KEDA logs every scaling decision. Reading this log teaches you how KEDA thinks — useful when debugging why KEDA did or did not scale in production.
+
+```bash
+kubectl logs -n keda -l app=keda-operator --tail=50 2>&1 | grep -i "aois\|scaledobject\|scaled\|cpu"
+```
+
+Expected log lines (paraphrased):
+```json
+{"level":"info","msg":"Reconciling ScaledObject","ScaledObject":"aois/aois"}
+{"level":"info","msg":"Calculated desired replicas","ScaledObject":"aois/aois","desiredReplicas":2,"currentReplicas":1}
+{"level":"info","msg":"No change needed","ScaledObject":"aois/aois","currentReplicas":1,"desiredReplicas":1}
+```
+
+Key fields to understand:
+- `desiredReplicas` — what KEDA calculated the replica count should be, based on current trigger value
+- `currentReplicas` — what is actually running now
+- `Reconciling` — KEDA checks the ScaledObject on every `pollingInterval` tick, even when no change is needed
+
+The KEDA metrics API server (a separate pod) is what the HPA queries for the current CPU percentage. Check it is running:
+```bash
+kubectl get pods -n keda
+# NAME                                              READY   STATUS
+# keda-operator-xxx                                  1/1     Running
+# keda-operator-metrics-apiserver-xxx               1/1     Running   <-- this one
+# keda-admission-webhooks-xxx                       1/1     Running
+```
+If `metrics-apiserver` is not running, HPA cannot get metrics and stays at current replica count indefinitely.
+
+---
+
+## Step 4c: The complete kubectl cheatsheet for KEDA state
+
+These commands answer every KEDA question you will encounter in production:
+
+```bash
+# Is KEDA running?
+kubectl get pods -n keda
+
+# What ScaledObjects exist?
+kubectl get scaledobject -A
+
+# Is my ScaledObject healthy?
+kubectl describe scaledobject aois -n aois | grep -A20 "Status:"
+
+# What HPA did KEDA create?
+kubectl get hpa -n aois
+
+# What is the current metric value vs target?
+kubectl get hpa keda-hpa-aois -n aois -o jsonpath='{.status.currentMetrics}' | python3 -m json.tool
+
+# Why is KEDA not scaling? (last 20 log lines)
+kubectl logs -n keda -l app=keda-operator --tail=20
+
+# What replica count does KEDA want right now?
+kubectl describe hpa keda-hpa-aois -n aois | grep -E "desired|current|min|max" -i
+
+# Full ScaledObject status (machine-readable)
+kubectl get scaledobject aois -n aois -o yaml | grep -A30 "status:"
+```
+
+Save these commands — they are the first things to run when KEDA behavior is unexpected.
 
 ---
 
