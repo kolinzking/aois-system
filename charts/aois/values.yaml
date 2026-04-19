@@ -41,6 +41,9 @@ probes:
 
 secretName: aois-secrets
 
+serviceAccount:
+  name: ""   # set to IRSA service account name on EKS
+
 keda:
   enabled: false        # set true in values.prod.yaml to activate
   minReplicas: 1        # 0 = scale-to-zero (requires non-CPU trigger)
