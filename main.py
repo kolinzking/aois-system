@@ -125,14 +125,26 @@ _INCIDENT_TOOL = {
 }
 
 
+_NIM_SYSTEM = (
+    "You are AOIS, an expert SRE. Classify infrastructure incidents by severity: "
+    "P1=production down, P2=degraded action within 1h, P3=warning within 24h, P4=preventive within 1 week. "
+    "Always call the report_incident tool with your analysis."
+)
+
+
 def _call_nim(model: str, messages: list) -> IncidentAnalysis:
-    """Call NIM directly with tool_choice='auto' — Mistral-7B on NIM rejects 'required'."""
+    """Call NIM directly — force tool call by name; NIM rejects instructor's tool_choice='required'."""
     import json
+    # Swap the verbose AOIS system prompt for a compact version NIM can follow reliably
+    nim_messages = [
+        {"role": "system", "content": _NIM_SYSTEM},
+        *[m for m in messages if m["role"] != "system"],
+    ]
     resp = _nim_openai.chat.completions.create(
         model=model,
-        messages=messages,
+        messages=nim_messages,
         tools=[_INCIDENT_TOOL],
-        tool_choice="auto",
+        tool_choice={"type": "function", "function": {"name": "report_incident"}},
         max_tokens=512,
     )
     msg = resp.choices[0].message
