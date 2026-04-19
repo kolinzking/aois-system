@@ -1,7 +1,7 @@
 # v13 — NVIDIA NIM: GPU Inference at Scale
 ⏱ **Estimated time: 3–5 hours**
 
-*Phase 5 — NVIDIA & GPU Inference. See `curriculum/phase5/00-introduction.md` for the phase overview.*
+*Phase 5 — NVIDIA & GPU Inference. See `curriculum/phase5/00-introduction.md` for the phase overview and the v13→v14→v15 build arc.*
 
 ## What this version builds
 
