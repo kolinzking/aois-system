@@ -187,7 +187,7 @@ v13 adds two things to `main.py`:
 ```python
 ROUTING_TIERS = {
     ...
-    "nim": "nvidia_nim/meta/llama-3.1-8b-instruct",  # NVIDIA NIM — NGC hosted, volume tier
+    "nim": "nvidia_nim/meta/llama-3.1-8b-instruct",  # NVIDIA NIM — routed via OpenAI-compatible client, not LiteLLM
     ...
 }
 ```
