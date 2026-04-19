@@ -54,6 +54,7 @@ def benchmark(label, model, n=3):
             extra = {}
             if model.startswith("groq/"):
                 extra["api_key"] = os.getenv("GROQ_API_KEY")
+                extra["custom_llm_provider"] = "groq"
             resp = litellm.completion(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
