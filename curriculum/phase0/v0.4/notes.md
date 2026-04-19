@@ -741,6 +741,7 @@ Read the response body — FastAPI's 422 includes the exact field that failed va
 - **Phase 3 (v6)**: Kubernetes networking is layers built on top of this — pods have IPs, Services expose ports, Ingress handles routing
 - **Phase 6 (v16)**: OpenTelemetry traces show you HTTP request spans — you will read them because you understand the request lifecycle
 - **Phase 7 (v20)**: When AOIS uses tools like `get_pod_logs`, those tools make HTTP calls to the Kubernetes API — same mechanism
+- **v5 (Security)**: Every HTTP concept here — headers, status codes, request/response — becomes an attack surface in v5. OWASP API Top 10 is just a list of ways HTTP can be abused.
 
 ---
 
