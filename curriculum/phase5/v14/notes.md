@@ -169,15 +169,41 @@ Read `vllm_modal/serve.py`. The key parts:
 
 ▶ **STOP — do this now**
 
-Read `vllm_modal/serve.py` and answer:
-1. What happens if you change `gpu_memory_utilization` from 0.90 to 0.50?
-2. Why does `@modal.build()` download weights but `@modal.enter()` loads them?
-3. What would break if you used `revision="main"` instead of a hash?
+Grep the key configuration parameters from `vllm_modal/serve.py`:
 
-Answers:
-1. vLLM reserves less VRAM for the KV cache → shorter max context window before memory pressure, lower throughput
-2. Build bakes weights into the image snapshot (happens once). Enter loads into VRAM (happens per container start). If you loaded in build, the weights would be in CPU RAM, not GPU VRAM — no inference would happen.
-3. The next `modal deploy` could pull a different commit — different model weights, different behavior in production with no code change.
+```bash
+grep -n 'gpu_memory_utilization\|allow_concurrent_inputs\|MODEL_REVISION\|container_idle_timeout\|keep_warm' vllm_modal/serve.py
+```
+
+Expected output (line numbers will vary):
+```
+7:MODEL_REVISION = "e0bc86c..."
+28:    container_idle_timeout=300,
+29:    allow_concurrent_inputs=32,
+34:    gpu_memory_utilization=0.90,
+```
+
+Now calculate the GPU block impact of halving `gpu_memory_utilization`:
+
+```python
+# A10G has 24GB VRAM. vLLM reserves gpu_memory_utilization fraction for KV cache.
+# Each KV cache block holds 16 tokens.
+# Mistral-7B in fp16 uses each block at ~1MB (approximate).
+
+vram_gb = 24
+for util in [0.90, 0.50]:
+    kv_vram_gb = vram_gb * util
+    approx_blocks = int(kv_vram_gb * 1000)  # rough: 1MB per block
+    print(f"gpu_memory_utilization={util}: ~{approx_blocks} KV blocks available")
+```
+
+Expected:
+```
+gpu_memory_utilization=0.90: ~21600 KV blocks available
+gpu_memory_utilization=0.50: ~12000 KV blocks available
+```
+
+More blocks = more concurrent tokens in flight = higher throughput under load. Halving `gpu_memory_utilization` halves your effective batching capacity. Now you know the number, not just the direction.
 
 ---
 
