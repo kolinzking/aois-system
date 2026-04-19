@@ -170,12 +170,12 @@ Expected response:
     "severity": "P3",
     "suggested_action": "Clean up old log files...",
     "confidence": 0.85,
-    "provider": "nvidia_nim/meta/llama-3.1-8b-instruct",
+    "provider": "openai/meta/llama-3.1-8b-instruct",
     "cost_usd": 0.000008
 }
 ```
 
-Notice `provider` shows the NIM model and `cost_usd` is near zero — this is the volume tier economics working.
+Notice `cost_usd` is near zero — this is the volume tier economics working. The `provider` shows `openai/` prefix because AOIS calls NIM via the OpenAI-compatible client with NIM's `base_url`.
 
 ---
 
