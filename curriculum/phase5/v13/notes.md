@@ -197,10 +197,12 @@ ROUTING_TIERS = {
 SEVERITY_TIER_MAP = {
     "P1": "premium",    # production down — best model, cost irrelevant
     "P2": "premium",    # degraded — still Claude
-    "P3": "nim",        # warning — NIM handles volume cheaply
-    "P4": "nim",        # preventive — NIM handles volume cheaply
+    "P3": "fast",       # warning — Groq LPU: 0.22s, ~$0.000001/call
+    "P4": "fast",       # preventive — Groq LPU: fastest hosted inference
 }
 ```
+
+**Note:** This map was revised after benchmarking NIM vs Groq (Step 6). Both run Llama 3.1 8B. Groq won on latency (0.22s vs 1.07s) and consistency. The `nim` tier stays in `ROUTING_TIERS` for self-hosted GPU deployments. See Step 7 for the full decision.
 
 **3. The `auto_route` flag in `LogInput`:**
 ```python
@@ -218,16 +220,16 @@ Caller sends: {"log": "...", "tier": "standard", "auto_route": true}
 AOIS analyzes with standard tier → gets result with severity: P3
   │
   ▼
-auto_route=True + severity in SEVERITY_TIER_MAP → optimal_tier = "nim"
+auto_route=True + severity in SEVERITY_TIER_MAP → optimal_tier = "fast" (Groq)
   │
   ▼
-optimal_tier != current tier → re-analyze with NIM tier
+optimal_tier != current tier → re-analyze with Groq tier
   │
   ▼
-Return NIM result (cheaper, same quality for P3)
+Return Groq result (0.22s, ~$0.000001, same quality for P3/P4)
 ```
 
-The double-call is intentional — the first call (fast/cheap) classifies severity. The second call uses the optimal model for that severity. For P3/P4, the second call is NIM which is cheaper than standard. For P1/P2, the second call upgrades to Claude. Total cost is still lower than always using Claude.
+The double-call is intentional — the first call (fast/cheap) classifies severity. The second call uses the optimal model for that severity. For P3/P4, the second call is Groq — faster and cheaper than standard. For P1/P2, the second call upgrades to Claude. Total cost is still far lower than always using Claude.
 
 **The endpoint change:**
 ```python
