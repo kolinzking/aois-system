@@ -371,6 +371,49 @@ For AOIS in this curriculum: NGC API is correct for v13. The Modal pattern appea
 
 ---
 
+## Step 3b: Reading the benchmark numbers correctly
+
+The benchmark reports mean latency, stddev, and cost per call. Here is what to look for beyond the headline numbers:
+
+**Coefficient of variation (stddev / mean):**
+A model with mean=1.8s and stddev=0.8s is less predictable than mean=2.5s stddev=0.1s. For P3/P4 logs where AOIS is running a background batch, unpredictability is acceptable. For P1/P2 where an on-call engineer is waiting, it is not. This is why P1/P2 stay on Claude — not just quality, but consistent latency.
+
+**The cost math at production scale:**
+```python
+# Run this to see the routing decision at different volumes
+python3 << 'EOF'
+nim_cost_per_call = 0.000008      # actual from your benchmark
+claude_cost_per_call = 0.015      # actual from your benchmark
+gpt4o_mini_cost = 0.000110        # actual from your benchmark
+
+print(f"{'Volume':>12} | {'All Claude':>12} | {'All GPT-mini':>12} | {'NIM (P3/P4)':>12} | {'Savings':>10}")
+print("-" * 68)
+for calls_per_day in [100, 1_000, 10_000, 100_000]:
+    all_claude = calls_per_day * 30 * claude_cost_per_call
+    all_mini = calls_per_day * 30 * gpt4o_mini_cost
+    # Assume 70% P3/P4, 30% P1/P2
+    nim_mixed = calls_per_day * 30 * (0.7 * nim_cost_per_call + 0.3 * claude_cost_per_call)
+    savings = all_claude - nim_mixed
+    print(f"{calls_per_day:>12,} | ${all_claude:>11.2f} | ${all_mini:>11.2f} | ${nim_mixed:>11.2f} | ${savings:>9.2f}")
+EOF
+```
+
+Expected output (at these cost estimates):
+```
+      Volume |   All Claude |  All GPT-mini |  NIM (P3/P4) |    Savings
+--------------------------------------------------------------------
+         100 |        $45.00 |         $0.33 |        $13.65 |     $31.35
+       1,000 |       $450.00 |         $3.30 |       $136.50 |    $313.50
+      10,000 |     $4,500.00 |        $33.00 |     $1,365.00 |  $3,135.00
+     100,000 |    $45,000.00 |       $330.00 |    $13,650.00 | $31,350.00
+```
+At 10,000 calls/day, routing P3/P4 to NIM saves ~$3,135/month vs always-on Claude. The savings justify even a dedicated Modal GPU ($1.10/hr A10G = ~$800/month) once you exceed ~3,000 calls/day.
+
+**What the stddev tells you about reliability:**
+If NIM stddev is high (>1s on a ~2s mean), run the benchmark again at different times of day. NGC hosted NIM shares GPU resources — load varies. A dedicated GPU has flat latency because you own the hardware.
+
+---
+
 ## Step 5: The vLLM Alternative
 
 NIM and vLLM solve the same problem: run a model efficiently on GPU and expose it via API. Understanding the difference:
