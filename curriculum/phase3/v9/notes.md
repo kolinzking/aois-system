@@ -668,11 +668,26 @@ helm upgrade aois ./charts/aois -f charts/aois/values.prod.yaml -n aois
 
 ---
 
+## KEDA trigger types you will encounter
+
+v9 uses CPU — the simplest trigger to get started. Here is the full landscape of triggers you will use in this curriculum, so you recognize the pattern when you encounter them:
+
+| Trigger | What it measures | Scale-to-zero? | Used in |
+|---------|-----------------|----------------|---------|
+| `cpu` | Pod CPU utilization % | No — needs a running pod | v9 |
+| `kafka` | Consumer group lag (messages waiting) | Yes — lag signal exists without pods | v17 |
+| `prometheus` | Any Prometheus metric you query | Yes — metric is external | v19 (chaos) |
+| `cron` | Time-based schedule | N/A — always sets a fixed count | v9 Mastery Checkpoint #4 |
+| `external` | Any HTTP endpoint that returns a metric | Yes | v23 (agents) |
+
+All of these use the same ScaledObject structure. The `type` field and `metadata` section change. The `scaleTargetRef`, `minReplicaCount`, `maxReplicaCount`, and `cooldownPeriod` stay the same. Learning the structure once means you can use any trigger.
+
 ## Connection to later phases
 
 - **v17 (Kafka)**: The `triggers` section in the ScaledObject gains a second entry: `type: kafka` with `lagThreshold`. KEDA now evaluates both CPU and Kafka lag — scales to whichever is higher. The rest of the ScaledObject is identical. You are learning the shape now so v17 is a three-line change.
 - **v19 (Chaos Engineering)**: Chaos Mesh injects latency and pod failures. KEDA detects the load change and attempts to scale. You will watch what happens to the ScaledObject during a chaos event — does KEDA fight chaos or cooperate with it?
 - **v23 (LangGraph)**: Agent nodes generate bursty CPU load — one node spikes during investigation, drops after resolution. KEDA is the right tool here: pods scale up during investigation bursts, back to 1 during idle. The same ScaledObject config handles this with no changes.
+- **v12 (EKS)**: KEDA is not installed on the EKS cluster in v12 — you used Karpenter for node autoscaling instead. In v17, you install KEDA on EKS and drive pod scaling from Kafka lag. Node scaling (Karpenter) and pod scaling (KEDA) work together: KEDA adds pods, Karpenter adds nodes when pods don't fit.
 - **The pattern**: Every production AI workload has bursty load. KEDA's job is to match infrastructure to that load automatically. The pattern — ScaledObject + trigger + Deployment — is what you use in every phase that handles variable load.
 
 ---
