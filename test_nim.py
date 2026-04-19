@@ -22,9 +22,17 @@ MODELS = {
     "claude_premium":   "anthropic/claude-opus-4-6",
 }
 
+NIM_API_BASE = "https://integrate.api.nvidia.com/v1"
+NIM_API_KEY  = os.getenv("NVIDIA_NIM_API_KEY")
+
 def benchmark(label, model, n=3):
     times = []
     last_response = ""
+    extra = {}
+    if model.startswith("nvidia_nim/"):
+        # LiteLLM doesn't have NIM in its model map — call as openai-compatible
+        model = "openai/" + model.split("nvidia_nim/", 1)[1]
+        extra = {"api_base": NIM_API_BASE, "api_key": NIM_API_KEY}
     for i in range(n):
         start = time.time()
         try:
@@ -32,6 +40,7 @@ def benchmark(label, model, n=3):
                 model=model,
                 messages=[{"role": "user", "content": f"Analyze this k8s log in one sentence: {LOG_SAMPLE}"}],
                 max_tokens=100,
+                **extra,
             )
             elapsed = time.time() - start
             times.append(elapsed)
