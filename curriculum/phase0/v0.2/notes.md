@@ -1105,6 +1105,7 @@ v1 replaces `analyze_with_regex()` with `analyze_with_claude()`. The infrastruct
 - **Phase 3 (v8)**: ArgoCD hook scripts are bash
 - **Phase 9 (v28)**: GitHub Actions `run:` steps are bash — every CI step you write uses these patterns
 - **The pattern**: When you see a CI pipeline fail, you debug it by running the bash commands locally. This version gives you that skill.
+- **v3 (Git & GitHub)**: The `log_analyzer.sh` you build here gets committed with proper history in v3 — your first real project with meaningful commit messages.
 
 ---
 
