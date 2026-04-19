@@ -16,7 +16,7 @@ Why NIM matters for AOIS:
 
 At the end of v13:
 - **NGC hosted NIM connected** — call NVIDIA's cloud-hosted NIM via LiteLLM, zero setup
-- **AOIS routes by severity** — P1/P2 go to Claude (best reasoning), P3/P4 go to NIM (volume tier)
+- **AOIS routes by severity** — P1/P2 go to Claude (best reasoning), P3/P4 go to Groq (volume tier — 0.22s, ~$0.000001/call)
 - **Cost-aware routing logic built** — the `auto_route` flag, the `SEVERITY_TIER_MAP`
 - **Benchmark run** — NIM vs Claude vs Groq vs GPT-4o-mini, real latency and cost numbers
 - **Modal GPU deploy understood** — the path to running your own NIM on GPU hardware
