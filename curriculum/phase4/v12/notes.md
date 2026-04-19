@@ -332,7 +332,7 @@ If not present, the deployment needs `spec.template.spec.serviceAccountName`. Th
 Deploy to EKS:
 ```bash
 # Ensure kubectl is pointing at EKS
-kubectl config use-context kolinzking@aois-cluster.us-east-1.eksctl.io
+kubectl config use-context aois-dev@aois-cluster.us-east-1.eksctl.io
 
 # Create the namespace
 kubectl create namespace aois --dry-run=client -o yaml | kubectl apply -f -
@@ -978,7 +978,7 @@ kubectl config use-context default
 kubectl get pods -n aois
 
 # Switch to EKS, verify AOIS is running there
-kubectl config use-context kolinzking@aois-cluster.us-east-1.eksctl.io
+kubectl config use-context aois-dev@aois-cluster.us-east-1.eksctl.io
 kubectl get pods -n aois
 ```
 AOIS should be running on both clusters simultaneously. Same code, same Helm chart, different infrastructure. This is why Helm values files exist.
