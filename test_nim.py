@@ -74,7 +74,6 @@ def benchmark(label, model, n=3):
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=100,
-                **extra,
             )
             elapsed = time.time() - start
             times.append(elapsed)
