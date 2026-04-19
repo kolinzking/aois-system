@@ -200,24 +200,12 @@ def analyze(log: str, tier: str) -> IncidentAnalysis:
             result.cost_usd = 0.000030
         else:
             # NIM fallback: same Mistral-7B model, NGC-hosted
-            result = nim_client.chat.completions.create(
-                model="mistralai/mistral-7b-instruct-v0.3",
-                messages=messages,
-                response_model=IncidentAnalysis,
-                max_retries=2,
-                max_tokens=1024,
-            )
+            result = _call_nim("mistralai/mistral-7b-instruct-v0.3", messages)
             result.provider = "nim/mistralai/mistral-7b-instruct-v0.3"
             result.cost_usd = 0.000010
         return validate_output(result)
     elif tier == "nim":
-        result = nim_client.chat.completions.create(
-            model="meta/llama-3.1-8b-instruct",
-            messages=messages,
-            response_model=IncidentAnalysis,
-            max_retries=2,
-            max_tokens=1024,
-        )
+        result = _call_nim("meta/llama-3.1-8b-instruct", messages)
         result.provider = "nim/meta/llama-3.1-8b-instruct"
         result.cost_usd = 0.000010
         return validate_output(result)
