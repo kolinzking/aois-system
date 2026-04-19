@@ -135,22 +135,13 @@ The model is identical. The compliance posture is completely different. This is 
 
 ---
 
-## Step 1: Enable Claude Model Access in Bedrock
+## Step 1: Verify Bedrock Model Access
 
-AWS requires you to explicitly request access to each model before you can call it. This is a one-time console step.
+As of 2025, AWS retired the manual model access page. Serverless foundation models are now **automatically enabled on first invocation** — no console action needed. The Model access page now reads: "Model access page has been retired."
 
-**Important — region must be US East (N. Virginia) before doing this.** Bedrock model access is region-specific. If your console shows Europe (Stockholm) or any other region in the top-right corner, click it and switch to **US East (N. Virginia)** first. The Bedrock page looks different per region — `us-east-1` has the most models available.
+Account administrators still control access via IAM policies and Service Control Policies — which is what the `AOISBedrockPolicy` you create in Step 2 does. The console gate is gone; the IAM gate remains.
 
-1. In the AWS console search bar → type **Bedrock** → click **Amazon Bedrock**
-2. Confirm top-right shows **US East (N. Virginia)**
-3. Left sidebar → scroll to **"Configure and learn"** → click **Model access**
-4. Click **"Modify model access"**
-5. Find the **Anthropic** section → check:
-   - **Claude 3.5 Sonnet**
-   - **Claude 3 Haiku**
-6. Click **Next** → **Submit**
-
-Access is usually granted within 1–5 minutes for Claude models. Some models (like Claude 3 Opus) may require a use case description.
+**Important — confirm your region is US East (N. Virginia).** Bedrock model availability varies by region. `us-east-1` has the widest selection. Check the top-right corner of the console before making any API calls — if it shows anything other than US East (N. Virginia), click it and switch.
 
 ▶ **STOP — do this now**
 
