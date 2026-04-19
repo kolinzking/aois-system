@@ -433,6 +433,146 @@ For AOIS v13: NIM is the right choice — Llama 3.1 8B is a NIM-packaged model a
 
 ---
 
+## Step 6: Groq LPU vs NVIDIA GPU — Why the Hardware Matters
+
+You've now run benchmarks against NIM (NVIDIA GPU) and Groq (custom LPU silicon). The numbers reveal something that isn't obvious from API docs: the hardware architecture determines the latency profile, not just the model size.
+
+**What Groq's LPU actually is**
+
+Groq built a chip specifically for one job: running transformer inference. No CUDA. No general-purpose compute. Every transistor on the chip exists to move weights from memory into compute cores as fast as physics allows.
+
+The bottleneck in LLM inference isn't computation — it's memory bandwidth. Moving the model weights from HBM (high-bandwidth memory) to compute cores is what limits token generation speed. Groq's LPU has deterministic memory access — no cache misses, no speculative execution, no DRAM variability. The same 500-token request takes the same time every single run.
+
+NVIDIA's A10G is a general-purpose GPU. It runs CUDA workloads, can train models, run simulations, render graphics. The LPU can only run inference. That specialization is where the speed comes from.
+
+**What this means for AOIS routing:**
+
+```
+Request type          → Best hardware     → Why
+─────────────────────────────────────────────────────────────────────
+P3/P4, <500 tokens   → Groq LPU          → Deterministic 0.2s, $0.000001
+P3/P4, batch >1000   → NIM on A10G       → Better throughput, you control the GPU
+P1/P2, any size      → Claude H100s      → Reasoning quality, not speed
+Fine-tuned model     → vLLM on A10G      → NIM doesn't package custom weights
+Air-gapped / no key  → Ollama local      → Zero external dependencies
+```
+
+**Verify the latency difference yourself:**
+```python
+python3 << 'EOF'
+import openai, os, time, statistics
+from dotenv import load_dotenv
+load_dotenv()
+
+prompt = "Analyze this k8s log in one sentence: pod/auth-service OOMKilled exit code 137"
+
+# Groq
+groq = openai.OpenAI(api_key=os.getenv("GROQ_API_KEY"), base_url="https://api.groq.com/openai/v1")
+groq_times = []
+for _ in range(5):
+    t = time.time()
+    groq.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role":"user","content":prompt}], max_tokens=80)
+    groq_times.append(time.time() - t)
+
+# NIM
+nim = openai.OpenAI(api_key=os.getenv("NVIDIA_NIM_API_KEY"), base_url="https://integrate.api.nvidia.com/v1")
+nim_times = []
+for _ in range(5):
+    t = time.time()
+    nim.chat.completions.create(model="meta/llama-3.1-8b-instruct", messages=[{"role":"user","content":prompt}], max_tokens=80)
+    nim_times.append(time.time() - t)
+
+print(f"Groq  — mean: {statistics.mean(groq_times):.2f}s  stddev: {statistics.stdev(groq_times):.3f}s")
+print(f"NIM   — mean: {statistics.mean(nim_times):.2f}s  stddev: {statistics.stdev(nim_times):.3f}s")
+print(f"\nGroq stddev/mean (coefficient of variation): {statistics.stdev(groq_times)/statistics.mean(groq_times):.2%}")
+print(f"NIM  stddev/mean (coefficient of variation): {statistics.stdev(nim_times)/statistics.mean(nim_times):.2%}")
+EOF
+```
+
+Expected output (approximate — your numbers will vary):
+```
+Groq  — mean: 0.22s  stddev: 0.012s
+NIM   — mean: 1.07s  stddev: 0.240s
+
+Groq stddev/mean (coefficient of variation): 5.45%
+NIM  stddev/mean (coefficient of variation): 22.43%
+```
+
+The coefficient of variation (stddev/mean) is the key metric. Groq's is ~5% — nearly deterministic. NIM's is ~22% because you're sharing GPU time with other NGC API users. When you self-host NIM on a dedicated GPU, the stddev drops significantly.
+
+---
+
+▶ **STOP — do this now**
+
+Run the comparison script above. Record your actual numbers. Then answer:
+1. What is your Groq CV%? Is it below 10%?
+2. What is your NIM CV%? How does it compare?
+3. At your measured Groq latency, how many P3/P4 analyses can AOIS complete per second (single-threaded)?
+4. If you had 10 concurrent async workers calling Groq, what throughput would you expect? (Hint: async I/O, not CPU — they can all be in-flight simultaneously.)
+
+---
+
+## Step 7: The Revised Routing Decision
+
+After benchmarking NIM vs Groq, the routing in `SEVERITY_TIER_MAP` was updated in v13:
+
+```python
+# Original (naive — NIM was the assumed volume tier)
+SEVERITY_TIER_MAP = {
+    "P1": "premium",  # Claude
+    "P2": "premium",  # Claude
+    "P3": "nim",      # NIM — volume cheap
+    "P4": "nim",      # NIM — volume cheap
+}
+
+# Revised (after benchmark data)
+SEVERITY_TIER_MAP = {
+    "P1": "premium",  # Claude — reasoning quality irreplaceable
+    "P2": "premium",  # Claude — still a production incident
+    "P3": "fast",     # Groq — 5x faster than NIM, ~$0.000001/call
+    "P4": "fast",     # Groq — deterministic latency, near-zero cost
+}
+```
+
+**Why Groq beat NIM for the hosted API tier:**
+- Same model (Llama 3.1 8B) — quality identical
+- Groq: 0.22s mean, 5% CV — 5x faster, more consistent
+- NIM hosted: 1.07s mean, 22% CV — shared GPU, variable
+- Cost: both effectively zero at development volumes
+
+**When to revisit this decision:**
+If you deploy a self-hosted NIM container on a dedicated GPU (not the NGC API), NIM's stddev collapses. At that point the comparison is: Groq API (0.22s, pay per call) vs self-hosted NIM (0.3–0.4s, fixed GPU cost). At ~3,000 P3/P4 calls/day, self-hosted NIM on Modal's spot A10G (~$0.60/hr) becomes cheaper than Groq's per-call pricing.
+
+---
+
+## Real-World Routing Playbook
+
+This is the decision framework an SRE uses when choosing where to route AI inference for an operations system like AOIS.
+
+**Decision tree:**
+
+```
+Is this a P1 or P2 incident?
+├── YES → Claude premium. Cost is irrelevant when production is down.
+└── NO (P3/P4)
+    ├── Do you need structured output (Pydantic)?
+    │   ├── YES → Groq or GPT-4o-mini (both support tool use reliably)
+    │   └── NO → Raw Groq is fine
+    ├── Is this a fine-tuned or custom model?
+    │   ├── YES → vLLM on Modal (v14)
+    │   └── NO → Groq or NIM
+    ├── Air-gapped / no internet allowed?
+    │   ├── YES → Ollama local
+    │   └── NO → Groq
+    └── Volume > 3,000 calls/day sustained?
+        ├── YES → Evaluate self-hosted NIM on spot GPU (cost crossover point)
+        └── NO → Groq API — zero ops overhead, pay per call
+```
+
+**The mental model:** every tier in AOIS exists to answer a specific operational question. Claude answers "what is happening and why." Groq answers "classify this at scale, fast." vLLM answers "run our specialized model." Ollama answers "run without any external dependency." The routing logic is just this decision tree encoded in code.
+
+---
+
 ## Common Mistakes
 
 **`nvidia_nim/` model not found** *(recognition)*
