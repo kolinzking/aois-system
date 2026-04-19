@@ -50,10 +50,11 @@ BLOCKED_ACTIONS = [
 ]
 
 ROUTING_TIERS = {
-    "premium": "anthropic/claude-opus-4-6",
-    "standard": "gpt-4o-mini",
-    "fast": "groq/llama-3.1-8b-instant",
-    "local": "ollama/mistral",
+    "enterprise": "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",  # AWS Bedrock — IAM auth, compliance boundary
+    "premium":    "anthropic/claude-opus-4-6",                             # Anthropic direct
+    "standard":   "gpt-4o-mini",                                           # OpenAI
+    "fast":       "groq/llama-3.1-8b-instant",                             # Groq
+    "local":      "ollama/mistral",                                        # Local
 }
 
 DEFAULT_TIER = "premium"
