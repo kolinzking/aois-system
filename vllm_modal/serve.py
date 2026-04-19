@@ -26,16 +26,11 @@ app = modal.App("aois-vllm", image=image)
 MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
 MODEL_REVISION = "e0bc86c23ce5aae1db576c8cca6f06f1f73af2db"  # pinned — no `latest`
 
-# GPU: A10G (24GB VRAM) — fits Mistral-7B in fp16 with room for KV cache
-# container_idle_timeout: keep warm for 5 min between requests (avoids cold starts)
-# allow_concurrent_inputs: vLLM handles batching internally — expose that to Modal
-GPU_CONFIG = modal.gpu.A10G()
-
 
 @app.cls(
-    gpu=GPU_CONFIG,
+    gpu="a10g",
     container_idle_timeout=300,
-    allow_concurrent_inputs=32,
+    max_inputs=32,
 )
 class VLLMServer:
     @modal.build()
@@ -57,16 +52,13 @@ class VLLMServer:
             revision=MODEL_REVISION,
             gpu_memory_utilization=0.90,
             max_model_len=8192,
-            enforce_eager=False,     # use CUDA graphs for throughput
+            enforce_eager=False,
         )
         self.engine = AsyncLLMEngine.from_engine_args(engine_args)
 
     @modal.web_endpoint(method="POST", docs=True)
     async def v1_chat_completions(self, request: dict) -> dict:
-        """
-        OpenAI-compatible /v1/chat/completions endpoint.
-        LiteLLM sends requests here; AOIS needs no changes.
-        """
+        """OpenAI-compatible /v1/chat/completions endpoint."""
         from vllm import SamplingParams
         from vllm.utils import random_uuid
 
@@ -74,7 +66,6 @@ class VLLMServer:
         max_tokens = request.get("max_tokens", 1024)
         temperature = request.get("temperature", 0.1)
 
-        # Convert OpenAI chat format to a flat prompt using Mistral instruct template
         prompt = _apply_chat_template(messages)
 
         sampling_params = SamplingParams(
@@ -86,7 +77,6 @@ class VLLMServer:
         request_id = random_uuid()
         results_generator = self.engine.generate(prompt, sampling_params, request_id)
 
-        # Collect full output (non-streaming for simplicity — streaming in v16)
         final_output = None
         async for request_output in results_generator:
             final_output = request_output
@@ -95,7 +85,6 @@ class VLLMServer:
         prompt_tokens = len(final_output.prompt_token_ids)
         completion_tokens = len(final_output.outputs[0].token_ids)
 
-        # Return OpenAI-compatible response shape so LiteLLM parses it natively
         return {
             "id": f"cmpl-{request_id}",
             "object": "chat.completion",
@@ -116,10 +105,7 @@ class VLLMServer:
 
 
 def _apply_chat_template(messages: list[dict]) -> str:
-    """
-    Mistral instruct format: [INST] user [/INST] assistant </s> [INST] next [/INST]
-    System message is prepended to the first user turn (Mistral v0.3 convention).
-    """
+    """Mistral instruct format: [INST] user [/INST] assistant </s>"""
     prompt = ""
     system = ""
 
@@ -132,14 +118,12 @@ def _apply_chat_template(messages: list[dict]) -> str:
         elif role == "user":
             user_content = f"{system}\n\n{content}" if system else content
             prompt += f"[INST] {user_content} [/INST]"
-            system = ""  # only prepend system once
+            system = ""
         elif role == "assistant":
             prompt += f" {content}</s>"
 
     return prompt
 
-
-# ── Local test entrypoint ────────────────────────────────────────────────────
 
 @app.local_entrypoint()
 def main():
