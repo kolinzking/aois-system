@@ -622,6 +622,22 @@ Look at `Status.Conditions`. Common causes:
 - KEDA operator is not running
 - The Deployment has no `resources.requests.cpu` set — CPU scaler requires a CPU request to calculate utilization percentage
 
+**ScaledObject `READY: True` but replicas never change under load:**
+KEDA is running and healthy but the Deployment is not scaling. Check:
+```bash
+# Is the HPA getting real metrics?
+kubectl get hpa keda-hpa-aois -n aois
+# If TARGETS shows <unknown>/60%, the metrics server can't see pod CPU
+
+# Is there actually CPU pressure?
+kubectl top pods -n aois
+# If this returns <unknown>, the metrics pipeline is broken
+
+# Check KEDA operator logs for scaling decisions
+kubectl logs -n keda -l app=keda-operator --tail=30 | grep -i "aois"
+```
+The most common cause: `resources.requests.cpu` is missing from the Deployment spec. The HPA cannot calculate CPU *utilization* (percentage) without knowing the *requested* CPU (the denominator). Add it to `values.yaml` and redeploy.
+
 **HPA `TARGETS` shows `<unknown>/60%`:**
 The metrics server cannot read CPU for the pods. Verify:
 ```bash
