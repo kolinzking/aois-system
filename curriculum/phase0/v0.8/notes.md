@@ -249,7 +249,15 @@ Expected output:
 
 Note: the P3 cert expiry row appears because confidence > 0.90 is the only filter — severity filter is `IN ('P1', 'P2')` so adjust your WHERE accordingly to match this exact output.
 
-Actual WHERE clause for the above: `WHERE confidence > 0.90 ORDER BY confidence DESC` (no severity filter, checking your column selection).
+**Solution:**
+```sql
+SELECT severity, summary, confidence, model_used
+FROM incidents
+WHERE confidence > 0.90
+ORDER BY confidence DESC;
+```
+
+The exercise wording says "P1 and P2" to make you think about severity filtering — but the expected output includes a P3 row. Read the output first, then write the query that produces it. That is the production habit: verify what you actually need before adding filters that reduce results.
 
 ---
 
