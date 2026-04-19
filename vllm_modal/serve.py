@@ -36,7 +36,6 @@ GPU_CONFIG = modal.gpu.A10G()
     gpu=GPU_CONFIG,
     container_idle_timeout=300,
     allow_concurrent_inputs=32,
-    secrets=[modal.Secret.from_name("huggingface-secret")],
 )
 class VLLMServer:
     @modal.build()
