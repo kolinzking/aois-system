@@ -605,11 +605,12 @@ Each phase has three layers:
 ### Notes standard
 See **Content Quality Standard** section above — it is the complete, enforced standard for all versions. Do not repeat or summarize it here.
 
-### What v9 builds next
-- Install KEDA on the cluster
-- Define a ScaledObject that watches a Kafka topic consumer lag
-- AOIS scales from 0 pods (idle) to N pods (under load) automatically
-- No Kafka yet — v9 uses a simpler scaler (CPU/HTTP) to learn the KEDA pattern first
+### What v10 builds next
+- Route AOIS to Claude via Amazon Bedrock (enterprise deployment pattern)
+- IAM roles for authentication — no API keys in AWS
+- Compare Anthropic direct vs Bedrock: latency, cost, compliance posture
+- LiteLLM routes to Bedrock seamlessly (same code, different backend)
+- Bedrock Agents: expose AOIS as a managed agent with tool routing + knowledge base
 
 ### Current root-level state
 - `/main.py` — v5 implementation (active, served from k3s)
