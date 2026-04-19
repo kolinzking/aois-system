@@ -13,9 +13,14 @@ spec:
       labels:
         app: {{ .Release.Name }}
     spec:
+      {{- if .Values.serviceAccount.name }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      {{- end }}
+      {{- if .Values.imagePullSecrets }}
       imagePullSecrets:
       {{- range .Values.imagePullSecrets }}
       - name: {{ .name }}
+      {{- end }}
       {{- end }}
       containers:
       - name: {{ .Release.Name }}
