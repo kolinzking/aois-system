@@ -30,7 +30,6 @@ MODEL_REVISION = "e0bc86c23ce5aae1db576c8cca6f06f1f73af2db"  # pinned — no `la
 @app.cls(
     gpu="a10g",
     scaledown_window=300,
-    max_inputs=32,
 )
 class VLLMServer:
     @modal.build()
