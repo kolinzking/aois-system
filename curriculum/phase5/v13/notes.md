@@ -122,19 +122,22 @@ Expected: `NIM key loaded: nvapi-xxxxxxx...`
 
 ## Step 1: Connect LiteLLM to NGC NIM
 
-LiteLLM has native support for NVIDIA NIM via the `nvidia_nim/` prefix. The base URL is `https://integrate.api.nvidia.com/v1`.
+NIM exposes an OpenAI-compatible API at `https://integrate.api.nvidia.com/v1`. You call it directly using the `openai` SDK with a custom `base_url` — no LiteLLM wrapper needed. LiteLLM 1.83.x has a model-mapping bug with the `nvidia_nim/` prefix that strips the provider context, so AOIS bypasses it and calls NIM directly.
 
 Test the connection directly:
 ```python
 python3 << 'EOF'
-import litellm, os
+import openai, os
 from dotenv import load_dotenv
 load_dotenv()
 
-litellm.drop_params = True
+client = openai.OpenAI(
+    api_key=os.getenv("NVIDIA_NIM_API_KEY"),
+    base_url="https://integrate.api.nvidia.com/v1"
+)
 
-resp = litellm.completion(
-    model="nvidia_nim/meta/llama-3.1-8b-instruct",
+resp = client.chat.completions.create(
+    model="meta/llama-3.1-8b-instruct",
     messages=[{"role": "user", "content": "Reply with exactly: NIM connection successful"}],
     max_tokens=20,
 )
@@ -150,7 +153,7 @@ Model: meta/llama-3.1-8b-instruct
 Tokens: 28
 ```
 
-LiteLLM reads `NVIDIA_NIM_API_KEY` from the environment automatically. No additional configuration needed.
+The `openai` SDK works because NIM's API is OpenAI-compatible — same request/response format, different `base_url` and `api_key`.
 
 ▶ **STOP — do this now**
 
