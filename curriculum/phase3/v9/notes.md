@@ -781,4 +781,36 @@ kubectl annotate scaledobject aois -n aois autoscaling.keda.sh/paused-replicas- 
 ```
 This is cleaner than deleting the ScaledObject and recreating it — no risk of losing the KEDA config during an incident, and ArgoCD does not detect a diff (the annotation is runtime state, not in git). The `-` suffix on the annotation key removes it.
 
+**10. ScaledObject in ArgoCD — understanding the health status**
+
+After ArgoCD syncs the ScaledObject, you will notice:
+```
+GROUP     KIND          NAMESPACE  NAME  STATUS  HEALTH   MESSAGE
+keda.sh   ScaledObject  aois       aois  Synced  Unknown
+```
+
+`Health: Unknown` is expected — ArgoCD does not have a built-in health check for KEDA custom resources. The resource is there and working; ArgoCD just does not know how to report its health. This is not an error.
+
+If you want ArgoCD to show `Healthy` for ScaledObjects, add a custom health check to ArgoCD's ConfigMap:
+```yaml
+# In argocd-cm ConfigMap (advanced — optional)
+resource.customizations.health.keda.sh_ScaledObject: |
+  hs = {}
+  if obj.status ~= nil then
+    if obj.status.conditions ~= nil then
+      for _, condition in ipairs(obj.status.conditions) do
+        if condition.type == "Ready" and condition.status == "True" then
+          hs.status = "Healthy"
+          hs.message = "ScaledObject is ready"
+          return hs
+        end
+      end
+    end
+  end
+  hs.status = "Progressing"
+  hs.message = "Waiting for ScaledObject to become ready"
+  return hs
+```
+This is optional — `kubectl get scaledobject` gives you the authoritative status. ArgoCD health for custom resources is cosmetic.
+
 **The mastery bar:** You can describe KEDA's architecture (ScaledObject → KEDA → managed HPA → Deployment), explain why CPU cannot produce scale-to-zero while Kafka can, and deploy a ScaledObject through ArgoCD. You understand what changes in v17 and can make that change without notes.
