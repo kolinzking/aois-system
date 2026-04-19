@@ -596,4 +596,6 @@ Then answer: why does AOIS need all five tiers instead of just always using the 
 **7. The inference hardware question**
 NVIDIA NIM requires NVIDIA GPUs. Groq runs on custom LPU silicon. Claude runs on Anthropic's H100 clusters. For AOIS's specific workload (short-context log analysis, ~500 tokens in/out), which hardware property matters most — memory bandwidth, compute throughput, or silicon architecture? Research: what makes the Groq LPU faster than GPU for token generation, and why does that matter less for batch-style inference like AOIS's P3/P4 routing?
 
+**The mastery bar (summarized):** NIM is not magic — it is a well-packaged model running on NVIDIA-optimized infrastructure. What matters is routing the right severity to the right model at the right cost. P1/P2 get Claude because reasoning quality justifies the premium. P3/P4 get NIM because $0.000008/call at volume is the correct engineering decision. The infrastructure serves the product, not the other way around.
+
 **The mastery bar:** You can route AOIS logs to NVIDIA NIM via LiteLLM, explain the cost-aware routing logic (`SEVERITY_TIER_MAP`, `auto_route`), and quantify the cost difference between NIM and Claude at production volume. You understand where NIM fits in the inference landscape and when to use Modal GPU vs NGC API vs a dedicated GPU.
