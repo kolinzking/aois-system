@@ -630,15 +630,57 @@ Not all models support function calling/tool use. If you route to a tier that do
 - Use a different model for that tier that does support tool use
 - Fall back to `response_format={"type": "json_object"}` for models without tool use (but then you lose Instructor's validation)
 
-**Langfuse traces not appearing:**
-```bash
-# Check keys are loaded
-python3 -c "from dotenv import load_dotenv; import os; load_dotenv(); print(os.getenv('LANGFUSE_SECRET_KEY', 'NOT SET')[:15])"
+**`AttributeError: module 'langfuse' has no attribute 'version'`:**
+You have langfuse v3+ installed. LiteLLM's built-in callback was written against the v2 API.
 
-# Check the LiteLLM callback is registered
-python3 -c "import litellm; print(litellm.success_callback)"
+```bash
+pip install "langfuse==2.60.6"
 ```
-If the keys are correct but traces still do not appear, check cloud.langfuse.com for any error messages in the project settings.
+
+This error appears at the first LiteLLM call, not at import time. If AOIS starts without error but crashes on the first `/analyze` request, this is the cause.
+
+**Langfuse traces not appearing:**
+
+Step 1 — confirm the env var names are correct (not `LANGFUSE_BASE_URL`):
+```bash
+python3 -c "
+from dotenv import load_dotenv; import os; load_dotenv()
+print('SECRET:', 'set' if os.getenv('LANGFUSE_SECRET_KEY') else 'MISSING')
+print('PUBLIC:', 'set' if os.getenv('LANGFUSE_PUBLIC_KEY') else 'MISSING')
+print('HOST:', os.getenv('LANGFUSE_HOST', 'MISSING — check for LANGFUSE_BASE_URL typo'))
+"
+```
+
+Step 2 — confirm the LiteLLM callback is registered:
+```bash
+python3 -c "
+from dotenv import load_dotenv; import os, litellm; load_dotenv()
+if os.getenv('LANGFUSE_SECRET_KEY'):
+    litellm.success_callback = ['langfuse']
+print('callbacks:', litellm.success_callback)
+"
+```
+
+Expected: `callbacks: ['langfuse']`
+
+Step 3 — send a test trace and wait 10–15 seconds (Langfuse flushes asynchronously):
+```python
+from dotenv import load_dotenv; load_dotenv()
+import litellm, os
+
+if os.getenv('LANGFUSE_SECRET_KEY'):
+    litellm.success_callback = ['langfuse']
+    litellm.failure_callback = ['langfuse']
+
+response = litellm.completion(
+    model='groq/llama-3.1-8b-instant',
+    messages=[{'role': 'user', 'content': 'Say: AOIS Langfuse test OK'}],
+    max_tokens=20,
+)
+print(response.choices[0].message.content)
+```
+
+Then go to cloud.langfuse.com → your project → **Tracing** in the left sidebar. Wait 10 seconds and refresh if empty — traces are not instant.
 
 **`litellm.completion_cost()` returns 0:**
 The model you used is not in LiteLLM's pricing database. This happens with local models (Ollama) and some newer models. You can set the cost manually:
