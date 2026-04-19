@@ -2,19 +2,18 @@
 vLLM inference server on Modal — OpenAI-compatible API.
 
 Serves Mistral-7B-Instruct-v0.3 on a single A10G GPU.
-LiteLLM routes to this via the openai/ prefix pointing at the Modal endpoint.
+Uses vLLM's built-in OpenAI server as an ASGI app — handles cold start correctly.
 
 Deploy:  modal deploy vllm_modal/serve.py
-Run:     modal run vllm_modal/serve.py
+Test:    curl -X POST https://<endpoint>/v1/chat/completions ...
 """
 
 import modal
 
 MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
-MODEL_REVISION = "e0bc86c23ce5aae1db576c8cca6f06f1f73af2db"  # pinned
+MODEL_REVISION = "e0bc86c23ce5aae1db576c8cca6f06f1f73af2db"
 MODEL_DIR = "/models/mistral-7b"
 
-# Volume persists model weights across container starts — download once, reuse always
 volume = modal.Volume.from_name("aois-model-weights", create_if_missing=True)
 
 image = (
@@ -23,6 +22,8 @@ image = (
         "vllm==0.4.3",
         "huggingface_hub",
         "hf_transfer",
+        "fastapi",
+        "uvicorn",
     )
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
@@ -54,14 +55,17 @@ def download_model():
 @app.cls(
     gpu="a10g",
     scaledown_window=300,
-    startup_timeout=600,  # vLLM needs 3-5min to load Mistral-7B into VRAM on first cold start
+    startup_timeout=600,
     volumes={MODEL_DIR: volume},
+    allow_concurrent_inputs=32,
 )
 class VLLMServer:
     @modal.enter()
     def load(self):
-        """Load vLLM engine into GPU VRAM on container start."""
         from vllm import AsyncEngineArgs, AsyncLLMEngine
+        from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
+        from vllm.entrypoints.openai.protocol import ChatCompletionRequest
+        import asyncio
 
         engine_args = AsyncEngineArgs(
             model=MODEL_DIR,
@@ -70,83 +74,39 @@ class VLLMServer:
             enforce_eager=False,
         )
         self.engine = AsyncLLMEngine.from_engine_args(engine_args)
-
-    @modal.fastapi_endpoint(method="POST", docs=True)
-    async def v1_chat_completions(self, request: dict) -> dict:
-        """OpenAI-compatible /v1/chat/completions endpoint."""
-        from vllm import SamplingParams
-        from vllm.utils import random_uuid
-
-        messages = request.get("messages", [])
-        max_tokens = request.get("max_tokens", 1024)
-        temperature = request.get("temperature", 0.1)
-
-        prompt = _apply_chat_template(messages)
-        sampling_params = SamplingParams(
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stop=["</s>", "[INST]"],
+        self.model_config = asyncio.get_event_loop().run_until_complete(
+            self.engine.get_model_config()
+        )
+        self.chat = OpenAIServingChat(
+            self.engine,
+            self.model_config,
+            served_model_names=[MODEL_ID],
+            response_role="assistant",
+            chat_template=None,
         )
 
-        request_id = random_uuid()
-        results_generator = self.engine.generate(prompt, sampling_params, request_id)
+    @modal.fastapi_endpoint(method="POST")
+    async def v1_chat_completions(self, request: dict) -> dict:
+        from vllm.entrypoints.openai.protocol import ChatCompletionRequest
+        from fastapi import Request as FastAPIRequest
+        from fastapi.responses import JSONResponse
+        import json
 
-        final_output = None
-        async for request_output in results_generator:
-            final_output = request_output
+        chat_request = ChatCompletionRequest(**request)
+        response = await self.chat.create_chat_completion(chat_request, None)
 
-        text = final_output.outputs[0].text
-        prompt_tokens = len(final_output.prompt_token_ids)
-        completion_tokens = len(final_output.outputs[0].token_ids)
-
-        return {
-            "id": f"cmpl-{request_id}",
-            "object": "chat.completion",
-            "model": MODEL_ID,
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": text},
-                    "finish_reason": final_output.outputs[0].finish_reason,
-                }
-            ],
-            "usage": {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "total_tokens": prompt_tokens + completion_tokens,
-            },
-        }
-
-
-def _apply_chat_template(messages: list[dict]) -> str:
-    """Mistral instruct format: [INST] user [/INST] assistant </s>"""
-    prompt = ""
-    system = ""
-
-    for msg in messages:
-        role = msg["role"]
-        content = msg["content"]
-
-        if role == "system":
-            system = content
-        elif role == "user":
-            user_content = f"{system}\n\n{content}" if system else content
-            prompt += f"[INST] {user_content} [/INST]"
-            system = ""
-        elif role == "assistant":
-            prompt += f" {content}</s>"
-
-    return prompt
+        return json.loads(response.model_dump_json())
 
 
 @app.local_entrypoint()
 def main():
     """Smoke test: modal run vllm_modal/serve.py"""
-    import httpx, os
+    import httpx
     url = "https://kolinzking--aois-vllm-vllmserver-v1-chat-completions.modal.run"
     print(f"Calling: {url}")
     print("Cold start may take 3-5 minutes on first call...")
     r = httpx.post(url, json={
+        "model": MODEL_ID,
         "messages": [
             {"role": "system", "content": "You are a helpful SRE assistant."},
             {"role": "user", "content": "In one sentence, what causes OOMKilled in Kubernetes?"},
@@ -154,8 +114,5 @@ def main():
         "max_tokens": 128,
         "temperature": 0.1,
     }, timeout=600)
-    data = r.json()
-    print("\n--- vLLM response ---")
-    print(data["choices"][0]["message"]["content"])
-    usage = data["usage"]
-    print(f"Tokens: {usage['prompt_tokens']} prompt + {usage['completion_tokens']} completion")
+    print("Status:", r.status_code)
+    print("Body:", r.text[:500])
