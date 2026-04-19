@@ -179,8 +179,6 @@ head -20 main.py        # first 20 lines only
 tail -20 main.py        # last 20 lines only
 tail -f /var/log/syslog # follow file in real time (Ctrl+C to stop)
 less main.py            # paginated viewer (scroll with arrows, q to quit, /text to search)
-wc -l main.py           # count lines in file
-wc -w main.py           # count words
 ```
 
 `tail -f` is one of the most-used SRE commands. When a service is misbehaving you run:
@@ -188,6 +186,26 @@ wc -w main.py           # count words
 tail -f /var/log/service.log
 ```
 And watch what it logs in real time while you reproduce the problem.
+
+How many lines is a file — and how many words?
+
+```bash
+wc -l main.py
+```
+Expected output:
+```
+142 main.py
+```
+`wc` = word count. `-l` = count lines. The number on the left is the line count. Use this to quickly gauge how large a file is before opening it.
+
+```bash
+wc -w main.py
+```
+Expected output:
+```
+687 main.py
+```
+`-w` = count words (whitespace-separated tokens). Less useful for code, but essential when working with log files or text data where word frequency matters.
 
 ---
 
