@@ -764,13 +764,13 @@ print(r.choices[0].message.content)
 Expected: `ok` (or similar). If this fails, fix the API key before continuing.
 
 **2. The routing decision from memory**
-Without notes: state which model tier AOIS uses for each severity level with `auto_route=True`. Then explain why P3 goes to NIM (not Groq, not GPT-4o-mini). What is the deciding factor — latency, cost, or quality?
+Without notes: state which model tier AOIS uses for each severity level with `auto_route=True`. Then explain why P3/P4 go to Groq (not NIM, not GPT-4o-mini). What was the deciding factor after benchmarking — latency, cost, or consistency? What would change this decision in favour of NIM?
 
 **3. Run the full benchmark and interpret results**
 ```bash
 python3 test_nim.py
 ```
-After running, answer: at 5,000 P3/P4 analyses per day for 30 days, what is the cost difference between routing all of them to NIM vs routing all of them to GPT-4o-mini? Show your calculation.
+After running, answer: at 5,000 P3/P4 analyses per day for 30 days, what is the cost difference between routing all of them to Groq vs routing all of them to GPT-4o-mini? Show your calculation.
 
 **4. Trigger the NIM quality fallback**
 Send a log so complex that the 8B model is likely to misclassify it. Verify the endpoint falls back gracefully:
