@@ -704,10 +704,11 @@ DSPy's `BootstrapFewShot` teleprompter would take your 500 labeled logs, try doz
 ## Connection to later phases
 
 - **Phase 2 (v4)**: This `main.py` goes into a Docker container unchanged. The code works identically inside a container.
-- **Phase 2 (v5)**: Instructor's validation layer works alongside the security layers (sanitization, output blocklist). Instructor validates the schema; the security layer validates the content.
-- **Phase 6 (v16)**: Langfuse is added to Docker Compose for local self-hosted observability. OpenTelemetry adds a second layer of traces with LLM semantic conventions.
-- **Phase 7 (v24)**: Pydantic AI is an entire agent framework built on the same foundation — Pydantic models define agent inputs, outputs, tool schemas. You already understand the core.
-- **The principle**: Instructor + Pydantic is the production standard for structured LLM output. You will encounter this pattern in almost every production AI codebase you join.
+- **Phase 2 (v5)**: Instructor's validation layer works alongside the security layers (sanitization, output blocklist). Instructor validates the schema; the security layer validates the content. When both are active: the security layer sanitizes the input before the LLM sees it; Instructor validates the output before it reaches callers.
+- **Phase 6 (v16)**: Langfuse is added to Docker Compose for local self-hosted observability. OpenTelemetry adds a second layer of traces with LLM semantic conventions — `gen_ai.prompt_tokens`, `gen_ai.completion_cost`, `gen_ai.model`. At that point you have two independent observability layers: Langfuse for LLM-specific insights, OTel for infrastructure-level tracing.
+- **Phase 7 (v24)**: Pydantic AI is an entire agent framework built on the same foundation — Pydantic models define agent inputs, outputs, tool schemas, and dependency injection. You already understand the core. The leap from v3 to v24 is: instead of one Pydantic model for one LLM call, you have many models for many agents communicating with each other.
+- **v29 (Weights & Biases)**: Every prompt version is logged as an experiment. With Langfuse already collecting traces, you will add W&B to compare: "does this system prompt wording score higher than this one across 500 test logs?" That comparison is only possible because v3 started collecting data.
+- **The principle**: Instructor + Pydantic is the production standard for structured LLM output. You will encounter this pattern in almost every production AI codebase you join. When you see `from pydantic import BaseModel` in an AI project, this is what it is doing.
 
 ---
 
