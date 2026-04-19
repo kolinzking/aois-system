@@ -51,6 +51,7 @@ def benchmark(label, model, n=3):
     times = []
     last_response = ""
     is_nim = model.startswith("nvidia_nim/")
+    is_groq = model.startswith("groq/")
     for i in range(n):
         start = time.time()
         try:
@@ -60,12 +61,15 @@ def benchmark(label, model, n=3):
                 elapsed = time.time() - start
                 times.append(elapsed)
                 last_response = resp_raw.choices[0].message.content[:80]
-                cost = 0.0  # NIM serverless API: free credits, no standard pricing in LiteLLM
+                cost = 0.0
                 continue
-            extra = {}
-            if model.startswith("groq/"):
-                extra["api_key"] = os.getenv("GROQ_API_KEY")
-                extra["custom_llm_provider"] = "groq"
+            if is_groq:
+                resp_raw = _groq_call(prompt)
+                elapsed = time.time() - start
+                times.append(elapsed)
+                last_response = resp_raw.choices[0].message.content[:80]
+                cost = 0.0  # ~$0.000001/call — Groq pricing not in LiteLLM map
+                continue
             resp = litellm.completion(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
