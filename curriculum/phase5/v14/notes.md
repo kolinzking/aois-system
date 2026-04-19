@@ -756,7 +756,21 @@ Modal's container starts cold. The first request can hit before the vLLM engine 
 
 ## Connection to Later Phases
 
-**v15 (next):** You will fine-tune Mistral-7B on AOIS-specific SRE log data using LoRA. The fine-tuned model will be served from this same vLLM endpoint on Modal. You built the serving infrastructure here; v15 just changes the model weights.
+**v15 (next):** You will fine-tune Mistral-7B on AOIS-specific SRE log data using LoRA. The fine-tuned model will be served from this same vLLM endpoint on Modal. You built the serving infrastructure here; v15 changes the model weights.
+
+One important detail to preview: vLLM has native LoRA adapter support via `--enable-lora`. Instead of baking the fine-tuned weights into a new full model, you can serve the base Mistral-7B and hot-swap LoRA adapters at request time:
+
+```python
+# v15 addition to serve.py (preview — do not add yet)
+AsyncEngineArgs(
+    model=MODEL_NAME,
+    enable_lora=True,
+    max_lora_rank=64,
+    gpu_memory_utilization=0.90,
+)
+```
+
+The caller then specifies which adapter to use per request. This means one deployed vLLM instance can serve the base model AND the fine-tuned SRE model simultaneously — routing via the request payload. The v14 infrastructure you are building right now is exactly what makes this possible.
 
 **v16 (observability):** You will add OpenTelemetry spans to the `analyze()` function. Every tier — including vLLM — will emit latency and cost metrics to Grafana. The `gpu_memory_utilization` and throughput metrics from vLLM's built-in `/metrics` endpoint will flow into Prometheus.
 
