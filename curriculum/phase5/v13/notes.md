@@ -487,6 +487,19 @@ litellm.RateLimitError: NVIDIAException - {"title":"Too Many Requests", "status"
 
 ---
 
+**Forgetting that `auto_route` calls the model twice** *(recognition)*
+`auto_route=True` makes two LLM calls: one to classify severity, one with the optimal tier. If the initial tier is already the optimal tier (e.g., `tier=premium` for a P1 log), the second call is skipped by the `if optimal_tier != tier:` guard. But if you set `tier=standard` and the log is P1, you pay for one GPT-4o-mini call + one Claude call. This is intentional (standard classifies, Claude analyzes), but callers should be aware.
+
+*(recall)*: Check cost_usd in the response. For a P1 log with `auto_route=True, tier=standard`:
+```bash
+curl -X POST http://localhost:8000/analyze \
+  -d '{"log": "all database connections exhausted, writes failing", "tier": "standard", "auto_route": true}' \
+  | python3 -m json.tool | grep cost_usd
+```
+The `cost_usd` reflects the second (Claude) call only. The first (GPT-4o-mini) call cost is not tracked separately. For full cost visibility across both calls, Langfuse traces each individually.
+
+---
+
 ## Troubleshooting
 
 **`litellm.AuthenticationError` on NIM call:**
