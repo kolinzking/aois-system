@@ -1,6 +1,8 @@
 # v13 — NVIDIA NIM: GPU Inference at Scale
 ⏱ **Estimated time: 3–5 hours**
 
+*Phase 5 — NVIDIA & GPU Inference. See `curriculum/phase5/00-introduction.md` for the phase overview.*
+
 ## What this version builds
 
 Every previous version calls an external API. Claude, OpenAI, Groq — someone else's GPU, billed per token. v13 changes the model: you bring your own inference.
