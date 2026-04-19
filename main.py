@@ -125,6 +125,13 @@ def analyze(log: str, tier: str) -> IncidentAnalysis:
     model = ROUTING_TIERS.get(tier, ROUTING_TIERS[DEFAULT_TIER])
     clean_log = sanitize_log(log)
 
+    extra_kwargs: dict = {}
+    if tier == "vllm":
+        # vLLM on Modal exposes an OpenAI-compatible endpoint — point LiteLLM at it
+        modal_url = os.getenv("VLLM_MODAL_URL", "")
+        if modal_url:
+            extra_kwargs["api_base"] = modal_url
+
     result, completion = client.chat.completions.create_with_completion(
         model=model,
         messages=[
@@ -134,6 +141,7 @@ def analyze(log: str, tier: str) -> IncidentAnalysis:
         response_model=IncidentAnalysis,
         max_retries=2,
         max_tokens=1024,
+        **extra_kwargs,
     )
 
     result.provider = model
