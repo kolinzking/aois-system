@@ -571,6 +571,65 @@ Is this a P1 or P2 incident?
 
 **The mental model:** every tier in AOIS exists to answer a specific operational question. Claude answers "what is happening and why." Groq answers "classify this at scale, fast." vLLM answers "run our specialized model." Ollama answers "run without any external dependency." The routing logic is just this decision tree encoded in code.
 
+**Worked example: sizing a real deployment**
+
+Your team runs a 40-node Kubernetes cluster. Each node emits ~200 log events/hour. AOIS analyses 5% of them (the others are filtered as noise before they hit AOIS). That gives you:
+
+```
+40 nodes × 200 events/hr × 5% = 400 AOIS analyses/hour
+= 9,600/day
+= 288,000/month
+```
+
+Assume the incident distribution from real SRE data: 2% P1, 8% P2, 35% P3, 55% P4.
+
+```python
+python3 << 'EOF'
+analyses_per_month = 288_000
+distribution = {"P1": 0.02, "P2": 0.08, "P3": 0.35, "P4": 0.55}
+costs = {
+    "P1": 0.015,      # Claude premium
+    "P2": 0.015,      # Claude premium
+    "P3": 0.000001,   # Groq
+    "P4": 0.000001,   # Groq
+}
+
+total = 0
+print(f"{'Severity':<10} {'Volume':>10} {'Cost/call':>12} {'Monthly cost':>14}")
+print("-" * 50)
+for sev, pct in distribution.items():
+    volume = analyses_per_month * pct
+    monthly = volume * costs[sev]
+    total += monthly
+    print(f"{sev:<10} {volume:>10,.0f} ${costs[sev]:>11.6f} ${monthly:>13.2f}")
+print("-" * 50)
+print(f"{'TOTAL':<10} {analyses_per_month:>10,} {'':>12} ${total:>13.2f}")
+print(f"\nWithout routing (all Claude): ${analyses_per_month * 0.015:,.2f}/month")
+print(f"With severity routing:        ${total:,.2f}/month")
+print(f"Monthly savings:              ${analyses_per_month * 0.015 - total:,.2f}")
+EOF
+```
+
+Expected output:
+```
+Severity       Volume    Cost/call   Monthly cost
+--------------------------------------------------
+P1              5,760   $0.015000        $86.40
+P2             23,040   $0.015000       $345.60
+P3            100,800   $0.000001         $0.10
+P4            158,400   $0.000001         $0.16
+--------------------------------------------------
+TOTAL         288,000                   $432.26
+
+Without routing (all Claude): $4,320.00/month
+With severity routing:          $432.26/month
+Monthly savings:              $3,887.74
+```
+
+**The result:** severity-based routing cuts your monthly inference bill by ~90% while keeping every P1/P2 on the best available model. The 90% cost reduction comes entirely from routing 90% of your volume (P3/P4) to a near-zero-cost tier. This is the engineering decision that pays for itself within the first week.
+
+This calculation also tells you when to graduate to self-hosted infrastructure: at 288,000 calls/month on Groq, you're spending ~$0.30/month. Groq is trivially cheap at this scale — the crossover to self-hosted NIM only makes economic sense above ~10M calls/month or when you need to run a custom model.
+
 ---
 
 ## Common Mistakes
