@@ -511,14 +511,19 @@ Decision framework:
 
 ## Step 7 — Update SEVERITY_TIER_MAP (Optional)
 
-If you got the NGC API key (v13), NIM and vLLM compete for the P3/P4 tier. If you don't have the NGC key, vLLM should be the P3/P4 tier:
+After v13 benchmarking, P3/P4 currently route to Groq (`fast` tier — 0.22s, $0.000001/call). vLLM on Modal is an alternative when you need a self-hosted model with no per-call API cost.
+
+Switch P3/P4 to vLLM only when:
+- Your Modal endpoint is live and benchmarked
+- Volume exceeds ~3,000 P3/P4 calls/day (crossover where GPU time beats Groq per-call pricing)
+- You need data sovereignty (logs stay in your Modal container, not Groq's servers)
 
 ```python
-# In main.py — if no NGC key, route volume to vllm instead of nim
+# In main.py — optional, after Modal is deployed and benchmarked
 SEVERITY_TIER_MAP = {
     "P1": "premium",
     "P2": "premium",
-    "P3": "vllm",    # self-hosted, cheapest, no external key
+    "P3": "vllm",    # self-hosted Mistral-7B — no per-call cost at volume
     "P4": "vllm",
 }
 ```
