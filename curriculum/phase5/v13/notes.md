@@ -29,18 +29,25 @@ At the end of v13:
 - v10/v11 infrastructure built (Bedrock quota pending — not a blocker for v13)
 - NVIDIA NGC API key (Step 0 — free, takes 5 minutes)
 
-Verify the existing stack is working:
+Verify the local server starts cleanly:
 ```bash
-curl -s https://aois.46.225.235.51.nip.io/health | python3 -m json.tool
+uvicorn main:app --port 8000 &
+sleep 3
+curl -s http://localhost:8000/health | python3 -m json.tool
 ```
 Expected:
 ```json
 {
     "status": "ok",
-    "tiers": ["enterprise", "premium", "standard", "fast", "nim", "local"]
+    "tiers": ["enterprise", "premium", "standard", "fast", "nim", "vllm", "local"]
 }
 ```
-The `"nim"` tier appearing confirms the v13 code changes are deployed.
+The `"nim"` and `"fast"` tiers appearing confirms the v13 routing code is in place. Kill the server after: `kill %1`
+
+To verify the live Hetzner cluster (replace IP if yours differs):
+```bash
+curl -s https://aois.46.225.235.51.nip.io/health | python3 -m json.tool
+```
 
 ---
 
