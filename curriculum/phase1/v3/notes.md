@@ -669,6 +669,12 @@ The sequence in this curriculum:
 
 Instructor validates the *format* of AI output — the shape, the types, the constraints. DSPy optimizes the *quality* of AI output — the accuracy, the relevance, the actual correctness. Both are necessary in production. Instructor prevents malformed output. DSPy makes the output itself better. You will build both layers — the right order is format first, then quality.
 
+**What DSPy replaces in the AOIS workflow:**
+
+Right now your system prompt says: "P1 - Critical: production down, immediate action required". You wrote that. You are making a bet that those words make the model classify logs more accurately than other phrasings. You cannot know if that bet is correct without measuring it.
+
+DSPy's `BootstrapFewShot` teleprompter would take your 500 labeled logs, try dozens of prompt variants automatically, measure each against your labeled severity ground truth, and return the prompt that actually scores highest. The output is not "write better prompts" — it is "the computer found the best prompt, here it is." That is the future of prompt engineering: systematic optimization over artisanal hand-crafting.
+
 ## What v3 does not have (solved in later versions)
 
 | Gap | Fixed in |
