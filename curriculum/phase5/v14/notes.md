@@ -181,6 +181,97 @@ Answers:
 
 ---
 
+## Step 3.5 — What Changed in main.py
+
+Before deploying, understand the AOIS-side changes. Open `main.py` and find the `ROUTING_TIERS` dict. The vLLM tier entry looks like this:
+
+```python
+"vllm": {
+    "model": "openai/mistralai/Mistral-7B-Instruct-v0.3",
+    "cost_per_1k_input_tokens": 0.0000012,
+    "cost_per_1k_output_tokens": 0.0000012,
+},
+```
+
+And in `analyze()`, the extra kwarg block:
+
+```python
+extra_kwargs = {}
+if tier == "vllm":
+    vllm_url = os.getenv("VLLM_MODAL_URL")
+    if not vllm_url:
+        raise ValueError("VLLM_MODAL_URL not set in environment")
+    extra_kwargs["api_base"] = vllm_url
+```
+
+**Why this pattern works:**
+
+LiteLLM uses the `openai/` prefix to select the OpenAI provider adapter — which implements the chat completions API format. By passing `api_base`, you redirect where the request goes. The remote endpoint (your Modal container) speaks the same OpenAI wire protocol, so no adapter change is needed. This is the universal pattern for any self-hosted OpenAI-compatible server.
+
+The cost values in `ROUTING_TIERS` are approximations — Modal charges by GPU time, not tokens. The numbers ($0.0000012/1k tokens) are back-calculated from A10G cost at ~20 tokens/sec. Langfuse will show these as the recorded cost per call — useful for comparison dashboards in v29.
+
+**`SEVERITY_TIER_MAP` now drives automatic routing:**
+
+```python
+SEVERITY_TIER_MAP = {
+    "P1": "premium",
+    "P2": "premium",
+    "P3": "vllm",
+    "P4": "vllm",
+}
+```
+
+This map is checked in `analyze()` when `auto_route=True` is set on the `LogInput`. The flow: log arrives → severity assessed quickly → tier selected → LiteLLM routes to the right provider. Claude never sees a P4 log. Modal never sees a P1 incident. The routing is enforced in code, not by caller discipline.
+
+---
+
+## Step 3.6 — Quantization: Fitting Larger Models in Less VRAM
+
+Mistral-7B in the default fp16 format uses ~14GB VRAM. The A10G has 24GB — it fits. But a 13B model in fp16 uses ~26GB and will not fit. And on smaller GPUs (T4: 16GB, L4: 24GB), even 7B models can be tight when paired with a large KV cache.
+
+**Quantization** reduces the precision of model weights from 16-bit float to 8-bit or 4-bit integers. This is a fundamental tool for production inference.
+
+| Format | Precision | VRAM (7B model) | Quality impact |
+|--------|-----------|-----------------|----------------|
+| fp16 | 16-bit float | ~14GB | Baseline |
+| int8 | 8-bit integer | ~7GB | <1% degradation |
+| int4 (AWQ) | 4-bit integer | ~4GB | 1–3% degradation |
+| int4 (GPTQ) | 4-bit integer | ~4GB | 1–4% degradation |
+
+AWQ (Activation-aware Weight Quantization) and GPTQ are the two dominant 4-bit quantization methods. Both are supported natively in vLLM.
+
+To serve a pre-quantized AWQ model, change one line in `serve.py`:
+
+```python
+# Replace:
+MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.3"
+
+# With an AWQ version (check HuggingFace for availability):
+MODEL_NAME = "TheBloke/Mistral-7B-Instruct-v0.2-AWQ"
+
+# And add to the vllm engine args:
+AsyncEngineArgs(
+    model=MODEL_NAME,
+    quantization="awq",           # tell vLLM which quantizer was used
+    gpu_memory_utilization=0.90,
+    max_model_len=4096,
+)
+```
+
+In fp16, after v14 deploys, you can always check how much VRAM is actually being used:
+
+```bash
+modal run vllm_modal/serve.py
+# After the container starts, look for lines like:
+# GPU blocks: 1872, CPU blocks: 2048
+# Each block is a 16-token KV cache page
+# More blocks = larger effective context window under concurrent load
+```
+
+**The production rule:** for 7B models on A10G, fp16 is fine. For 13B+ or when running on T4/L4, use AWQ. For maximum throughput on high-volume P4 logs, AWQ on a smaller GPU instance costs less than fp16 on a larger one.
+
+---
+
 ## Step 4 — Deploy to Modal
 
 ```bash
