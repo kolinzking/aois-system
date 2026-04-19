@@ -712,41 +712,84 @@ This is PagedAttention working. Two requests, one batched execution pass. The fi
 ## Common Mistakes
 
 **Mistake 1: Cold start surprise**
+
+Trigger it: deploy and then wait 6+ minutes before sending a request (past the `container_idle_timeout=300` window). Then:
+```bash
+time curl -X POST "$VLLM_MODAL_URL" \
+  -H "Content-Type: application/json" \
+  -d '{"messages": [{"role": "user", "content": "hello"}], "max_tokens": 10}'
 ```
-First request to vLLM took 95 seconds and timed out.
+You will see:
 ```
-This is a cold start — Modal spun up the container, downloaded the engine into VRAM. Expected on first request after idle timeout. Solution: set `container_idle_timeout` higher, or implement a warm-up endpoint that pings the container every 4 minutes.
+real    1m32.441s
+```
+The request hung for 92 seconds — Modal cold-started the container and loaded the vLLM engine into VRAM. This is expected. The error you may also see if your client has a short timeout:
+```
+curl: (28) Operation timed out after 30000 milliseconds
+```
 
 Fix: in `serve.py`, increase `container_idle_timeout=600` (10 min) for development. In production, use Modal's `keep_warm=1` to maintain one always-on container at low cost.
 
 **Mistake 2: Forgetting `api_base`**
+
+Trigger it: temporarily unset the env var and call the vllm tier:
+```bash
+VLLM_MODAL_URL="" python3 -c "
+import requests
+r = requests.post('http://localhost:8000/analyze',
+  json={'log': 'pod OOMKilled', 'tier': 'vllm'})
+print(r.json())
+"
+```
+You will see:
 ```
 LiteLLM Error: openai.AuthenticationError: No API key provided.
 ```
-LiteLLM's `openai/` prefix without `api_base` sends the request to api.openai.com. You must pass `api_base=VLLM_MODAL_URL` for every `vllm` tier call.
+LiteLLM's `openai/` prefix without `api_base` sends the request to api.openai.com, not your Modal endpoint — and fails because you have no OpenAI key loaded for the vllm tier.
 
-Fix: confirm `VLLM_MODAL_URL` is set in `.env` and that the `analyze()` function passes `api_base` in `extra_kwargs` when `tier == "vllm"`.
+Fix: confirm `VLLM_MODAL_URL` is set in `.env` and that `analyze()` passes `api_base` in `extra_kwargs` when `tier == "vllm"`.
 
 **Mistake 3: Wrong model name in LiteLLM**
+
+Trigger it: change the model name in `ROUTING_TIERS["vllm"]` to remove the `openai/` prefix:
+```python
+# Wrong:
+"model": "mistralai/Mistral-7B-Instruct-v0.3"
+```
+Send a request. You will see:
 ```
 LiteLLM Error: model not found in provider map
 ```
-LiteLLM needs a recognizable model name for cost calculation. Use the format `openai/mistralai/Mistral-7B-Instruct-v0.3` — the `openai/` prefix tells LiteLLM which provider adapter to use, the rest is passed as the model name to the remote endpoint.
+LiteLLM uses the prefix to select the provider adapter. Without `openai/`, it does not know which adapter handles this model name.
 
-Fix: confirm `ROUTING_TIERS["vllm"]` uses the `openai/` prefix, not just the bare model name.
+Fix: restore the `openai/` prefix: `"openai/mistralai/Mistral-7B-Instruct-v0.3"`.
 
 **Mistake 4: `gpu_memory_utilization=1.0`**
-```
-torch.cuda.OutOfMemoryError: CUDA out of memory
-```
-vLLM reserves `gpu_memory_utilization` fraction of GPU VRAM at startup. At 1.0, there is no memory left for CUDA operations. Always leave at least 5–10% headroom.
 
-Fix: use 0.90 (default in the serve.py here). If you add tensor parallelism or a larger model, tune downward.
+Trigger it: change `gpu_memory_utilization=1.0` in `serve.py` and redeploy. The container will start, then fail during engine initialization:
+```
+torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB
+  (GPU 0; 22.08 GiB total capacity; 21.94 GiB already allocated)
+```
+vLLM reserves that fraction of VRAM at startup for the KV cache. At 1.0, there is no headroom left for CUDA operations (workspace, activations, temporary buffers).
+
+Fix: revert to `gpu_memory_utilization=0.90`. Always leave 5–10% headroom.
 
 **Mistake 5: Not pinning model revision**
-A `modal deploy` three months from now pulls the HuggingFace `main` branch — possibly a different model version. Your production endpoint silently changes behavior.
 
-Fix: always pin `MODEL_REVISION` to a specific git commit hash from the HuggingFace repo.
+This one does not produce an immediate error — it produces silent behavior drift. Trigger awareness of it:
+```bash
+# Check what commit your current pin points to
+grep MODEL_REVISION vllm_modal/serve.py
+# Expected: MODEL_REVISION = "e0bc86c..."
+
+# What happens if you used "main":
+# modal deploy pulls HuggingFace HEAD on every deploy
+# Three months from now, Mistral pushes a new checkpoint to "main"
+# Your endpoint changes behavior — severity classifications shift — with zero visibility
+```
+
+Fix: always pin `MODEL_REVISION` to a specific git commit hash. Find the current hash on the HuggingFace model page under "Files and versions" → click the commit hash next to any file.
 
 ---
 
