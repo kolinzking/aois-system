@@ -199,9 +199,9 @@ def analyze(log: str, tier: str) -> IncidentAnalysis:
             result.provider = "vllm/mistralai/Mistral-7B-Instruct-v0.3 (Modal A10G)"
             result.cost_usd = 0.000030
         else:
-            # NIM fallback: same Mistral-7B model, NGC-hosted
-            result = _call_nim("mistralai/mistral-7b-instruct-v0.3", messages)
-            result.provider = "nim/mistralai/mistral-7b-instruct-v0.3"
+            # NIM fallback: Llama-3.1-8b (same cost tier; Mistral-7B NIM endpoint is unreliable)
+            result = _call_nim("meta/llama-3.1-8b-instruct", messages)
+            result.provider = "nim/meta/llama-3.1-8b-instruct (vllm-fallback)"
             result.cost_usd = 0.000010
         return validate_output(result)
     elif tier == "nim":
