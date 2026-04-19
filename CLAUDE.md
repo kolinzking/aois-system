@@ -599,7 +599,7 @@ Make the outputs trustworthy and systematically optimal.
 - **v10**: Amazon Bedrock enterprise tier added (LiteLLM `bedrock/` prefix + inference profile IDs), IAM policy AOISBedrockPolicy, latency benchmark script `test_bedrock.py`. *Pending: run benchmark + Bedrock Agents section once daily quota resets.*
 - **v11**: Lambda handler `lambda/aois-analyzer/handler.py`, packaged and deployed, API Gateway live at `l9ryxlxtpe.execute-api.us-east-1.amazonaws.com/prod/analyze`, cost comparison model `cost_comparison.py`. *Pending: live Bedrock response test once quota resets.*
 - **v12**: EKS cluster provisioned with `eksctl`, IRSA service account for Bedrock access (zero static credentials), AOIS image pushed to ECR, AOIS deployed to EKS via Helm (`values.eks.yaml`), Karpenter installed and validated — provisioned a new node in 43 seconds under load. Cluster torn down to stop charges.
-- **v13**: NVIDIA NIM tier added (`nvidia_nim/meta/llama-3.1-8b-instruct`), severity-based auto-routing (`SEVERITY_TIER_MAP`: P1/P2→Claude, P3/P4→NIM), `auto_route` flag on `LogInput`, benchmark script `test_nim.py`. *Pending: add `NVIDIA_NIM_API_KEY` to .env and run `python3 test_nim.py`.*
+- **v13**: NVIDIA NIM tier added (`nvidia_nim/meta/llama-3.1-8b-instruct`), severity-based auto-routing (`SEVERITY_TIER_MAP`: P1/P2→Claude, P3/P4→NIM), `auto_route` flag on `LogInput`, benchmark script `test_nim.py`. *Pending: add `NVIDIA_NIM_API_KEY` to .env and run `python3 test_nim.py`. See ### v13 — INCOMPLETE below.*
 
 ### Curriculum notes structure (mastery-level)
 Each phase has three layers:
