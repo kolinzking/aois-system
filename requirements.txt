@@ -9,4 +9,5 @@ python-dotenv
 pydantic
 httpx
 slowapi
+modal
 jaraco.context>=6.1.0
