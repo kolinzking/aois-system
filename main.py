@@ -166,7 +166,14 @@ def health():
 def analyze_endpoint(request: Request, data: LogInput):
     tier = data.tier if data.tier in ROUTING_TIERS else DEFAULT_TIER
     try:
-        return analyze(data.log, tier)
+        result = analyze(data.log, tier)
+        # Auto-route: if caller requested severity-based routing, re-analyze with
+        # the appropriate tier for the detected severity (NIM for P3/P4, Claude for P1/P2)
+        if data.auto_route and result.severity in SEVERITY_TIER_MAP:
+            optimal_tier = SEVERITY_TIER_MAP[result.severity]
+            if optimal_tier != tier:
+                result = analyze(data.log, optimal_tier)
+        return result
     except Exception as e:
         if tier != "standard":
             try:
