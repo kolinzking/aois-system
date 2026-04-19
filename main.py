@@ -8,6 +8,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import instructor
 import litellm
+import openai
 import re
 import os
 
