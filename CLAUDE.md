@@ -605,12 +605,24 @@ Each phase has three layers:
 ### Notes standard
 See **Content Quality Standard** section above — it is the complete, enforced standard for all versions. Do not repeat or summarize it here.
 
-### What v10 builds next
-- Route AOIS to Claude via Amazon Bedrock (enterprise deployment pattern)
-- IAM roles for authentication — no API keys in AWS
-- Compare Anthropic direct vs Bedrock: latency, cost, compliance posture
-- LiteLLM routes to Bedrock seamlessly (same code, different backend)
-- Bedrock Agents: expose AOIS as a managed agent with tool routing + knowledge base
+### v10 — INCOMPLETE (resume before v11 goes live)
+Built and committed but blocked on AWS new-account daily token limit:
+- `main.py` — enterprise tier added (Bedrock via LiteLLM)
+- `test_bedrock.py` — benchmark script ready to run
+- `AOISBedrockPolicy` — IAM policy created in AWS account 739275471358
+- Bedrock access approved (use case form submitted)
+
+**Remaining:**
+1. Run `python test_bedrock.py` — latency comparison (unblocks when daily limit lifts, ~24–48h after account creation)
+2. Build Bedrock Agent — Lambda + action group + invoke test (Steps 5a–5c in notes)
+
+**To resume:** run `python test_bedrock.py` first. If it succeeds, complete the Bedrock Agents section, then mark v10 done and proceed to v11 live deploy.
+
+### What v11 builds next
+- Deploy AOIS `/analyze` as an AWS Lambda function
+- API Gateway → Lambda → Bedrock
+- Cost: $0 when idle vs always-on Hetzner
+- Decision framework: when Lambda vs always-on k8s
 
 ### Current root-level state
 - `/main.py` — v5 implementation (active, served from k3s)
