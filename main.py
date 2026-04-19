@@ -56,7 +56,7 @@ ROUTING_TIERS = {
     "standard":   "gpt-4o-mini",                                           # OpenAI
     "fast":       "groq/llama-3.1-8b-instant",                             # Groq
     "nim":        "nvidia_nim/meta/llama-3.1-8b-instruct",                 # NVIDIA NIM — NGC hosted, volume tier
-    "vllm":       os.getenv("VLLM_MODAL_MODEL", "openai/mistralai/Mistral-7B-Instruct-v0.3"),  # vLLM on Modal — self-hosted GPU
+    "vllm":       "openai/mistralai/Mistral-7B-Instruct-v0.3",  # Mistral-7B — Modal GPU or Together AI fallback
     "local":      "ollama/mistral",                                        # Local
 }
 
