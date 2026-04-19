@@ -583,8 +583,8 @@ Make the outputs trustworthy and systematically optimal.
 - Both in `~/.claude/settings.json`
 
 ### Current Position
-- **v13 in progress. Phase 0–4 complete (v0.1–v12). Phase 5 started. Next: get NGC API key → run `python3 test_nim.py` → v13 complete → v14 vLLM.**
-- v10 and v11 are infrastructure-complete but have one pending step each (Bedrock daily quota — run the curl/python tests when quota resets).
+- **v14 in progress. Phase 0–4 complete (v0.1–v12). Phase 5 in progress (v13 built, v14 next).**
+- v10, v11, and v13 are infrastructure-complete but each blocked on a credential/key: v10/v11 blocked on AWS Bedrock daily quota, v13 blocked on NGC API key.
 
 ### What's been built (v1–v12)
 - **v1**: FastAPI + Claude (prompt caching) + OpenAI fallback, structured Pydantic output (summary, severity P1–P4, suggested_action, confidence)
