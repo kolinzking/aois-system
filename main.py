@@ -98,6 +98,14 @@ groq_client = instructor.from_openai(
     )
 )
 
+# NIM: LiteLLM strips nvidia_nim/ prefix — use direct OpenAI-compatible client
+nim_client = instructor.from_openai(
+    openai.OpenAI(
+        api_key=os.getenv("NVIDIA_NIM_API_KEY", ""),
+        base_url="https://integrate.api.nvidia.com/v1",
+    )
+)
+
 
 def sanitize_log(log: str) -> str:
     """Truncate and strip the most common prompt injection patterns from log input."""
