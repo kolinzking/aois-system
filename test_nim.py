@@ -51,10 +51,14 @@ def benchmark(label, model, n=3):
                 last_response = resp_raw.choices[0].message.content[:80]
                 cost = 0.0  # NIM serverless API: free credits, no standard pricing in LiteLLM
                 continue
+            extra = {}
+            if model.startswith("groq/"):
+                extra["api_key"] = os.getenv("GROQ_API_KEY")
             resp = litellm.completion(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=100,
+                **extra,
             )
             elapsed = time.time() - start
             times.append(elapsed)
