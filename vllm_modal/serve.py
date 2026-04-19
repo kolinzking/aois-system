@@ -142,16 +142,20 @@ def _apply_chat_template(messages: list[dict]) -> str:
 @app.local_entrypoint()
 def main():
     """Smoke test: modal run vllm_modal/serve.py"""
-    server = VLLMServer()
-    response = server.v1_chat_completions.remote({
+    import httpx, os
+    url = "https://kolinzking--aois-vllm-vllmserver-v1-chat-completions.modal.run"
+    print(f"Calling: {url}")
+    print("Cold start may take 3-5 minutes on first call...")
+    r = httpx.post(url, json={
         "messages": [
             {"role": "system", "content": "You are a helpful SRE assistant."},
             {"role": "user", "content": "In one sentence, what causes OOMKilled in Kubernetes?"},
         ],
         "max_tokens": 128,
         "temperature": 0.1,
-    })
+    }, timeout=600)
+    data = r.json()
     print("\n--- vLLM response ---")
-    print(response["choices"][0]["message"]["content"])
-    usage = response["usage"]
+    print(data["choices"][0]["message"]["content"])
+    usage = data["usage"]
     print(f"Tokens: {usage['prompt_tokens']} prompt + {usage['completion_tokens']} completion")
