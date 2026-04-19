@@ -51,10 +51,19 @@ BLOCKED_ACTIONS = [
 
 ROUTING_TIERS = {
     "enterprise": "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",  # AWS Bedrock — IAM auth, compliance boundary
-    "premium":    "anthropic/claude-opus-4-6",                             # Anthropic direct
+    "premium":    "anthropic/claude-opus-4-6",                             # Anthropic direct — best reasoning, P1/P2
     "standard":   "gpt-4o-mini",                                           # OpenAI
     "fast":       "groq/llama-3.1-8b-instant",                             # Groq
+    "nim":        "nvidia_nim/meta/llama-3.1-8b-instruct",                 # NVIDIA NIM — NGC hosted, volume tier
     "local":      "ollama/mistral",                                        # Local
+}
+
+# Severity-based auto-routing: critical incidents get Claude, volume goes to NIM
+SEVERITY_TIER_MAP = {
+    "P1": "premium",    # production down — best model, cost irrelevant
+    "P2": "premium",    # degraded — still Claude
+    "P3": "nim",        # warning — NIM handles volume cheaply
+    "P4": "nim",        # preventive — NIM handles volume cheaply
 }
 
 DEFAULT_TIER = "premium"
