@@ -57,8 +57,8 @@ def download_model():
     scaledown_window=300,
     startup_timeout=600,
     volumes={MODEL_DIR: volume},
-    allow_concurrent_inputs=32,
 )
+@modal.concurrent(max_inputs=32)
 class VLLMServer:
     @modal.enter()
     def load(self):
