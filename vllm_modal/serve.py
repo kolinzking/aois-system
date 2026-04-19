@@ -54,6 +54,7 @@ def download_model():
 @app.cls(
     gpu="a10g",
     scaledown_window=300,
+    startup_timeout=600,  # vLLM needs 3-5min to load Mistral-7B into VRAM on first cold start
     volumes={MODEL_DIR: volume},
 )
 class VLLMServer:
