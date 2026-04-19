@@ -36,6 +36,17 @@ def _nim_call(prompt):
         max_tokens=100,
     )
 
+def _groq_call(prompt):
+    client = _openai.OpenAI(
+        api_key=os.getenv("GROQ_API_KEY"),
+        base_url="https://api.groq.com/openai/v1"
+    )
+    return client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=100,
+    )
+
 def benchmark(label, model, n=3):
     times = []
     last_response = ""
