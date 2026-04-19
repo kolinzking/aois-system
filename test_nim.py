@@ -9,9 +9,10 @@ import statistics
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 litellm.drop_params = True
+os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY", "")
 
 LOG_SAMPLE = "pod/auth-service-7d9f CrashLoopBackOff — OOMKilled, exit code 137, 5 restarts in 10 minutes"
 
