@@ -144,10 +144,20 @@ def analyze(log: str, tier: str) -> IncidentAnalysis:
         extra_kwargs["api_base"] = "https://integrate.api.nvidia.com/v1"
         extra_kwargs["api_key"] = os.getenv("NVIDIA_NIM_API_KEY", "")
     elif tier == "fast":
-        # LiteLLM 1.83.x strips groq/ prefix — call via OpenAI-compatible base URL
-        model = "openai/llama-3.1-8b-instant"
-        extra_kwargs["api_base"] = "https://api.groq.com/openai/v1"
-        extra_kwargs["api_key"] = os.getenv("GROQ_API_KEY", "")
+        # LiteLLM 1.83.x can't handle groq/ provider — use direct groq_client
+        result = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": f"Analyze this log:\n\n{clean_log}"}
+            ],
+            response_model=IncidentAnalysis,
+            max_retries=2,
+            max_tokens=1024,
+        )
+        result.provider = "groq/llama-3.1-8b-instant"
+        result.cost_usd = 0.000001
+        return validate_output(result)
 
     result, completion = client.chat.completions.create_with_completion(
         model=model,
