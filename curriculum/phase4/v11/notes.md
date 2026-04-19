@@ -645,7 +645,14 @@ If you install dependencies on an ARM Mac and deploy to Lambda (x86_64), native 
 cannot open shared object file: exec format error
 ```
 *(recall — trigger it)*
-Build and deploy from a Linux x86_64 environment (like this Codespace) or use Docker with `--platform linux/amd64` to build the package. The Codespace is already on Linux x86_64 — no action needed here, but know this for when you develop on Mac.
+```bash
+# Simulate the problem: build a package targeting ARM architecture
+mkdir -p /tmp/arm-test && pip install cryptography -t /tmp/arm-test --platform manylinux2014_aarch64 --only-binary=:all: -q 2>/dev/null
+# Then zip and deploy it — it will fail with exec format error at runtime
+# On the Codespace (Linux x86_64) this won't happen naturally,
+# but if you ever develop on an M1/M2 Mac and forget --platform linux/amd64, you will see this exactly
+```
+The Codespace is already Linux x86_64 — no action needed here. But when you work on a Mac: always build Lambda packages with `--platform linux/amd64 --only-binary=:all:` or use Docker. Fix: rebuild the zip from a Linux x86_64 environment.
 
 ---
 
