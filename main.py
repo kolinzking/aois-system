@@ -99,12 +99,48 @@ groq_client = instructor.from_openai(
 )
 
 # NIM: LiteLLM strips nvidia_nim/ prefix — use direct OpenAI-compatible client
-nim_client = instructor.from_openai(
-    openai.OpenAI(
-        api_key=os.getenv("NVIDIA_NIM_API_KEY", ""),
-        base_url="https://integrate.api.nvidia.com/v1",
-    )
+_nim_openai = openai.OpenAI(
+    api_key=os.getenv("NVIDIA_NIM_API_KEY", ""),
+    base_url="https://integrate.api.nvidia.com/v1",
 )
+
+# NIM tool schema used for raw function calls (instructor uses tool_choice="required"
+# which crashes Mistral-7B on NIM — we call with tool_choice="auto" instead)
+_INCIDENT_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "report_incident",
+        "description": "Report structured incident analysis",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "severity": {"type": "string", "enum": ["P1", "P2", "P3", "P4"]},
+                "suggested_action": {"type": "string"},
+                "confidence": {"type": "number"},
+            },
+            "required": ["summary", "severity", "suggested_action", "confidence"],
+        },
+    },
+}
+
+
+def _call_nim(model: str, messages: list) -> IncidentAnalysis:
+    """Call NIM directly with tool_choice='auto' — Mistral-7B on NIM rejects 'required'."""
+    import json
+    resp = _nim_openai.chat.completions.create(
+        model=model,
+        messages=messages,
+        tools=[_INCIDENT_TOOL],
+        tool_choice="auto",
+        max_tokens=512,
+    )
+    msg = resp.choices[0].message
+    if msg.tool_calls:
+        args = json.loads(msg.tool_calls[0].function.arguments)
+    else:
+        raise ValueError(f"NIM returned no tool call for model {model}")
+    return IncidentAnalysis(**args)
 
 
 def sanitize_log(log: str) -> str:
