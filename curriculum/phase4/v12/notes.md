@@ -383,56 +383,256 @@ Expected: `Bedrock reachable from EKS pod via IRSA: N models`
 
 The managed node group from `eksctl` uses the Cluster Autoscaler pattern: you define min/max nodes, and the autoscaler adds/removes nodes within those bounds. Karpenter is different — it does not need predefined node groups. It reads the pod requirements and provisions the exact right instance type.
 
-```bash
-# Set environment variables
-export KARPENTER_NAMESPACE=kube-system
-export KARPENTER_VERSION=1.0.0
-export CLUSTER_NAME=aois-cluster
-export AWS_DEFAULT_REGION=us-east-1
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+Karpenter setup requires more steps than most Helm installs because it needs its own IAM roles, an SQS queue for spot interruption handling, and discovery tags on your VPC resources. Work through these in order.
 
-# Create the Karpenter node role
+**5a — Create IAM roles**
+
+```bash
+CLUSTER_NAME=aois-cluster
+REGION=us-east-1
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+OIDC_ID=$(aws eks describe-cluster --name $CLUSTER_NAME --region $REGION \
+  --query "cluster.identity.oidc.issuer" --output text | cut -d'/' -f5)
+
+echo "OIDC ID: $OIDC_ID"
+
+# Node role — the IAM role that Karpenter-provisioned nodes will assume
 cat > /tmp/karpenter-node-trust.json << EOF
 {
   "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Principal": {"Service": "ec2.amazonaws.com"},
-    "Action": "sts:AssumeRole"
-  }]
+  "Statement": [{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]
 }
 EOF
 
 aws iam create-role \
   --role-name KarpenterNodeRole-${CLUSTER_NAME} \
-  --assume-role-policy-document file:///tmp/karpenter-node-trust.json
+  --assume-role-policy-document file:///tmp/karpenter-node-trust.json \
+  --query 'Role.RoleName' --output text
 
 for policy in AmazonEKSWorkerNodePolicy AmazonEKS_CNI_Policy AmazonEC2ContainerRegistryReadOnly AmazonSSMManagedInstanceCore; do
-  aws iam attach-role-policy \
-    --role-name KarpenterNodeRole-${CLUSTER_NAME} \
-    --policy-arn arn:aws:iam::aws:policy/${policy}
+  aws iam attach-role-policy --role-name KarpenterNodeRole-${CLUSTER_NAME} \
+    --policy-arn arn:aws:iam::aws:policy/$policy
+  echo "attached $policy"
 done
 
-# Create instance profile for the node role
-aws iam create-instance-profile --instance-profile-name KarpenterNodeInstanceProfile-${CLUSTER_NAME}
+# Instance profile (wrapper around the node role that EC2 understands)
+aws iam create-instance-profile --instance-profile-name KarpenterNodeRole-${CLUSTER_NAME}
 aws iam add-role-to-instance-profile \
-  --instance-profile-name KarpenterNodeInstanceProfile-${CLUSTER_NAME} \
+  --instance-profile-name KarpenterNodeRole-${CLUSTER_NAME} \
   --role-name KarpenterNodeRole-${CLUSTER_NAME}
 
-# Install Karpenter via Helm
-helm registry logout public.ecr.aws 2>/dev/null || true
-helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
-  --version ${KARPENTER_VERSION} \
-  --namespace ${KARPENTER_NAMESPACE} \
-  --set settings.clusterName=${CLUSTER_NAME} \
-  --set settings.interruptionQueue=${CLUSTER_NAME} \
-  --wait
+# Controller role — the IAM role that the Karpenter controller itself assumes (via IRSA)
+cat > /tmp/karpenter-controller-trust.json << EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/oidc.eks.${REGION}.amazonaws.com/id/${OIDC_ID}"},
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "oidc.eks.${REGION}.amazonaws.com/id/${OIDC_ID}:aud": "sts.amazonaws.com",
+        "oidc.eks.${REGION}.amazonaws.com/id/${OIDC_ID}:sub": "system:serviceaccount:karpenter:karpenter"
+      }
+    }
+  }]
+}
+EOF
+
+aws iam create-role \
+  --role-name KarpenterControllerRole-${CLUSTER_NAME} \
+  --assume-role-policy-document file:///tmp/karpenter-controller-trust.json \
+  --query 'Role.RoleName' --output text
 ```
 
-Create a NodePool and NodeClass — these tell Karpenter what kinds of nodes to provision:
+Attach the controller policy. Note the IAM instance profile permissions — Karpenter v1 manages instance profiles itself, so these are required:
+
+```python
+# Use Python to avoid shell escaping issues with JSON policy
+python3 - << 'PYEOF'
+import boto3, json
+
+iam = boto3.client('iam', region_name='us-east-1')
+policy = {
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ec2:CreateFleet", "ec2:CreateLaunchTemplate", "ec2:CreateTags",
+                "ec2:DeleteLaunchTemplate", "ec2:DescribeAvailabilityZones",
+                "ec2:DescribeImages", "ec2:DescribeInstances",
+                "ec2:DescribeInstanceTypeOfferings", "ec2:DescribeInstanceTypes",
+                "ec2:DescribeLaunchTemplates", "ec2:DescribeSecurityGroups",
+                "ec2:DescribeSpotPriceHistory", "ec2:DescribeSubnets",
+                "ec2:RunInstances", "ec2:TerminateInstances",
+                "ec2:DescribeVpcs", "iam:PassRole",
+                "eks:DescribeCluster", "pricing:GetProducts", "ssm:GetParameter"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "iam:AddRoleToInstanceProfile", "iam:CreateInstanceProfile",
+                "iam:DeleteInstanceProfile", "iam:GetInstanceProfile",
+                "iam:RemoveRoleFromInstanceProfile", "iam:TagInstanceProfile"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": ["sqs:DeleteMessage","sqs:GetQueueAttributes","sqs:GetQueueUrl","sqs:ReceiveMessage"],
+            "Resource": "arn:aws:sqs:us-east-1:ACCOUNT_ID:CLUSTER_NAME"
+        }
+    ]
+}
+iam.put_role_policy(
+    RoleName="KarpenterControllerRole-aois-cluster",
+    PolicyName="KarpenterControllerPolicy",
+    PolicyDocument=json.dumps(policy)
+)
+print("Policy attached")
+PYEOF
+```
+
+**5b — Create SQS queue for spot interruption handling**
+
+Karpenter requires an SQS queue to receive EC2 spot interruption warnings. Without it, the controller panics on startup.
+
+```python
+python3 - << 'PYEOF'
+import boto3, json
+
+REGION = 'us-east-1'
+ACCOUNT_ID = '739275471358'
+CLUSTER_NAME = 'aois-cluster'
+
+sqs = boto3.client('sqs', region_name=REGION)
+events = boto3.client('events', region_name=REGION)
+
+# Create the queue
+sqs.create_queue(QueueName=CLUSTER_NAME, Attributes={"MessageRetentionPeriod": "300"})
+queue_url = f"https://sqs.{REGION}.amazonaws.com/{ACCOUNT_ID}/{CLUSTER_NAME}"
+queue_arn = f"arn:aws:sqs:{REGION}:{ACCOUNT_ID}:{CLUSTER_NAME}"
+
+# Allow EventBridge to send to it
+policy = {
+    "Version": "2012-10-17",
+    "Statement": [{"Effect":"Allow","Principal":{"Service":["events.amazonaws.com"]},"Action":"sqs:SendMessage","Resource":queue_arn}]
+}
+sqs.set_queue_attributes(QueueUrl=queue_url, Attributes={"Policy": json.dumps(policy)})
+
+# EventBridge rule — routes spot interruption events to the queue
+events.put_rule(
+    Name=f"{CLUSTER_NAME}-KarpenterInterruptionRule",
+    EventPattern=json.dumps({"source":["aws.ec2"],"detail-type":["EC2 Spot Instance Interruption Warning","EC2 Instance Rebalance Recommendation","EC2 Instance State-change Notification"]})
+)
+events.put_targets(Rule=f"{CLUSTER_NAME}-KarpenterInterruptionRule", Targets=[{"Id":"1","Arn":queue_arn}])
+print("SQS queue and EventBridge rule created")
+PYEOF
+```
+
+**5c — Tag subnets and security group for discovery**
+
+`eksctl` does NOT tag subnets automatically with the `karpenter.sh/discovery` tag. You must do it manually or Karpenter cannot find where to launch nodes (it will report `no subnets found` and never provision).
 
 ```bash
-cat << EOF | kubectl apply -f -
+# Get subnet IDs from the cluster VPC
+VPC_ID=$(aws eks describe-cluster --name $CLUSTER_NAME --region $REGION \
+  --query 'cluster.resourcesVpcConfig.vpcId' --output text)
+SUBNET_IDS=$(aws ec2 describe-subnets \
+  --filters "Name=vpc-id,Values=$VPC_ID" \
+  --query 'Subnets[*].SubnetId' --output text --region $REGION)
+
+# Get the node security group (created by eksctl)
+NODE_SG=$(aws ec2 describe-security-groups \
+  --filters "Name=tag:aws:eks:cluster-name,Values=$CLUSTER_NAME" \
+  --query 'SecurityGroups[0].GroupId' --output text --region $REGION)
+
+# Tag both for Karpenter discovery
+aws ec2 create-tags --resources $SUBNET_IDS \
+  --tags "Key=karpenter.sh/discovery,Value=$CLUSTER_NAME" --region $REGION
+aws ec2 create-tags --resources $NODE_SG \
+  --tags "Key=karpenter.sh/discovery,Value=$CLUSTER_NAME" --region $REGION
+
+# Verify
+aws ec2 describe-subnets \
+  --filters "Name=tag:karpenter.sh/discovery,Values=$CLUSTER_NAME" \
+  --query 'Subnets[*].SubnetId' --output text --region $REGION
+```
+Expected: 3–4 subnet IDs printed.
+
+**5d — Add Karpenter node role to aws-auth**
+
+Karpenter-provisioned nodes use `KarpenterNodeRole`, not the managed node group role. Without this, new nodes cannot join the cluster:
+
+```bash
+# Check current aws-auth
+kubectl get configmap aws-auth -n kube-system -o yaml
+
+# Patch to add the Karpenter node role
+EXISTING_ROLE=$(kubectl get configmap aws-auth -n kube-system \
+  -o jsonpath='{.data.mapRoles}' | grep 'NodeInstanceRole' | head -1 | awk '{print $2}')
+
+kubectl patch configmap aws-auth -n kube-system --patch "$(cat << EOF
+data:
+  mapRoles: |
+    - rolearn: $EXISTING_ROLE
+      groups: [system:bootstrappers, system:nodes]
+      username: system:node:{{EC2PrivateDNSName}}
+    - rolearn: arn:aws:iam::${ACCOUNT_ID}:role/KarpenterNodeRole-${CLUSTER_NAME}
+      groups: [system:bootstrappers, system:nodes]
+      username: system:node:{{EC2PrivateDNSName}}
+EOF
+)"
+echo "aws-auth updated"
+```
+
+**5e — Install Karpenter via Helm**
+
+```bash
+KARPENTER_VERSION=1.3.3
+
+helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
+  --version "${KARPENTER_VERSION}" \
+  --namespace karpenter \
+  --create-namespace \
+  --set "settings.clusterName=${CLUSTER_NAME}" \
+  --set "settings.interruptionQueue=${CLUSTER_NAME}" \
+  --set "controller.resources.requests.cpu=100m" \
+  --set "controller.resources.requests.memory=256Mi" \
+  --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${ACCOUNT_ID}:role/KarpenterControllerRole-${CLUSTER_NAME}" \
+  --timeout 120s 2>&1
+```
+
+**Note on replicas:** Karpenter's default Helm chart deploys 2 replicas with pod anti-affinity — they must run on different nodes. With only 1 node, one pod will always be `Pending`. Scale to 1 replica for a single-node learning cluster:
+
+```bash
+kubectl scale deployment karpenter -n karpenter --replicas=1
+kubectl get pods -n karpenter
+```
+Expected: `1/1 Running`
+
+**5f — Apply NodePool and EC2NodeClass**
+
+```bash
+cat << 'EOF' | kubectl apply -f -
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  amiSelectorTerms:
+    - alias: al2023@latest
+  role: "KarpenterNodeRole-aois-cluster"
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "aois-cluster"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "aois-cluster"
+---
 apiVersion: karpenter.sh/v1
 kind: NodePool
 metadata:
@@ -445,51 +645,95 @@ spec:
         kind: EC2NodeClass
         name: default
       requirements:
-        - key: karpenter.sh/capacity-type
+        - key: "karpenter.k8s.aws/instance-category"
+          operator: In
+          values: ["t"]
+        - key: "karpenter.k8s.aws/instance-generation"
+          operator: Gt
+          values: ["2"]
+        - key: "kubernetes.io/arch"
+          operator: In
+          values: ["amd64"]
+        - key: "karpenter.sh/capacity-type"
           operator: In
           values: ["on-demand"]
-        - key: node.kubernetes.io/instance-type
-          operator: In
-          values: ["t3.medium", "t3.large", "t3a.medium"]
   limits:
-    cpu: "10"
+    cpu: "4"
+    memory: "8Gi"
   disruption:
     consolidationPolicy: WhenEmptyOrUnderutilized
-    consolidateAfter: 1m
----
-apiVersion: karpenter.k8s.aws/v1
-kind: EC2NodeClass
-metadata:
-  name: default
-spec:
-  amiSelectorTerms:
-    - alias: al2023@latest
-  role: KarpenterNodeRole-${CLUSTER_NAME}
-  subnetSelectorTerms:
-    - tags:
-        karpenter.sh/discovery: ${CLUSTER_NAME}
-  securityGroupSelectorTerms:
-    - tags:
-        karpenter.sh/discovery: ${CLUSTER_NAME}
+    consolidateAfter: 30s
 EOF
+```
+
+Wait ~30 seconds for Karpenter to reconcile, then verify both resources are `READY: True`:
+
+```bash
+kubectl get nodepool default
+kubectl get ec2nodeclass default
+```
+Expected:
+```
+NAME      NODECLASS   NODES   READY   AGE
+default   default     0       True    30s
+
+NAME      READY   AGE
+default   True    30s
 ```
 
 ▶ **STOP — do this now**
 
-Scale AOIS to more replicas than the current node can handle — watch Karpenter provision a new node:
-```bash
-# Scale to 5 replicas (likely to exceed current node capacity)
-kubectl scale deployment aois -n aois --replicas=5
+Trigger Karpenter by deploying a pod that requests more CPU than the existing node has available. A `t3.medium` has 2 vCPUs; once AOIS and system pods are running, ~850m CPU is free. Deploy a pod requesting 1500m:
 
-# Watch for unschedulable pods — Karpenter should respond within 60 seconds
-kubectl get pods -n aois -w &
+```bash
+cat << 'EOF' | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: karpenter-trigger
+  namespace: aois
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: karpenter-trigger
+  template:
+    metadata:
+      labels:
+        app: karpenter-trigger
+    spec:
+      containers:
+      - name: pause
+        image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
+        resources:
+          requests:
+            cpu: "1500m"
+            memory: "1Gi"
+EOF
+```
+
+Watch for Karpenter to provision a new node (target: under 60 seconds):
+
+```bash
+kubectl get nodeclaims -w &
 kubectl get nodes -w
 ```
-Expected: within 60 seconds, a new node appears with status `Ready`, and the pending pods move to `Running`. This is Karpenter in action — no predefined node group, no manual intervention.
+
+Expected — within 60 seconds you will see:
+```
+NAME            TYPE        CAPACITY    ZONE         NODE                              READY   AGE
+default-xxxxx   t3a.small   on-demand   us-east-1b   ip-192-168-x-x.ec2.internal       True    43s
+```
+
+This is Karpenter's core value: no predefined node group, no warm nodes sitting idle. The exact right instance type, provisioned on demand, terminated when no longer needed.
+
+Clean up — Karpenter will consolidate the extra node within 30 seconds (`consolidateAfter: 30s`):
 
 ```bash
-# Scale back down — Karpenter will terminate the extra node after consolidation
-kubectl scale deployment aois -n aois --replicas=2
+kubectl delete deployment karpenter-trigger -n aois
+kubectl scale deployment aois -n aois --replicas=1
+# Watch the extra node disappear
+kubectl get nodes -w
 ```
 
 ---
