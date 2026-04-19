@@ -25,22 +25,35 @@ MODELS = {
 NIM_API_BASE = "https://integrate.api.nvidia.com/v1"
 NIM_API_KEY  = os.getenv("NVIDIA_NIM_API_KEY")
 
+import openai as _openai
+
+def _nim_call(prompt):
+    client = _openai.OpenAI(api_key=NIM_API_KEY, base_url=NIM_API_BASE)
+    return client.chat.completions.create(
+        model="meta/llama-3.1-8b-instruct",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=100,
+    )
+
 def benchmark(label, model, n=3):
     times = []
     last_response = ""
-    extra = {}
-    if model.startswith("nvidia_nim/"):
-        # LiteLLM doesn't have NIM in its model map — call as openai-compatible
-        model = "openai/" + model.split("nvidia_nim/", 1)[1]
-        extra = {"api_base": NIM_API_BASE, "api_key": NIM_API_KEY}
+    is_nim = model.startswith("nvidia_nim/")
     for i in range(n):
         start = time.time()
         try:
+            prompt = f"Analyze this k8s log in one sentence: {LOG_SAMPLE}"
+            if is_nim:
+                resp_raw = _nim_call(prompt)
+                elapsed = time.time() - start
+                times.append(elapsed)
+                last_response = resp_raw.choices[0].message.content[:80]
+                cost = 0.0  # NIM serverless API: free credits, no standard pricing in LiteLLM
+                continue
             resp = litellm.completion(
                 model=model,
-                messages=[{"role": "user", "content": f"Analyze this k8s log in one sentence: {LOG_SAMPLE}"}],
+                messages=[{"role": "user", "content": prompt}],
                 max_tokens=100,
-                **extra,
             )
             elapsed = time.time() - start
             times.append(elapsed)
