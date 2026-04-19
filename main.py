@@ -90,6 +90,14 @@ class IncidentAnalysis(BaseModel):
 
 client = instructor.from_litellm(litellm.completion)
 
+# Groq: LiteLLM 1.83.x can't route groq/ provider — use direct OpenAI-compatible client
+groq_client = instructor.from_openai(
+    openai.OpenAI(
+        api_key=os.getenv("GROQ_API_KEY", ""),
+        base_url="https://api.groq.com/openai/v1",
+    )
+)
+
 
 def sanitize_log(log: str) -> str:
     """Truncate and strip the most common prompt injection patterns from log input."""
