@@ -651,10 +651,23 @@ Built and committed. Code complete:
 3. Run `python3 test_nim.py` — compare NIM vs Claude latency/cost on P3/P4 logs
 4. Complete mastery checkpoint in `curriculum/phase5/v13/notes.md`
 
-### What v14 builds next
-- Deploy vLLM on Modal (serverless GPU) — serve any HuggingFace model
-- AOIS routes to vLLM via LiteLLM's OpenAI-compatible API
-- Understand throughput, batching, KV cache — the production inference engineering layer
+### v13 — INCOMPLETE (NGC API key required)
+Built and committed. Code complete:
+- `main.py` — NVIDIA NIM routing tier added
+- `test_nim.py` — benchmark script ready to run
+- `SEVERITY_TIER_MAP` — P1/P2→Claude, P3/P4→NIM auto-routing
+
+**Remaining:**
+1. Get NGC API key from build.nvidia.com
+2. Add `NVIDIA_NIM_API_KEY=<key>` to `.env`
+3. Run `python3 test_nim.py` — compare NIM vs Claude latency/cost on P3/P4 logs
+4. Complete mastery checkpoint in `curriculum/phase5/v13/notes.md`
+
+### What v15 builds next
+- Curate 500-sample SRE log dataset
+- LoRA fine-tune Mistral-7B on Modal GPU
+- Deploy fine-tuned model to the same vLLM endpoint built in v14
+- Eval: fine-tuned vs base vLLM vs Claude — where specialization beats general reasoning
 
 ### Current root-level state
 - `/main.py` — v5 implementation (active, served from k3s)
