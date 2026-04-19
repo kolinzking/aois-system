@@ -22,8 +22,55 @@ At the end of v10:
 ## Prerequisites
 
 - v9 complete: KEDA running, ArgoCD Synced Healthy, AOIS live at https://aois.46.225.235.51.nip.io
-- AWS account with permissions to: create IAM roles/policies, enable Bedrock model access, call Bedrock APIs
-- AWS CLI installed and configured
+- AWS account (free to create at aws.amazon.com — requires a credit card for identity verification)
+- AWS CLI installed and configured (covered in Step 0 below)
+
+### Step 0 — AWS Account Setup (do this once, skip if already done)
+
+**0a — Create an AWS account (if you don't have one)**
+Go to aws.amazon.com → Create a Free Account. You need a credit card for verification. The account itself is free — you only pay for services you use. For v10, the total spend is under $0.10 (Bedrock charges per token; our test calls cost pennies).
+
+**Important:** AWS Skill Builder (the learning subscription at skillbuilder.aws) is NOT the same as an AWS infrastructure account. Skill Builder is a course platform — cancel it if you have it. The AWS infrastructure account is what you need here.
+
+**0b — Create an IAM user (never use root for CLI access)**
+Your AWS root account is the master account — using it directly for CLI work is a security risk. Create a dedicated IAM user instead:
+
+1. Log into console.aws.amazon.com
+2. Search **IAM** in the top bar → click **IAM**
+3. Left sidebar → **Users** → **Create user**
+4. Username: `aois-dev`
+5. Leave "Provide user access to the AWS Management Console" **unchecked** (CLI only)
+6. Click **Next**
+7. Select **"Attach policies directly"**
+8. Search for `AdministratorAccess` → check it
+9. Click **Next** → **Create user**
+
+**0c — Create access keys**
+1. Click **aois-dev** in the users list
+2. Click the **Security credentials** tab
+3. Scroll to **Access keys** → **Create access key**
+4. Select **Local code** → **Next** → **Create access key**
+5. Copy the **Access key ID** and **Secret access key** — the secret is shown only once
+
+**0d — Install and configure AWS CLI**
+```bash
+# Install AWS CLI v2
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp
+~/.local/bin/aws --version 2>/dev/null || /tmp/aws/install --bin-dir ~/.local/bin --install-dir ~/.local/aws-cli
+export PATH=$HOME/.local/bin:$PATH
+echo 'export PATH=$HOME/.local/bin:$PATH' >> ~/.bashrc
+```
+
+Configure with your keys:
+```bash
+aws configure
+```
+Enter:
+- `AWS Access Key ID` — the key ID from step 0c
+- `AWS Secret Access Key` — the secret from step 0c
+- `Default region name` — `us-east-1`
+- `Default output format` — `json`
 
 Verify AWS CLI is configured:
 ```bash
