@@ -139,10 +139,16 @@ The model is identical. The compliance posture is completely different. This is 
 
 AWS requires you to explicitly request access to each model before you can call it. This is a one-time console step.
 
-1. Open the AWS Console → Amazon Bedrock → Model access (left sidebar)
-2. Click "Modify model access"
-3. Find "Anthropic" → check "Claude 3.5 Sonnet" and "Claude 3 Haiku"
-4. Submit the request
+**Important — region must be US East (N. Virginia) before doing this.** Bedrock model access is region-specific. If your console shows Europe (Stockholm) or any other region in the top-right corner, click it and switch to **US East (N. Virginia)** first. The Bedrock page looks different per region — `us-east-1` has the most models available.
+
+1. In the AWS console search bar → type **Bedrock** → click **Amazon Bedrock**
+2. Confirm top-right shows **US East (N. Virginia)**
+3. Left sidebar → scroll to **"Configure and learn"** → click **Model access**
+4. Click **"Modify model access"**
+5. Find the **Anthropic** section → check:
+   - **Claude 3.5 Sonnet**
+   - **Claude 3 Haiku**
+6. Click **Next** → **Submit**
 
 Access is usually granted within 1–5 minutes for Claude models. Some models (like Claude 3 Opus) may require a use case description.
 
