@@ -10,7 +10,13 @@ Run:     modal run vllm_modal/serve.py
 
 import modal
 
-# Modal image: vLLM + HuggingFace hub
+MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
+MODEL_REVISION = "e0bc86c23ce5aae1db576c8cca6f06f1f73af2db"  # pinned
+MODEL_DIR = "/models/mistral-7b"
+
+# Volume persists model weights across container starts — download once, reuse always
+volume = modal.Volume.from_name("aois-model-weights", create_if_missing=True)
+
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
@@ -23,32 +29,41 @@ image = (
 
 app = modal.App("aois-vllm", image=image)
 
-MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
-MODEL_REVISION = "e0bc86c23ce5aae1db576c8cca6f06f1f73af2db"  # pinned — no `latest`
+
+@app.function(volumes={MODEL_DIR: volume}, timeout=3600)
+def download_model():
+    """Download model weights into the persistent volume. Run once."""
+    import os
+    from huggingface_hub import snapshot_download
+
+    if os.path.exists(f"{MODEL_DIR}/config.json"):
+        print("Model already downloaded — skipping.")
+        return
+
+    print(f"Downloading {MODEL_ID}...")
+    snapshot_download(
+        MODEL_ID,
+        revision=MODEL_REVISION,
+        local_dir=MODEL_DIR,
+        ignore_patterns=["*.pt", "*.gguf"],
+    )
+    volume.commit()
+    print("Done.")
 
 
 @app.cls(
     gpu="a10g",
     scaledown_window=300,
+    volumes={MODEL_DIR: volume},
 )
 class VLLMServer:
-    @modal.build()
-    def build(self):
-        """Download model weights at build time — baked into the container image."""
-        from huggingface_hub import snapshot_download
-        snapshot_download(
-            MODEL_ID,
-            revision=MODEL_REVISION,
-            ignore_patterns=["*.pt", "*.gguf"],  # skip non-safetensors weights
-        )
-
     @modal.enter()
     def load(self):
-        """Start vLLM engine when the container enters (before first request)."""
+        """Load vLLM engine into GPU VRAM on container start."""
         from vllm import AsyncEngineArgs, AsyncLLMEngine
+
         engine_args = AsyncEngineArgs(
-            model=MODEL_ID,
-            revision=MODEL_REVISION,
+            model=MODEL_DIR,
             gpu_memory_utilization=0.90,
             max_model_len=8192,
             enforce_eager=False,
@@ -66,7 +81,6 @@ class VLLMServer:
         temperature = request.get("temperature", 0.1)
 
         prompt = _apply_chat_template(messages)
-
         sampling_params = SamplingParams(
             temperature=temperature,
             max_tokens=max_tokens,
@@ -126,7 +140,7 @@ def _apply_chat_template(messages: list[dict]) -> str:
 
 @app.local_entrypoint()
 def main():
-    """Quick smoke test: run `modal run vllm_modal/serve.py`"""
+    """Smoke test: modal run vllm_modal/serve.py"""
     server = VLLMServer()
     response = server.v1_chat_completions.remote({
         "messages": [
