@@ -295,6 +295,16 @@ That alone puts you ahead of 90% of engineers applying for AI/SRE roles today.
 - Raw Claude API call via curl and Python SDK — free text response, no structure
 - Build: raw SDK call, understand why unstructured output needs tooling → sets up v1
 
+**v0.8 — SQL & PL/pgSQL: The Database Layer Every SRE Lives In**
+- SQL fundamentals: SELECT, WHERE, JOINs, GROUP BY, aggregations, CTEs
+- EXPLAIN ANALYZE: read query plans, identify Seq Scans, know when to index
+- Transactions: BEGIN/COMMIT/ROLLBACK/SAVEPOINT — how database consistency works
+- PL/pgSQL functions and procedures — same concepts as Oracle PL/SQL, different syntax
+- Oracle PL/SQL ↔ PL/pgSQL full translation cheat sheet (NVL→COALESCE, ROWNUM→LIMIT, DBMS_OUTPUT→RAISE NOTICE, etc.)
+- SRE operational queries: pg_stat_activity, pg_locks, kill blocking queries, vacuum stats
+- Python + psycopg2: parameterised queries, cursor patterns — the same code AOIS uses internally
+- Build: spin up local Postgres, create the AOIS incidents + remediations schema, query it like a production incident
+
 ---
 
 ### PHASE 1 — The Intelligence Core
