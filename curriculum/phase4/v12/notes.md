@@ -774,17 +774,17 @@ You now have both running. Here is the honest comparison:
 ## Common Mistakes
 
 **`kubectl` still pointing at Hetzner after EKS creation** *(recognition)*
-`eksctl create cluster` updates your kubeconfig automatically, but if you have multiple clusters, context can drift.
+`eksctl create cluster` updates your kubeconfig automatically, but if you have multiple clusters, context can drift. Also: the context name includes your IAM username, not just the cluster name. `aois-dev@aois-cluster.us-east-1.eksctl.io` is the actual context name (IAM user: `aois-dev`).
 ```bash
 kubectl get nodes  # shows Hetzner nodes instead of EKS
 ```
 *(recall — trigger it)*
 ```bash
-# List all contexts
+# List all contexts — note the IAM username in the EKS context
 kubectl config get-contexts
 
-# Switch to EKS
-kubectl config use-context kolinzking@aois-cluster.us-east-1.eksctl.io
+# Switch to EKS (replace aois-dev with your actual IAM username)
+kubectl config use-context aois-dev@aois-cluster.us-east-1.eksctl.io
 
 # Switch back to Hetzner
 kubectl config use-context default
