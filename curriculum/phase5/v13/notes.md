@@ -522,6 +522,15 @@ This means the 8B model is consistently unable to fill the schema correctly for 
 **NIM latency spikes on first call (cold start):**
 NGC hosted NIM may have a warm-up period. The first call can take 5–10s while the model loads on NVIDIA's infrastructure. Subsequent calls are faster. Run the benchmark twice — ignore the first result of the first run.
 
+If cold start latency matters for your use case, NGC offers dedicated endpoints (paid tier) that keep the model warm. For AOIS P3/P4 routing, the occasional cold start is acceptable — these are warning-level incidents, not production-down emergencies where seconds matter.
+
+**`litellm.BadRequestError` with NIM model:**
+Some NIM models do not support `tool_use` / function calling — the feature Instructor relies on. If the 8B model returns:
+```
+litellm.BadRequestError: NVIDIAException - tool_use is not supported for this model
+```
+Switch to a model that supports tool use. As of 2026, `meta/llama-3.1-8b-instruct` supports it. If you switch to a different model from the NGC catalog, check its page for "Function Calling: Supported" before routing Instructor calls to it. The fallback in the endpoint (`analyze(data.log, "standard")`) handles this gracefully — if NIM fails, GPT-4o-mini picks it up.
+
 ---
 
 ## Connection to later phases
