@@ -53,7 +53,7 @@ def call_analyze(log: str, tier: str) -> tuple[dict, float]:
     resp = httpx.post(
         f"{AOIS_URL}/analyze",
         json={"log": log, "tier": tier},
-        timeout=120.0,
+        timeout=600.0,  # vLLM cold start: 3-5min GPU + model load
     )
     elapsed_ms = (time.time() - start) * 1000
     resp.raise_for_status()
