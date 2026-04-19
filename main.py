@@ -131,10 +131,14 @@ def analyze(log: str, tier: str) -> IncidentAnalysis:
         if modal_url:
             extra_kwargs["api_base"] = modal_url
     elif tier == "nim":
-        # LiteLLM has no NIM model map — route as openai-compatible with NGC base URL
         model = "openai/meta/llama-3.1-8b-instruct"
         extra_kwargs["api_base"] = "https://integrate.api.nvidia.com/v1"
         extra_kwargs["api_key"] = os.getenv("NVIDIA_NIM_API_KEY", "")
+    elif tier == "fast":
+        # LiteLLM 1.83.x strips groq/ prefix — call via OpenAI-compatible base URL
+        model = "openai/llama-3.1-8b-instant"
+        extra_kwargs["api_base"] = "https://api.groq.com/openai/v1"
+        extra_kwargs["api_key"] = os.getenv("GROQ_API_KEY", "")
 
     result, completion = client.chat.completions.create_with_completion(
         model=model,
