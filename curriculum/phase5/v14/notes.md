@@ -452,6 +452,82 @@ AOIS auto-routes based on severity, which maps to these use cases naturally:
 
 ---
 
+## The Inference Hardware Race
+
+You are now using vLLM on NVIDIA A10G. You should understand what the A10G is competing against and why there are multiple players in the inference hardware space.
+
+**NVIDIA GPU (A10G, A100, H100)**
+
+NVIDIA's hardware is the default. The A10G has 24GB VRAM, 250W TDP, and costs ~$0.60/hr on Modal. The A100 (80GB) handles 70B models. The H100 is the current flagship — 4x the throughput of A100 for transformer workloads due to the transformer engine and FP8 support.
+
+vLLM was built for NVIDIA GPUs. PagedAttention maps directly to how CUDA manages memory. If you are running your own inference, NVIDIA is the safe default.
+
+**Groq LPU (Language Processing Unit)**
+
+Groq is not a GPU. It is a custom ASIC designed specifically for transformer inference. The architecture is a deterministic dataflow chip — no caches, no memory bandwidth bottleneck, completely predictable execution. The result: sub-100ms inference for 7B–70B models.
+
+Why Groq exists: GPUs are general-purpose. They were designed for graphics, then repurposed for ML. A chip designed only for the transformer attention pattern will beat a GPU on latency every time. Groq proved that.
+
+The limit: Groq's capacity is finite and shared. At high concurrent load, you hit rate limits. You do not own the hardware. You cannot run custom models. Groq wins on latency for API customers at moderate volume.
+
+**Cerebras WSE (Wafer Scale Engine)**
+
+Cerebras built the largest chip ever made — the entire wafer is one chip. A single WSE-3 chip has 900,000 AI cores and 44GB of SRAM on-chip. No memory bandwidth bottleneck at all — all memory is on the compute die.
+
+The result: 70B models at 800+ tokens/second. For comparison, an A100 does ~40 tokens/second on a 70B model.
+
+The limit: the WSE is not accessible as a self-hosted option. Cerebras offers an API (inference.cerebras.ai). Like Groq, you are renting capacity you do not control. The hardware is commercially available to enterprises at significant cost.
+
+**Where each wins**
+
+| Scenario | Winner | Why |
+|----------|--------|-----|
+| Sub-100ms single-user latency | Groq | Deterministic ASIC, no memory bottleneck |
+| 70B+ model, one user, fastest | Cerebras | Wafer-scale on-chip SRAM |
+| High-volume batch, custom model | NVIDIA + vLLM | You own the hardware, control the model |
+| Fine-tuned model deployment | NVIDIA + vLLM | Groq/Cerebras don't accept custom weights |
+| Cost at high throughput | NVIDIA + vLLM | Amortized hardware cost beats per-token fees |
+| Air-gapped / compliance | NVIDIA + vLLM | No external API dependency |
+
+**What this means for AOIS**
+
+Your routing map now spans the full hardware landscape:
+- Groq (`fast` tier) — when P3 latency still matters
+- Modal + vLLM (`vllm` tier) — when P3/P4 volume and cost matter
+- Claude (`premium` tier) — when P1/P2 quality is non-negotiable
+
+A production AI platform engineer knows which hardware their traffic is hitting and why. You now do.
+
+---
+
+## Keep Warm: Eliminating Cold Starts in Production
+
+Cold starts are acceptable in development. In production, a 90-second timeout on the first P1 alert is not acceptable.
+
+Modal provides `keep_warm` — maintain N always-on container instances:
+
+```python
+@app.cls(
+    gpu=GPU_CONFIG,
+    container_idle_timeout=300,
+    allow_concurrent_inputs=32,
+    keep_warm=1,  # one container always running
+    secrets=[modal.Secret.from_name("huggingface-secret")],
+)
+class VLLMServer:
+    ...
+```
+
+Cost of `keep_warm=1` on A10G:
+- $0.000612/sec × 86,400 sec/day = $52.88/day idle
+- Break-even: if you have >88,000 calls/day, keep_warm is cheaper than cold starts
+
+For AOIS in development: do not use `keep_warm`. Accept cold starts. In production, add it only if P3/P4 volume justifies it.
+
+Alternative: implement a lightweight `/warm` endpoint that returns immediately but keeps the container alive, and have a cron job ping it every 4 minutes (under the 5-minute idle timeout). Cost: ~2ms GPU time per ping vs $52/day for keep_warm.
+
+---
+
 ## Common Mistakes
 
 **Mistake 1: Cold start surprise**
