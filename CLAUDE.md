@@ -659,15 +659,18 @@ Built and committed. Code complete:
 - Eval: fine-tuned vs base vLLM vs Claude — where specialization beats general reasoning
 
 ### Current root-level state
-- `/main.py` — v5 implementation (active, served from k3s)
+- `/main.py` — v14 implementation (vllm tier added, api_base routing via VLLM_MODAL_URL)
 - `/Dockerfile` — v4 multi-stage build
 - `/docker-compose.yml` — AOIS + Redis + Postgres
-- `/requirements.txt` — consolidated dependencies
+- `/requirements.txt` — consolidated dependencies (modal added)
 - `/test.py` — tier routing + cost comparison test suite
+- `/test_vllm.py` — v14 benchmark: vllm vs premium on 4 log samples
+- `/test_nim.py` — v13 benchmark (pending NGC key)
+- `/vllm_modal/serve.py` — Modal deployment: Mistral-7B-Instruct on A10G, OpenAI-compatible API
 - `/k8s/` — Kubernetes manifests (namespace, secret, deployment, service, ingress, clusterissuer)
 - `/charts/aois/` — Helm chart (Chart.yaml, values.yaml, values.prod.yaml, values.eks.yaml, templates/)
 - `/argocd/application.yaml` — ArgoCD Application resource (auto-sync, prune, selfHeal)
-- `/curriculum/` — mastery-level notes (Phase 0–3, all versions)
+- `/curriculum/` — mastery-level notes (Phase 0–5, v0.1–v14)
 - `/README.md` — full table of contents with progress tracking
 
 ### Hetzner cluster
