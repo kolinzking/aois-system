@@ -236,18 +236,27 @@ LiteLLM uses the `openai/` prefix to select the OpenAI provider adapter — whic
 
 The cost values in `ROUTING_TIERS` are approximations — Modal charges by GPU time, not tokens. The numbers ($0.0000012/1k tokens) are back-calculated from A10G cost at ~20 tokens/sec. Langfuse will show these as the recorded cost per call — useful for comparison dashboards in v29.
 
-**`SEVERITY_TIER_MAP` now drives automatic routing:**
+**`SEVERITY_TIER_MAP` — current state and the v14 option:**
 
 ```python
+# Current (after v13 benchmarking)
 SEVERITY_TIER_MAP = {
     "P1": "premium",
     "P2": "premium",
-    "P3": "vllm",
+    "P3": "fast",    # Groq — 0.22s, $0.000001/call
+    "P4": "fast",    # Groq — deterministic LPU
+}
+
+# After Modal deploy, you can optionally switch P3/P4 to vllm:
+SEVERITY_TIER_MAP = {
+    "P1": "premium",
+    "P2": "premium",
+    "P3": "vllm",   # self-hosted Mistral-7B — no per-call cost, GPU time only
     "P4": "vllm",
 }
 ```
 
-This map is checked in `analyze()` when `auto_route=True` is set on the `LogInput`. The flow: log arrives → severity assessed quickly → tier selected → LiteLLM routes to the right provider. Claude never sees a P4 log. Modal never sees a P1 incident. The routing is enforced in code, not by caller discipline.
+Switch to `vllm` only after your Modal endpoint is live and benchmarked. At low volume, Groq is cheaper and simpler — Modal's A10G costs ~$0.60/hr even at idle. The crossover where vllm wins on cost is ~3,000+ P3/P4 calls/day sustained. This map is checked in `analyze()` when `auto_route=True` is set on the `LogInput`. The routing is enforced in code, not by caller discipline.
 
 ---
 
