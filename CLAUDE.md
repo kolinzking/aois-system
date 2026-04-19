@@ -583,7 +583,7 @@ Make the outputs trustworthy and systematically optimal.
 - Both in `~/.claude/settings.json`
 
 ### Current Position
-- **v12 complete. Phase 0 (v0.1–v0.7), Phase 1 (v1–v3), Phase 2 (v4–v5), Phase 3 v6–v9, Phase 4 v10–v12 done. Next: v13 — NVIDIA NIM.**
+- **v13 in progress. Phase 0–4 complete (v0.1–v12). Phase 5 started. Next: get NGC API key → run `python3 test_nim.py` → v13 complete → v14 vLLM.**
 - v10 and v11 are infrastructure-complete but have one pending step each (Bedrock daily quota — run the curl/python tests when quota resets).
 
 ### What's been built (v1–v12)
