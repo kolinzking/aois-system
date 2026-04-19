@@ -96,6 +96,8 @@ Expected output (something like):
 CLAUDE.md  Dockerfile  README.md  curriculum  docker-compose.yml  main.py  requirements.txt
 ```
 
+### What is in this directory — full details (permissions, owner, size, date)
+
 ```bash
 ls -la
 ```
