@@ -129,7 +129,24 @@ Flags that matter:
 - `-h` = human-readable sizes (4.0K instead of 4096)
 - `-t` = sort by modification time (newest first)
 
-You will use `ls -la` and `ls -lah` constantly.
+### What is in this directory — full details with human-readable sizes
+
+```bash
+ls -lah
+```
+Expected output:
+```
+total 64K
+drwxr-xr-x  8 codespace codespace 4.0K Apr 17 12:00 .
+drwxr-xr-x  3 root      root      4.0K Apr 17 09:00 ..
+-rw-r--r--  1 codespace codespace  832 Apr 17 12:00 CLAUDE.md
+drwxr-xr-x  4 codespace codespace 4.0K Apr 17 12:00 curriculum
+-rw-r--r--  1 codespace codespace  123 Apr 17 11:00 main.py
+```
+
+The only difference from `ls -la`: the size column reads `4.0K` instead of `4096`. For files in the megabyte or gigabyte range this matters — `1.2G` is instantly readable, `1287651328` is not. Use `ls -lah` when you care about sizes (checking a log file, a build artifact, a Docker layer). Use `ls -la` when you need the exact byte count.
+
+You will use both constantly. Default to `ls -lah`.
 
 ### Moving around
 
