@@ -189,10 +189,7 @@ def analyze(log: str, tier: str) -> IncidentAnalysis:
         # LiteLLM 1.83.x can't handle groq/ provider — use direct groq_client
         result = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Analyze this log:\n\n{clean_log}"}
-            ],
+            messages=messages,
             response_model=IncidentAnalysis,
             max_retries=2,
             max_tokens=1024,
@@ -203,14 +200,10 @@ def analyze(log: str, tier: str) -> IncidentAnalysis:
 
     result, completion = client.chat.completions.create_with_completion(
         model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Analyze this log:\n\n{clean_log}"}
-        ],
+        messages=messages,
         response_model=IncidentAnalysis,
         max_retries=2,
         max_tokens=1024,
-        **extra_kwargs,
     )
 
     result.provider = model
