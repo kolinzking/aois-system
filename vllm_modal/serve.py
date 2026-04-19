@@ -70,7 +70,7 @@ class VLLMServer:
         )
         self.engine = AsyncLLMEngine.from_engine_args(engine_args)
 
-    @modal.web_endpoint(method="POST", docs=True)
+    @modal.fastapi_endpoint(method="POST", docs=True)
     async def v1_chat_completions(self, request: dict) -> dict:
         """OpenAI-compatible /v1/chat/completions endpoint."""
         from vllm import SamplingParams
