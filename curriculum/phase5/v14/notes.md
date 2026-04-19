@@ -619,6 +619,70 @@ Alternative: implement a lightweight `/warm` endpoint that returns immediately b
 
 ---
 
+## Monitoring Your vLLM Deployment
+
+vLLM exposes a `/metrics` endpoint in Prometheus format. Once your Modal container is running, you can read it directly:
+
+```bash
+curl "$VLLM_MODAL_URL/../metrics"
+# Note: the metrics path depends on how Modal routes requests
+# Check Modal dashboard → app → endpoint for the base URL
+```
+
+More practically, watch Modal's built-in logs while a request is in flight:
+
+```bash
+modal logs aois-vllm --follow
+```
+
+What to look for in the logs:
+
+```
+INFO:     Started server process [1]
+INFO:     Uvicorn running on http://0.0.0.0:8000
+# ^ Container started. Still cold — vLLM engine loading next.
+
+INFO 04-19 14:22:01 llm_engine.py:161] Initializing an LLM engine
+INFO 04-19 14:22:01 llm_engine.py:217] GPU blocks: 1872, CPU blocks: 2048
+# ^ Engine ready. GPU blocks = how many 16-token KV pages fit in VRAM.
+# More blocks = longer max context per concurrent request.
+
+INFO 04-19 14:22:14 async_llm_engine.py:364] Received request cmpl-abc: ...
+INFO 04-19 14:22:15 async_llm_engine.py:364] Finished request cmpl-abc.
+# ^ Request arrived and completed. "Finished" in ~1s = warm container.
+```
+
+**Cold vs warm container:** a cold start shows 30–90 seconds between "Started server process" and "GPU blocks:". A warm container skips straight to "Received request" — the engine is already in VRAM.
+
+**The key metric to track in production:** `avg_generation_throughput_toks_per_s` in the Prometheus output. This tells you whether PagedAttention batching is working. Under sustained concurrent load, this number should climb above single-request baseline. If it is stuck at single-request throughput under high concurrency, your `allow_concurrent_inputs` setting may be too low.
+
+---
+
+▶ **STOP — do this now**
+
+After deploying, run this to understand what your container is doing:
+
+```bash
+# Watch logs while sending two concurrent requests
+modal logs aois-vllm --follow &
+
+curl -X POST "$VLLM_MODAL_URL" \
+  -H "Content-Type: application/json" \
+  -d '{"messages": [{"role": "user", "content": "pod OOMKilled, classify severity P1-P4"}], "max_tokens": 100}' &
+
+curl -X POST "$VLLM_MODAL_URL" \
+  -H "Content-Type: application/json" \
+  -d '{"messages": [{"role": "user", "content": "disk pressure on node, classify severity P1-P4"}], "max_tokens": 100}' &
+
+wait
+```
+
+Expected: both requests arrive in the log within milliseconds of each other. Both finish within 2–3 seconds. The engine batched them — you did not pay double latency for the second request.
+
+This is PagedAttention working. Two requests, one batched execution pass. The first time you see this you understand why vLLM exists.
+
+---
+
 ## Common Mistakes
 
 **Mistake 1: Cold start surprise**
