@@ -741,4 +741,30 @@ With `minReplicas: 1` and `maxReplicas: 5`, what is the difference in monthly He
 
 Look up Hetzner's CPX11 pricing (the node type). Calculate the monthly pod cost at 5 vs 2 replicas. KEDA's value is this difference, compounded across every service in the cluster.
 
+**7. What KEDA cannot do (and what you use instead)**
+
+| Requirement | Tool |
+|------------|------|
+| Scale to zero based on inbound HTTP requests | KEDA HTTP add-on, or Knative |
+| Provision nodes when pods are unschedulable | Karpenter (v12) — KEDA only scales pods |
+| Scale based on GPU utilization | KEDA + Prometheus metric from DCGM exporter |
+| Schedule-based node count | Karpenter NodePool with disruption budgets |
+
+KEDA scales pods. It does not provision nodes — that is Karpenter's job. In v12, Karpenter provisioned a node in 43 seconds when AOIS pods couldn't fit. In v17, both run simultaneously: KEDA adds pods when Kafka lag rises, Karpenter adds nodes when KEDA's pods can't be scheduled. Each layer knows nothing about the other — they compose cleanly.
+
+**8. Read KEDA's own metrics**
+KEDA exposes Prometheus metrics about its own operation:
+```bash
+# Port-forward the KEDA metrics server
+kubectl port-forward -n keda svc/keda-operator-metrics-apiserver 8080:8080 &
+curl -s http://localhost:8080/metrics | grep -E "keda_scaler|keda_scaled_object" | head -20
+kill %1 2>/dev/null
+```
+Key metrics:
+- `keda_scaler_active` — is the trigger currently active (1) or not (0)
+- `keda_scaled_object_paused` — was the ScaledObject paused
+- `keda_scaler_metrics_value` — the current raw trigger value (e.g., current CPU percentage)
+
+These metrics flow into Prometheus in v16. From that point, you can alert on "KEDA trigger has been active for >30 minutes" — meaning the load has been sustained and you should investigate the root cause rather than just auto-scaling indefinitely.
+
 **The mastery bar:** You can describe KEDA's architecture (ScaledObject → KEDA → managed HPA → Deployment), explain why CPU cannot produce scale-to-zero while Kafka can, and deploy a ScaledObject through ArgoCD. You understand what changes in v17 and can make that change without notes.
