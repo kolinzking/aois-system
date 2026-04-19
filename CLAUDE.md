@@ -638,10 +638,10 @@ curl -X POST https://l9ryxlxtpe.execute-api.us-east-1.amazonaws.com/prod/analyze
 ```
 Then measure cold vs warm start, check CloudWatch logs, complete mastery checkpoint.
 
-### What v13 builds next
-- Deploy a NVIDIA NIM microservice (Llama or Mistral) on GPU-enabled infra
-- AOIS routes low-sensitivity logs to local NIM (free inference), high-severity to Claude API
-- Cost-aware routing: NVIDIA for volume, Claude for quality
+### What v14 builds next
+- Deploy vLLM on Modal (serverless GPU) — serve any HuggingFace model
+- AOIS routes to vLLM via LiteLLM's OpenAI-compatible API
+- Understand throughput, batching, KV cache — the production inference engineering layer
 
 ### Current root-level state
 - `/main.py` — v5 implementation (active, served from k3s)
