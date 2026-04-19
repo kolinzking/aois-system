@@ -72,8 +72,8 @@ Ollama    NIM       Groq     Standard  Enterprise  Premium
 
 **Where each fits in AOIS:**
 - **Ollama**: local dev and testing only — too slow for production
-- **NIM** (v13): volume tier — P3/P4 logs, thousands/hour, cost-controlled
-- **Groq**: fastest external API — when latency < 1s matters more than cost
+- **NIM** (v13): GPU inference tier — best for self-hosted deployments at high volume on your own GPU
+- **Groq** (v13): P3/P4 volume tier — 0.22s LPU, ~$0.000001/call, fastest hosted API
 - **Standard** (GPT-4o-mini): reliable fallback with broad model support
 - **Enterprise** (Bedrock): regulated/compliance environments
 - **Premium** (Claude): P1/P2 incidents — reasoning quality, cost irrelevant
