@@ -143,6 +143,19 @@ Account administrators still control access via IAM policies and Service Control
 
 **Important — confirm your region is US East (N. Virginia).** Bedrock model availability varies by region. `us-east-1` has the widest selection. Check the top-right corner of the console before making any API calls — if it shows anything other than US East (N. Virginia), click it and switch.
 
+**Anthropic use case form (first-time accounts only):** Even though the Model access page is retired, Anthropic models require a one-time use case submission for new accounts. If your first API call returns:
+```
+ResourceNotFoundException: Model use case details have not been submitted for this account.
+Fill out the Anthropic use case details form before using the model.
+```
+Fix:
+1. Go to Bedrock console → left sidebar → **Playground**
+2. Select any Claude model — the console will prompt you to fill out the use case form
+3. Describe your use case (e.g. "Building an SRE log analysis system for learning AI engineering")
+4. Submit — wait up to 15 minutes, then retry
+
+This is a one-time step per AWS account.
+
 ▶ **STOP — do this now**
 
 Verify access was granted:
