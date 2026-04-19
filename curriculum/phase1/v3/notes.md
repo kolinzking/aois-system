@@ -782,4 +782,21 @@ Think about what you cannot know without Langfuse:
 
 These questions are answerable with Langfuse. They are unanswerable from application logs. This is why LLM observability is a separate discipline from regular logging.
 
+**7. What Instructor does NOT solve**
+
+Instructor guarantees the *format* of the output: severity is one of P1/P2/P3/P4, confidence is between 0 and 1. It does not guarantee the *content* is correct. A model can return perfectly valid JSON with `severity: P1` and `confidence: 0.95` for a completely wrong analysis — and Instructor passes it through because the schema is valid.
+
+This distinction matters in production. The things Instructor solves:
+- Wrong type (`severity: 3` instead of `"P3"`)
+- Out-of-range value (`confidence: 1.8`)
+- Missing required field (`suggested_action` absent)
+- Malformed JSON that would crash `json.loads()`
+
+The things Instructor does NOT solve:
+- Model hallucinating a wrong severity (P2 vs P3 judgment call)
+- Model suggesting an ineffective remediation
+- Model misidentifying the affected service
+
+That second category is what DSPy and systematic evals address — covered in v15, v29, and v33. Instructor is the foundation. Evals are what tell you whether the foundation is producing correct answers.
+
 **The mastery bar**: When you write an LLM application, Instructor + Pydantic + Langfuse should be your default starting point, not an afterthought. Unvalidated output and unobserved calls are the root causes of most production LLM failures. You know how to prevent both.
