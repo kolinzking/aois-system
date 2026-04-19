@@ -137,13 +137,14 @@ def analyze(log: str, tier: str) -> IncidentAnalysis:
     extra_kwargs: dict = {}
     if tier == "vllm":
         modal_url = os.getenv("VLLM_MODAL_URL", "")
-        together_key = os.getenv("TOGETHER_API_KEY", "")
         if modal_url:
+            # Self-hosted vLLM on Modal GPU (when endpoint is live)
             extra_kwargs["api_base"] = modal_url
-        elif together_key:
-            # Together AI: same Mistral-7B, OpenAI-compatible, no cold start
-            extra_kwargs["api_base"] = "https://api.together.xyz/v1"
-            extra_kwargs["api_key"] = together_key
+        else:
+            # NIM fallback: same Mistral-7B model, NGC-hosted, existing key
+            extra_kwargs["api_base"] = "https://integrate.api.nvidia.com/v1"
+            extra_kwargs["api_key"] = os.getenv("NVIDIA_NIM_API_KEY", "")
+            model = "openai/mistralai/mistral-7b-instruct-v0.3"
     elif tier == "nim":
         model = "openai/meta/llama-3.1-8b-instruct"
         extra_kwargs["api_base"] = "https://integrate.api.nvidia.com/v1"
