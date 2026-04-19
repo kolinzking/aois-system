@@ -20,32 +20,70 @@ After v3, AOIS outputs are **guaranteed valid** and **every call is observable**
 
 Install:
 ```bash
-pip install instructor langfuse
+pip install instructor "langfuse==2.60.6"
 ```
+
+**Why the pinned version:** Langfuse v3+ removed the `.version` attribute that LiteLLM's built-in callback reads at startup. Installing the latest langfuse produces this error immediately:
+
+```
+AttributeError: module 'langfuse' has no attribute 'version'. Did you mean: '_version'?
+```
+
+`langfuse==2.60.6` is the last version that works with LiteLLM's `"langfuse"` callback. Pin it.
 
 Add to requirements.txt:
 ```bash
 echo "instructor" >> requirements.txt
-echo "langfuse" >> requirements.txt
+echo "langfuse==2.60.6" >> requirements.txt
 ```
 
 Verify:
 ```bash
 python3 -c "import instructor; print(f'Instructor {instructor.__version__}')"
-python3 -c "import langfuse; print(f'Langfuse installed')"
+python3 -c "import langfuse; print(langfuse.__version__)"
 ```
 
-For Langfuse (optional but recommended):
+Expected:
+```
+Instructor 1.x.x
+2.60.6
+```
+
+For Langfuse setup:
 1. Create a free account at cloud.langfuse.com
-2. Create a new project
-3. Copy the keys to `.env`:
+2. Create an organization (name: anything — use `aois-system`)
+3. Create a project (name: `aois-v3`)
+4. Go to **API Keys** tab → **Create new API key** (name it `aois-v3`)
+5. Copy the three values to `.env`:
+
 ```
 LANGFUSE_SECRET_KEY=sk-lf-...
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_HOST=https://cloud.langfuse.com
 ```
 
-Langfuse is optional. If the keys are not in `.env`, the integration is silently skipped. v3 works identically with or without Langfuse — you just do not get the dashboard.
+**Critical:** the variable must be named `LANGFUSE_HOST`, not `LANGFUSE_BASE_URL`. LiteLLM reads `LANGFUSE_HOST` specifically. If you copy the `.env` snippet from the Langfuse UI it may say `LANGFUSE_BASE_URL` — rename it.
+
+Verify the keys are loaded correctly:
+```bash
+python3 -c "
+from dotenv import load_dotenv; import os; load_dotenv()
+print('SECRET:', 'set' if os.getenv('LANGFUSE_SECRET_KEY') else 'MISSING')
+print('PUBLIC:', 'set' if os.getenv('LANGFUSE_PUBLIC_KEY') else 'MISSING')
+print('HOST:', os.getenv('LANGFUSE_HOST', 'MISSING'))
+"
+```
+
+Expected:
+```
+SECRET: set
+PUBLIC: set
+HOST: https://cloud.langfuse.com
+```
+
+If HOST shows `MISSING`, you have `LANGFUSE_BASE_URL` in `.env` — rename the key.
+
+Langfuse is optional. If `LANGFUSE_SECRET_KEY` is not in `.env`, the integration is silently skipped. v3 works identically with or without Langfuse — you just do not get the dashboard.
 
 ---
 
