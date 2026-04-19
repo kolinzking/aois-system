@@ -765,6 +765,20 @@ Key metrics:
 - `keda_scaled_object_paused` — was the ScaledObject paused
 - `keda_scaler_metrics_value` — the current raw trigger value (e.g., current CPU percentage)
 
-These metrics flow into Prometheus in v16. From that point, you can alert on "KEDA trigger has been active for >30 minutes" — meaning the load has been sustained and you should investigate the root cause rather than just auto-scaling indefinitely.
+These metrics flow into Prometheus in v16. From that point, you can alert on "KEDA trigger has been active for >30 minutes" — meaning the load has been sustained and you should investigate root cause rather than just auto-scaling indefinitely.
+
+**9. Pausing and resuming a ScaledObject without deleting it**
+
+In production you sometimes need to freeze autoscaling — during a deployment, a debug session, or an incident investigation where you want a fixed replica count temporarily:
+```bash
+# Pause scaling (KEDA stops evaluating the trigger; replicas stay at current count)
+kubectl annotate scaledobject aois -n aois autoscaling.keda.sh/paused-replicas=2 --overwrite
+kubectl get scaledobject aois -n aois
+# READY: True, ACTIVE: False, PAUSED: True
+
+# Resume (remove the annotation)
+kubectl annotate scaledobject aois -n aois autoscaling.keda.sh/paused-replicas- --overwrite
+```
+This is cleaner than deleting the ScaledObject and recreating it — no risk of losing the KEDA config during an incident, and ArgoCD does not detect a diff (the annotation is runtime state, not in git). The `-` suffix on the annotation key removes it.
 
 **The mastery bar:** You can describe KEDA's architecture (ScaledObject → KEDA → managed HPA → Deployment), explain why CPU cannot produce scale-to-zero while Kafka can, and deploy a ScaledObject through ArgoCD. You understand what changes in v17 and can make that change without notes.
