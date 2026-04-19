@@ -252,7 +252,7 @@ def analyze_endpoint(request: Request, data: LogInput):
 
 Test auto-routing with a P3 log and a P1 log:
 ```bash
-# P3 log — should auto-route to NIM
+# P3 log — should auto-route to Groq (fast tier)
 curl -s -X POST http://localhost:8000/analyze \
   -H "Content-Type: application/json" \
   -d '{"log": "disk at 80%, warning threshold", "tier": "standard", "auto_route": true}' \
@@ -265,7 +265,7 @@ curl -s -X POST http://localhost:8000/analyze \
   | python3 -m json.tool
 ```
 
-For the P3 log, check `provider` — it should be `nvidia_nim/meta/llama-3.1-8b-instruct`.
+For the P3 log, check `provider` — it should be `groq/llama-3.1-8b-instant`.
 For the P1 log, check `provider` — it should be `anthropic/claude-opus-4-6`.
 
 This is cost-aware routing working automatically: the caller does not need to know which model is appropriate. AOIS decides based on what it finds.
