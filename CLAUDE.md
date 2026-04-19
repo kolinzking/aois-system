@@ -638,11 +638,10 @@ curl -X POST https://l9ryxlxtpe.execute-api.us-east-1.amazonaws.com/prod/analyze
 ```
 Then measure cold vs warm start, check CloudWatch logs, complete mastery checkpoint.
 
-### What v12 builds next
-- Spin up EKS cluster with Terraform + Karpenter
-- Deploy AOIS to EKS — same Helm chart, different values
-- IRSA: IAM Roles for Service Accounts (zero static credentials)
-- Compare Hetzner k3s vs EKS: cost, complexity, when to choose each
+### What v13 builds next
+- Deploy a NVIDIA NIM microservice (Llama or Mistral) on GPU-enabled infra
+- AOIS routes low-sensitivity logs to local NIM (free inference), high-severity to Claude API
+- Cost-aware routing: NVIDIA for volume, Claude for quality
 
 ### Current root-level state
 - `/main.py` — v5 implementation (active, served from k3s)
