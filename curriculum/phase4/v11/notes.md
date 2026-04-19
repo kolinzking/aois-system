@@ -780,6 +780,7 @@ For a learning project, cold starts of 2–4s are acceptable. In production, pro
 - **v16 (OpenTelemetry)**: Lambda functions are instrumented with OTel the same way as FastAPI — add the OTel Lambda layer, set environment variables, traces flow to your Grafana stack. The Lambda invocation itself becomes a trace span.
 - **v23 (LangGraph)**: Long-running agent workflows (10+ minutes) cannot run in Lambda (15-minute maximum, but cold starts and timeouts make it unreliable). This is why Temporal (v22) and always-on k8s exist alongside Lambda. Lambda is for short, stateless tasks. Agent loops need persistent execution.
 - **v28 (CI/CD)**: The GitHub Actions pipeline will build the Lambda zip, upload to S3, and update the function code on every push. The same pipeline deploys to both Lambda and EKS — Lambda via `aws lambda update-function-code`, EKS via ArgoCD sync.
+- **v12 (EKS)**: The Lambda function deployed here and the EKS deployment in v12 are two valid answers to the same question: "how do we run AOIS on AWS?" Lambda wins below ~5k calls/day; EKS wins above it. v12 gives you the data to choose.
 
 ---
 
