@@ -845,20 +845,66 @@ kubectl get events --sort-by='.lastTimestamp' | tail -10
 
 ---
 
-**Karpenter not provisioning nodes — pods stuck in `Pending`** *(recognition)*
-Karpenter requires the subnet and security group tags `karpenter.sh/discovery: CLUSTER_NAME` to find where to launch nodes. If `eksctl` did not tag subnets correctly, Karpenter cannot find them.
-```bash
-kubectl get pods -n aois   # Pending for >2 minutes
-kubectl logs -n kube-system -l app.kubernetes.io/name=karpenter | grep -i "error\|failed"
+**Karpenter crashes on startup — `no subnets found` / `NonExistentQueue`** *(recognition)*
+
+This is the most common Karpenter failure — two separate root causes that look similar.
+
+**Cause 1: SQS queue does not exist.** Karpenter v1 panics if the `interruptionQueue` SQS queue does not exist before Karpenter starts:
 ```
-*(recall — trigger it)*
+panic: operation error SQS: GetQueueUrl ... NonExistentQueue: The specified queue does not exist
+```
+Fix: create the SQS queue (Step 5b) before running `helm install`. Then delete and recreate the Karpenter pod:
 ```bash
-# Check if subnets have the required tag
-aws ec2 describe-subnets --region us-east-1 \
+kubectl delete pod -n karpenter -l app.kubernetes.io/name=karpenter --force
+kubectl get pods -n karpenter  # watch it come up healthy
+```
+
+**Cause 2: Subnets/SGs not tagged for discovery.** `eksctl` does NOT add `karpenter.sh/discovery` tags to subnets. If you skip Step 5c:
+```bash
+kubectl logs -n karpenter -l app.kubernetes.io/name=karpenter | grep "no subnets"
+# {"level":"ERROR","message":"failed listing instance types","error":"no subnets found"}
+```
+Fix: tag the subnets and security group (Step 5c), then annotate the EC2NodeClass to force reconcile:
+```bash
+kubectl annotate ec2nodeclass default karpenter.sh/force-reconcile="$(date +%s)" --overwrite
+```
+
+*(recall — trigger both)*
+```bash
+# Verify SQS queue exists
+aws sqs get-queue-url --queue-name aois-cluster --region us-east-1
+# Expected: {"QueueUrl": "https://sqs.us-east-1.amazonaws.com/..."}
+
+# Verify subnet tags
+aws ec2 describe-subnets \
   --filters "Name=tag:karpenter.sh/discovery,Values=aois-cluster" \
-  --query 'Subnets[].SubnetId' --output text
+  --query 'Subnets[*].SubnetId' --output text --region us-east-1
+# Expected: 3–4 subnet IDs
 ```
-Expected: 2–3 subnet IDs. If empty, the subnets are not tagged — `eksctl create cluster` with `withOIDC: true` should tag them automatically. If missing: tag them manually and restart Karpenter.
+
+---
+
+**Karpenter controller `AccessDenied: iam:GetInstanceProfile`** *(recognition)*
+Karpenter v1 creates and manages its own instance profiles (it does not use the one you create manually). The controller policy must include IAM permissions:
+```
+api error AccessDenied: User: ...KarpenterControllerRole... is not authorized to perform: iam:GetInstanceProfile
+```
+*(recall)*: The fix is in Step 5a — the controller policy includes `iam:GetInstanceProfile`, `iam:CreateInstanceProfile`, and related actions. If you used an older Karpenter guide that omits these, add them to the `KarpenterControllerPolicy` inline policy.
+
+---
+
+**Karpenter Helm install times out — second pod stuck `Pending`** *(recognition)*
+Karpenter defaults to 2 replicas with pod anti-affinity (must run on different nodes). With 1 node, only 1 pod can start:
+```bash
+kubectl get pods -n karpenter
+# NAME              READY   STATUS    RESTARTS   AGE
+# karpenter-xxx     1/1     Running   0          2m
+# karpenter-yyy     0/1     Pending   0          2m   <-- stuck
+```
+*(recall)*: Scale to 1 replica manually. This is safe for a learning cluster:
+```bash
+kubectl scale deployment karpenter -n karpenter --replicas=1
+```
 
 ---
 
