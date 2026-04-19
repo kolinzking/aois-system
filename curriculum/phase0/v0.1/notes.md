@@ -852,6 +852,65 @@ USER       PID   CPU  MEM  CMD
 
 ---
 
+## Common Mistakes
+
+**1. `rm -rf` with a trailing space**
+Symptom: `rm -rf / home/user` deletes the entire filesystem instead of `/home/user`.
+The space after `/` makes it two arguments: `/` (root) and `home/user`.
+Fix: Always quote paths. Never run `rm -rf` as root without double-checking.
+Trigger it safely:
+```bash
+echo rm -rf / home/user   # print the command first — never run it blind
+```
+
+**2. Forgetting `sudo` then piping**
+Symptom:
+```
+$ cat /etc/shadow | grep root
+cat: /etc/shadow: Permission denied
+```
+The pipe runs as your user, not root. `sudo cat /etc/shadow` works. `cat /etc/shadow | sudo grep root` does not — the `cat` still runs as you.
+Fix:
+```bash
+sudo cat /etc/shadow | grep root   # correct — sudo the command that needs elevation
+```
+
+**3. Permissions octal confusion: `chmod 755` vs `chmod +x`**
+Symptom: Script runs for owner but not for teammates.
+`chmod +x script.sh` adds execute for owner, group, and others.
+`chmod 700 script.sh` gives owner full access, everyone else nothing.
+Trigger it:
+```bash
+chmod 700 test.sh && bash test.sh                 # works — you are the owner
+chmod 700 test.sh && sudo -u nobody bash test.sh  # Permission denied
+```
+Fix: For shared scripts use `755`. For private scripts use `700`.
+
+**4. `cd` in a subshell doesn't change your directory**
+Symptom: Script runs `cd /tmp` but your terminal stays where it was.
+Every script runs in a subshell. `cd` only affects that subshell — it exits and you're back.
+Fix: Source the script if you need directory changes to persist:
+```bash
+source ./script.sh   # runs in current shell — cd takes effect
+./script.sh          # runs in subshell — cd is lost on exit
+```
+
+**5. Overwriting a file with redirection**
+Symptom: `echo "new content" > important.log` — all previous content gone.
+`>` truncates first, then writes. Even `> file` with no command wipes the file completely.
+Trigger it:
+```bash
+echo "original" > test.log
+echo "new entry" > test.log   # original is gone
+cat test.log                  # only: new entry
+```
+Fix: Use `>>` to append:
+```bash
+echo "new entry" >> test.log  # safe — appends, original preserved
+```
+
+---
+
 ## Troubleshooting
 
 **"command not found" after installing something:**
