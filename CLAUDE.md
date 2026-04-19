@@ -627,13 +627,12 @@ See **Content Quality Standard** section above — it is the complete, enforced 
 ### Hetzner cluster
 - Server: 46.225.235.51 (root access, k3s running)
 - Live URL: https://aois.46.225.235.51.nip.io
-- Image: ghcr.io/kolinzking/aois:v6
+- Image: ghcr.io/kolinzking/aois:v6 (v9 has no app code changes — same image)
+- ArgoCD: installed, managing AOIS via GitOps (git push = deploy)
+- KEDA: installed, ScaledObject active, HPA `keda-hpa-aois` managed automatically
 
-### What v7 builds next
-- Package the `k8s/` manifests as a Helm chart
-- `values.yaml` replaces all hardcoded strings (image tag, hostname, replicas, resource limits)
-- `helm install aois ./charts/aois -f values.prod.yaml`
-- Same chart deploys to Hetzner k3s now, AWS EKS in v12
+### k8s/secret.yaml note
+Real API keys were scrubbed from git history (2026-04-19) before first push to GitHub — keys were never exposed. `k8s/secret.yaml` now contains placeholders. The live cluster Secret was applied manually in v6 and is intact. To re-apply: temporarily put real keys in, `kubectl apply -f k8s/secret.yaml`, then revert. Better path: Vault (covered in v5).
 
 ---
 
