@@ -583,9 +583,10 @@ Make the outputs trustworthy and systematically optimal.
 - Both in `~/.claude/settings.json`
 
 ### Current Position
-- **v9 complete. Phase 0 (v0.1–v0.7), Phase 1 (v1–v3), Phase 2 (v4–v5), Phase 3 v6–v9 done. Next: v10 — Amazon Bedrock + Bedrock Agents.**
+- **v12 complete. Phase 0 (v0.1–v0.7), Phase 1 (v1–v3), Phase 2 (v4–v5), Phase 3 v6–v9, Phase 4 v10–v12 done. Next: v13 — NVIDIA NIM.**
+- v10 and v11 are infrastructure-complete but have one pending step each (Bedrock daily quota — run the curl/python tests when quota resets).
 
-### What's been built (v1–v9)
+### What's been built (v1–v12)
 - **v1**: FastAPI + Claude (prompt caching) + OpenAI fallback, structured Pydantic output (summary, severity P1–P4, suggested_action, confidence)
 - **v2**: LiteLLM gateway — 4 routing tiers (Claude premium → GPT-4o-mini → Groq fast → Ollama local), cost tracking per request
 - **v3**: Instructor for guaranteed validated output + Langfuse tracing (tokens, cost, latency per call)
@@ -595,6 +596,9 @@ Make the outputs trustworthy and systematically optimal.
 - **v7**: Helm chart — `charts/aois/` with templates, values.yaml (defaults), values.prod.yaml (2 replicas, higher resources), `helm template` renders clean output
 - **v8**: ArgoCD GitOps — `argocd/application.yaml` points at repo + Helm chart, auto-sync with prune + selfHeal, full GitOps deploy cycle (git push = deploy)
 - **v9**: KEDA installed on cluster, ScaledObject in Helm chart (CPU trigger, 1–5 replicas, 60% threshold), ArgoCD managing it — KEDA creates and owns the HPA, scales AOIS automatically under load
+- **v10**: Amazon Bedrock enterprise tier added (LiteLLM `bedrock/` prefix + inference profile IDs), IAM policy AOISBedrockPolicy, latency benchmark script `test_bedrock.py`. *Pending: run benchmark + Bedrock Agents section once daily quota resets.*
+- **v11**: Lambda handler `lambda/aois-analyzer/handler.py`, packaged and deployed, API Gateway live at `l9ryxlxtpe.execute-api.us-east-1.amazonaws.com/prod/analyze`, cost comparison model `cost_comparison.py`. *Pending: live Bedrock response test once quota resets.*
+- **v12**: EKS cluster provisioned with `eksctl`, IRSA service account for Bedrock access (zero static credentials), AOIS image pushed to ECR, AOIS deployed to EKS via Helm (`values.eks.yaml`), Karpenter installed and validated — provisioned a new node in 43 seconds under load. Cluster torn down to stop charges.
 
 ### Curriculum notes structure (mastery-level)
 Each phase has three layers:
