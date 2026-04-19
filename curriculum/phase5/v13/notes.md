@@ -55,7 +55,7 @@ curl -s https://aois.46.225.235.51.nip.io/health | python3 -m json.tool
 
 By the end of this version you will be able to:
 - Explain what NVIDIA NIM is and how it differs from vLLM, Ollama, and cloud APIs
-- Connect AOIS to NGC-hosted NIM via LiteLLM's `nvidia_nim/` prefix
+- Connect AOIS to NGC-hosted NIM via the OpenAI-compatible client (`base_url` + `api_key`)
 - Explain cost-aware routing: which logs go to which model tier and why
 - Implement severity-based auto-routing in a FastAPI endpoint
 - Compare NIM latency and cost against Claude, Groq, and GPT-4o-mini on a real benchmark
