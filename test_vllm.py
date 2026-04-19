@@ -62,14 +62,17 @@ def call_analyze(log: str, tier: str) -> tuple[dict, float]:
 
 def run():
     vllm_url = os.getenv("VLLM_MODAL_URL", "")
-    if not vllm_url:
-        print("⚠️  VLLM_MODAL_URL not set in .env")
-        print("   Deploy first: modal deploy vllm_modal/serve.py")
-        print("   Then set VLLM_MODAL_URL=<endpoint> in .env")
+    together_key = os.getenv("TOGETHER_API_KEY", "")
+    if not vllm_url and not together_key:
+        print("⚠️  Neither VLLM_MODAL_URL nor TOGETHER_API_KEY set in .env")
+        print("   Option A: modal deploy vllm_modal/serve.py then set VLLM_MODAL_URL")
+        print("   Option B: get free key at api.together.ai and set TOGETHER_API_KEY")
         print()
         print("Running premium tier only for comparison baseline...")
         tiers = ["premium"]
     else:
+        backend = "Modal GPU" if vllm_url else "Together AI (Mistral-7B)"
+        print(f"vLLM backend: {backend}")
         tiers = TIERS_TO_TEST
 
     results = {}
