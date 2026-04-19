@@ -63,8 +63,8 @@ ROUTING_TIERS = {
 SEVERITY_TIER_MAP = {
     "P1": "premium",    # production down — best model, cost irrelevant
     "P2": "premium",    # degraded — still Claude
-    "P3": "nim",        # warning — NIM handles volume cheaply
-    "P4": "nim",        # preventive — NIM handles volume cheaply
+    "P3": "fast",       # warning — Groq LPU: 0.22s, ~$0.000001/call
+    "P4": "fast",       # preventive — Groq LPU: fastest hosted inference
 }
 
 DEFAULT_TIER = "premium"
