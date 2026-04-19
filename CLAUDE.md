@@ -618,11 +618,27 @@ Built and committed but blocked on AWS new-account daily token limit:
 
 **To resume:** run `python test_bedrock.py` first. If it succeeds, complete the Bedrock Agents section, then mark v10 done and proceed to v11 live deploy.
 
-### What v11 builds next
-- Deploy AOIS `/analyze` as an AWS Lambda function
-- API Gateway → Lambda → Bedrock
-- Cost: $0 when idle vs always-on Hetzner
-- Decision framework: when Lambda vs always-on k8s
+### v11 — INCOMPLETE (Bedrock daily quota blocking live LLM response)
+Built and deployed. Infrastructure fully working end-to-end:
+- `lambda/aois-analyzer/handler.py` — Lambda handler written
+- `lambda/aois-lambda.zip` — packaged and deployed to AWS
+- `AOISLambdaRole` — IAM role created, Bedrock + CloudWatch permissions
+- API Gateway endpoint live: https://l9ryxlxtpe.execute-api.us-east-1.amazonaws.com/prod/analyze
+- `cost_comparison.py` — Lambda vs Hetzner cost model (Lambda wins below ~5k calls/day)
+
+**Remaining:** Bedrock daily quota blocking. When quota resets, run:
+```bash
+curl -X POST https://l9ryxlxtpe.execute-api.us-east-1.amazonaws.com/prod/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"log": "pod OOMKilled exit code 137", "tier": "enterprise"}' | jq .
+```
+Then measure cold vs warm start, check CloudWatch logs, complete mastery checkpoint.
+
+### What v12 builds next
+- Spin up EKS cluster with Terraform + Karpenter
+- Deploy AOIS to EKS — same Helm chart, different values
+- IRSA: IAM Roles for Service Accounts (zero static credentials)
+- Compare Hetzner k3s vs EKS: cost, complexity, when to choose each
 
 ### Current root-level state
 - `/main.py` — v5 implementation (active, served from k3s)
