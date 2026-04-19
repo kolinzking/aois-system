@@ -499,6 +499,27 @@ Expected output (will vary slightly by time of insert, approximate):
 (3 rows)
 ```
 
+**Solution:**
+```sql
+WITH
+  recent AS (
+    SELECT severity, latency_ms
+    FROM incidents
+    WHERE created_at > NOW() - INTERVAL '2 hours'
+  ),
+  avg_by_severity AS (
+    SELECT severity, ROUND(AVG(latency_ms)) AS avg_latency_ms
+    FROM recent
+    GROUP BY severity
+  )
+SELECT severity, avg_latency_ms
+FROM avg_by_severity
+WHERE avg_latency_ms > 500
+ORDER BY avg_latency_ms DESC;
+```
+
+If your output shows different rows or none at all, the insert timestamps may have pushed some incidents outside the 2-hour window. Change `INTERVAL '2 hours'` to `INTERVAL '3 hours'` or widen it until the rows appear — then understand why.
+
 ---
 
 ## Part 5 — EXPLAIN ANALYZE: Reading the Query Plan
