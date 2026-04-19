@@ -601,27 +601,8 @@ Each phase has three layers:
 - `vN/notes.md` — deep runbook notes per version, each ending with a Mastery Checkpoint
 - `looking-forward.md` — closes the phase, bridges to the next
 
-### Mandatory notes standard (enforced uniformly across v0.1–v8, applies to all future versions)
-
-Every `vN/notes.md` MUST have all of these, in order:
-
-1. `⏱ **Estimated time: X–Y hours**` — immediately under the `#` title
-2. `## Prerequisites` — with verification commands and expected output
-3. `## Learning Goals` — "By the end you will be able to:" with concrete ability bullets
-4. **Body** — every command shows expected output so learner can verify correctness
-5. **≥3 `▶ STOP — do this now` exercises** — embedded in the body, each with expected output
-6. `## Common Mistakes` — named errors with exact symptom + fix (pattern from MIT Missing Semester)
-7. `## Troubleshooting` — verbatim error messages, diagnosis, fix
-8. **Connection to later phases** — how this version's work is reused forward
-9. `## Mastery Checkpoint` — 6–9 practical tasks ending with "The mastery bar:" statement
-
-**Audit command — run before declaring any version complete:**
-```bash
-grep -c 'Estimated time\|## Prerequisites\|Learning [Gg]oals\|STOP — do this now\|Common Mistakes\|## Troubleshooting\|Connection to\|Mastery Checkpoint' curriculum/phaseN/vN/notes.md
-```
-Expected: 8+ matches. Line count: 600+ minimum, 800+ for complex versions.
-
-This standard was established after v7/v8 were written at speed (381 and 336 lines) and Collins called it out. Every version from v0.1–v8 was audited and brought to standard in one session.
+### Notes standard
+See **Content Quality Standard** section above — it is the complete, enforced standard for all versions. Do not repeat or summarize it here.
 
 ### What v9 builds next
 - Install KEDA on the cluster
