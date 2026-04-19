@@ -650,7 +650,7 @@ Then measure cold vs warm start, check CloudWatch logs, complete mastery checkpo
 - `/requirements.txt` — consolidated dependencies
 - `/test.py` — tier routing + cost comparison test suite
 - `/k8s/` — Kubernetes manifests (namespace, secret, deployment, service, ingress, clusterissuer)
-- `/charts/aois/` — Helm chart (Chart.yaml, values.yaml, values.prod.yaml, templates/)
+- `/charts/aois/` — Helm chart (Chart.yaml, values.yaml, values.prod.yaml, values.eks.yaml, templates/)
 - `/argocd/application.yaml` — ArgoCD Application resource (auto-sync, prune, selfHeal)
 - `/curriculum/` — mastery-level notes (Phase 0–3, all versions)
 - `/README.md` — full table of contents with progress tracking
