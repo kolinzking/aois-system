@@ -214,12 +214,20 @@ Expected output:
 > Run these three commands and look carefully at the output:
 > ```bash
 > wc -l /workspaces/aois-system/main.py
+> ```
+> Expected output (your number will differ as the file grows):
+> ```
+> 142 /workspaces/aois-system/main.py
+> ```
+> This tells you the file is 142 lines long — small enough to read in full, large enough to be a real app.
+>
+> ```bash
 > head -5 /workspaces/aois-system/main.py
 > tail -5 /workspaces/aois-system/main.py
 > ```
+> `head` shows the imports at the top. `tail` shows the last function or route at the bottom.
 > You are reading a real production file — the AOIS FastAPI app you will understand completely by v1.
-> `wc -l` tells you how large it is. `head` shows the imports. `tail` shows the last function.
-> You do not need to understand it yet — this is practice with the tools while looking at real code.
+> You do not need to understand the code yet — this is practice with the tools while looking at real code.
 
 ---
 
