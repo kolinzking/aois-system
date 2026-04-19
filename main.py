@@ -142,21 +142,49 @@ def analyze(log: str, tier: str) -> IncidentAnalysis:
     model = ROUTING_TIERS.get(tier, ROUTING_TIERS[DEFAULT_TIER])
     clean_log = sanitize_log(log)
 
-    extra_kwargs: dict = {}
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"Analyze this log:\n\n{clean_log}"},
+    ]
+
     if tier == "vllm":
         modal_url = os.getenv("VLLM_MODAL_URL", "")
         if modal_url:
-            # Self-hosted vLLM on Modal GPU (when endpoint is live)
-            extra_kwargs["api_base"] = modal_url
+            vllm_direct = instructor.from_openai(
+                openai.OpenAI(api_key="unused", base_url=modal_url)
+            )
+            result = vllm_direct.chat.completions.create(
+                model="mistralai/Mistral-7B-Instruct-v0.3",
+                messages=messages,
+                response_model=IncidentAnalysis,
+                max_retries=2,
+                max_tokens=1024,
+            )
+            result.provider = "vllm/mistralai/Mistral-7B-Instruct-v0.3 (Modal A10G)"
+            result.cost_usd = 0.000030
         else:
-            # NIM fallback: same Mistral-7B model, NGC-hosted, existing key
-            extra_kwargs["api_base"] = "https://integrate.api.nvidia.com/v1"
-            extra_kwargs["api_key"] = os.getenv("NVIDIA_NIM_API_KEY", "")
-            model = "openai/mistralai/mistral-7b-instruct-v0.3"
+            # NIM fallback: same Mistral-7B model, NGC-hosted
+            result = nim_client.chat.completions.create(
+                model="mistralai/mistral-7b-instruct-v0.3",
+                messages=messages,
+                response_model=IncidentAnalysis,
+                max_retries=2,
+                max_tokens=1024,
+            )
+            result.provider = "nim/mistralai/mistral-7b-instruct-v0.3"
+            result.cost_usd = 0.000010
+        return validate_output(result)
     elif tier == "nim":
-        model = "openai/meta/llama-3.1-8b-instruct"
-        extra_kwargs["api_base"] = "https://integrate.api.nvidia.com/v1"
-        extra_kwargs["api_key"] = os.getenv("NVIDIA_NIM_API_KEY", "")
+        result = nim_client.chat.completions.create(
+            model="meta/llama-3.1-8b-instruct",
+            messages=messages,
+            response_model=IncidentAnalysis,
+            max_retries=2,
+            max_tokens=1024,
+        )
+        result.provider = "nim/meta/llama-3.1-8b-instruct"
+        result.cost_usd = 0.000010
+        return validate_output(result)
     elif tier == "fast":
         # LiteLLM 1.83.x can't handle groq/ provider — use direct groq_client
         result = groq_client.chat.completions.create(
