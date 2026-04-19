@@ -614,11 +614,67 @@ cost = litellm.completion_cost(
 
 ---
 
+## DSPy: What comes after manual prompting
+
+The curriculum mentions DSPy as part of v3. Here is what DSPy is, why it is not implemented yet, and exactly what you will do with it when the time comes.
+
+**The problem with hand-crafted prompts:**
+
+Every description in your `Field(description=...)` is a bet. "Concise description of what happened and why it matters" — you wrote that phrase. It works well for some logs, less well for others. You have no way to measure whether changing "Concise" to "Brief but specific" would improve accuracy, because you have no ground truth to measure against.
+
+This is hand-crafted prompt engineering: you write, try, observe, adjust. It does not scale. At 1,000 logs per day with Langfuse data, you could run 50 prompt variations and still not know which is actually best.
+
+**What DSPy does differently:**
+
+DSPy (Declarative Self-improving Language Programs) treats prompts as learnable parameters. Instead of writing "Concise description of what happened and why it matters", you define:
+1. What the task is (log → severity classification)
+2. What good output looks like (a few labeled examples)
+3. Which metric to optimize (accuracy vs ground truth)
+
+DSPy then systematically searches for the prompt that maximizes your metric. The prompt is found, not written.
+
+```python
+# The shape of DSPy (not implemented yet — requires eval dataset first)
+import dspy
+
+class LogClassifier(dspy.Signature):
+    """Classify incident severity from infrastructure log."""
+    log: str = dspy.InputField()
+    severity: str = dspy.OutputField(desc="P1, P2, P3, or P4")
+    summary: str = dspy.OutputField(desc="What happened and why it matters")
+
+class AOISClassifier(dspy.Module):
+    def __init__(self):
+        self.classify = dspy.ChainOfThought(LogClassifier)
+    
+    def forward(self, log):
+        return self.classify(log=log)
+
+# DSPy optimizes the prompt against your eval set
+# teleprompter = dspy.BootstrapFewShot(metric=accuracy_metric)
+# optimized_aois = teleprompter.compile(AOISClassifier(), trainset=labeled_logs)
+```
+
+**Why DSPy is deferred:**
+
+DSPy requires a ground truth dataset to optimize against. You need labeled examples of: this log → P2 severity, this log → P3 severity. You are building that dataset implicitly every time Langfuse records a call — but it is not labeled yet.
+
+The sequence in this curriculum:
+- v3: Instructor (guaranteed valid output) + Langfuse (record everything)
+- v15: First eval dataset — 500 labeled logs from running AOIS
+- v29 (Weights & Biases): Systematic prompt A/B testing with proper experiment tracking
+- DSPy optimization: meaningful only once you have labels to optimize against
+
+**The mental model to carry forward:**
+
+Instructor validates the *format* of AI output — the shape, the types, the constraints. DSPy optimizes the *quality* of AI output — the accuracy, the relevance, the actual correctness. Both are necessary in production. Instructor prevents malformed output. DSPy makes the output itself better. You will build both layers — the right order is format first, then quality.
+
 ## What v3 does not have (solved in later versions)
 
 | Gap | Fixed in |
 |-----|---------|
 | No eval suite — AOIS accuracy is not measured against ground truth | v15 (fine-tuning evals), v33 (systematic evals) |
+| DSPy prompt optimization — requires labeled dataset | v15+ once ground truth exists |
 | Prompt caching not fully restored after LiteLLM wrapping | Can be enabled with LiteLLM's `cache` config |
 | Langfuse requires manual account setup — not running locally | v16: Langfuse added to Docker Compose for local self-hosted observability |
 | In-memory fallback state — does not persist across restarts | Persistent state added with Redis/Postgres in later phases |
