@@ -20,6 +20,80 @@ This curriculum prepares for 2026-2028, not today.
 
 ---
 
+## Content Quality Standard (Non-Negotiable — Applies to Every Version, Past and Future)
+
+### The Bar in One Sentence
+Every `vN/notes.md` must be self-contained, practical-first, production-grade material that a motivated self-learner can follow without a teacher and come out with genuine mastery — not familiarity, not awareness, but the ability to do the thing under pressure.
+
+### What This Competes With
+The content in this repo must be better than:
+- **MIT Missing Semester** — the gold standard for "what school didn't teach you": precise, runbook-quality, every concept earned through a concrete problem
+- **Learn X the Hard Way** — famous for recognition/recall exercises; learners trigger real errors before they see real solutions
+- **fast.ai curriculum** — practical first, theory only appears to explain what you already built
+- **Official Kubernetes docs** — exact expected output on every command, nothing left ambiguous
+
+If a section reads like a Wikipedia summary or a vendor README, it is not done.
+
+### Content Principles (enforced in every version)
+
+**1. Practical-first — theory earns its place**
+Never introduce a concept before showing the problem it solves. The learner feels the pain first.
+- Wrong: "KEDA is a Kubernetes event-driven autoscaler that..." then installation steps
+- Right: Show fixed replicas burning money on idle nights, a load spike that strains the pod count — then introduce KEDA as the answer
+- Theory only appears after the learner has seen what breaks without it
+
+**2. Every command has expected output**
+Any command where "did it work?" is ambiguous MUST show the expected output verbatim. This is how a learner working alone at 2am knows they're on track.
+
+**3. Errors are curriculum, not accidents**
+Common mistakes must be deliberately triggered, not just described. The learner runs the wrong thing, sees the exact error, fixes it. This is the recognition/recall pattern — it produces real retention. If you've only ever seen success, you cannot diagnose failure in production.
+
+**4. Production-grade, not tutorial-grade**
+Every config, command, and pattern must reflect how this is done at organizations running it at scale. No `latest` image tags. No hardcoded secrets. No `replicas: 1` unless explained. The learner's muscle memory should be built on production habits from day one.
+
+**5. Fully self-contained**
+A learner with the stated prerequisites and nothing else must be able to complete the version from these notes alone. No "see the official docs for X" without providing the exact command or section needed. The notes are the source of truth.
+
+**6. Forward connections are explicit**
+Every concept connects explicitly to where it reappears. "You are learning the shape now so v17 is a three-line change." This is what separates a curriculum from a collection of tutorials. The learner must see how everything compounds.
+
+**7. Mental models over memorization**
+Build a model the learner can reason from, not a list of commands to copy. When the command is forgotten (it will be), the mental model lets them derive or find it. This is the difference between a practitioner and someone who copy-pasted through a tutorial.
+
+**8. AI content reflects where AI is heading, not where it currently is**
+Every AI section covers current state AND direction. What does production look like in 2026-2028? What is being superseded? What pattern persists when the framework changes? The learner is being prepared for what's coming, not certified in what exists today.
+
+**9. User-friendly language**
+No unexplained jargon. Every new term defined in one tight plain-English sentence when it first appears. Long concept sections broken by STOP exercises — the learner never reads more than ~10 minutes without doing something.
+
+### Mandatory Structure (every vN/notes.md, in this order)
+
+1. `⏱ **Estimated time: X–Y hours**` — immediately under the `#` heading
+2. `## Prerequisites` — verification commands with expected output (not just "have v8 done")
+3. `## Learning Goals` — "By the end you will be able to:" with concrete ability bullets, not topic names
+4. **Body** — practical-first, theory follows demonstration, every command has expected output
+5. **≥3 `▶ STOP — do this now` exercises** — hands-on, embedded in the body, each with expected output
+6. `## Common Mistakes` — named errors, exact symptom shown, fix given — recognition then recall (trigger the error, see it, fix it)
+7. `## Troubleshooting` — verbatim error messages, diagnosis steps, fix
+8. **Connection to later phases** — explicit forward references ("this is what changes in vN")
+9. `## Mastery Checkpoint` — 6–9 practical tasks closing with "The mastery bar:" statement
+
+### Minimum length
+- 600+ lines for focused versions
+- 800+ lines for complex versions (Kafka, LangGraph, multi-agent, observability stacks, GPU inference)
+- Length is a consequence of depth, not padding. Every line earns its place.
+
+### Audit command (run before declaring any version complete)
+```bash
+grep -c 'Estimated time\|## Prerequisites\|Learning [Gg]oals\|STOP — do this now\|Common Mistakes\|## Troubleshooting\|Connection to\|Mastery Checkpoint' curriculum/phaseN/vN/notes.md
+```
+Expected: 8+ matches. Line count must meet the minimum above. If either fails, the notes are not done.
+
+### Retroactive application
+This standard applies to ALL versions v0.1 through v34. Versions v0.1–v9 have been written — any found below this bar in a future session must be fixed before that session proceeds to the next version.
+
+---
+
 ## Time Investment (Honest Assessment)
 
 | Commitment | Time to Phase 4 (Job-ready AI SRE) | Time to Full Completion |
