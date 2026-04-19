@@ -1193,6 +1193,34 @@ Expected output:
 
 Hint: call a stored function from Python using `cur.execute("SELECT * FROM high_confidence_incidents(%s)", (0.85,))`.
 
+**Solution:**
+```python
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
+with psycopg2.connect(
+    host="localhost",
+    port=5432,
+    dbname="aois",
+    user="postgres",
+    password="aoisdev"
+) as conn:
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("SELECT * FROM high_confidence_incidents(%s)", (0.85,))
+        rows = cur.fetchall()
+        for row in rows:
+            print(f"[{row['model_used']}] {row['severity']} — {row['summary']} (conf: {float(row['confidence']):.2f})")
+```
+
+Save this as `query_incidents.py` and run it:
+```bash
+python3 query_incidents.py
+```
+
+If you get `connection refused`: the Postgres container is not running. Start it with `docker start aois-pg`.
+
+If you get `function high_confidence_incidents does not exist`: reconnect to psql and re-run the `CREATE OR REPLACE FUNCTION` block from Part 7.
+
 ---
 
 ## Common Mistakes
