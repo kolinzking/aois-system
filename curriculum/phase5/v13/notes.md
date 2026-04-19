@@ -782,7 +782,7 @@ curl -X POST http://localhost:8000/analyze \
 Then send the same log to `tier: premium`. Compare the `severity`, `summary`, and `suggested_action`. Does the quality difference justify the cost difference for P1/P2?
 
 **5. The cost-aware routing logic in code**
-Locate `SEVERITY_TIER_MAP` and the auto-route logic in `main.py`. Change the routing so P2 also goes to NIM (instead of Claude). Restart the server. Send a P2 log with `auto_route=true`. Verify the provider in the response is NIM. Then revert — P2 should stay on Claude. Explain why.
+Locate `SEVERITY_TIER_MAP` and the auto-route logic in `main.py`. Change the routing so P2 also goes to `fast` (Groq instead of Claude). Restart the server. Send a P2 log with `auto_route=true`. Verify the provider in the response is `groq/llama-3.1-8b-instant`. Then revert — P2 should stay on Claude. Explain why the quality difference between Groq and Claude matters more for P2 than for P3.
 
 **6. NIM in the inference landscape**
 Fill in this table from memory:
