@@ -74,6 +74,7 @@ MAX_PAYLOAD_BYTES = 20_000
 class LogInput(BaseModel):
     log: str
     tier: str = DEFAULT_TIER
+    auto_route: bool = False  # if True, re-route after first analysis based on severity
 
 
 class IncidentAnalysis(BaseModel):
