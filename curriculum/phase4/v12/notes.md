@@ -925,6 +925,22 @@ kubectl get serviceaccount -n aois
 # If aois-service-account is not listed, re-run the eksctl iamserviceaccount command
 ```
 
+**Helm install fails with `Namespace exists and cannot be imported`:**
+`eksctl create iamserviceaccount` creates the `aois` namespace automatically. Then `helm install` finds a namespace it didn't create and refuses to manage it:
+```
+Error: unable to continue with install: Namespace "aois" in namespace "" exists and cannot be imported
+into the current release: label validation error: missing key "app.kubernetes.io/managed-by"
+```
+Fix — adopt the namespace into Helm's management:
+```bash
+kubectl label namespace aois app.kubernetes.io/managed-by=Helm --overwrite
+kubectl annotate namespace aois \
+  meta.helm.sh/release-name=aois \
+  meta.helm.sh/release-namespace=aois \
+  --overwrite
+# Then re-run helm upgrade --install
+```
+
 **Pod crashes with `exec /usr/local/bin/python3: exec format error`:**
 The Docker image in ECR was built for a different architecture. Verify:
 ```bash
