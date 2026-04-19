@@ -813,6 +813,7 @@ Then add `.env` to `.gitignore` before anything else.
 - **Phase 3 (v8)**: ArgoCD watches the git repo. Every `git push` to main triggers a deployment. This is GitOps — git IS the source of truth for the cluster state.
 - **Phase 9 (v28)**: GitHub Actions runs on every push. The pipeline builds, tests, scans, and deploys automatically. Every workflow you write runs bash commands in response to git events.
 - **The CV angle**: By Phase 10, the commit history shows 34 versions of progressive complexity. That history is the evidence of your skills — more credible than any resume line.
+- **v4 (Docker)**: The `.gitignore` patterns you write here directly protect your `.env` file containing API keys — you will see exactly why in v4 when Docker builds your image.
 
 ---
 
