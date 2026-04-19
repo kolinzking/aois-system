@@ -652,18 +652,6 @@ Built and committed. Code complete:
 3. Run `python3 test_nim.py` — compare NIM vs Claude latency/cost on P3/P4 logs
 4. Complete mastery checkpoint in `curriculum/phase5/v13/notes.md`
 
-### v13 — INCOMPLETE (NGC API key required)
-Built and committed. Code complete:
-- `main.py` — NVIDIA NIM routing tier added
-- `test_nim.py` — benchmark script ready to run
-- `SEVERITY_TIER_MAP` — P1/P2→Claude, P3/P4→NIM auto-routing
-
-**Remaining:**
-1. Get NGC API key from build.nvidia.com
-2. Add `NVIDIA_NIM_API_KEY=<key>` to `.env`
-3. Run `python3 test_nim.py` — compare NIM vs Claude latency/cost on P3/P4 logs
-4. Complete mastery checkpoint in `curriculum/phase5/v13/notes.md`
-
 ### What v15 builds next
 - Curate 500-sample SRE log dataset
 - LoRA fine-tune Mistral-7B on Modal GPU
