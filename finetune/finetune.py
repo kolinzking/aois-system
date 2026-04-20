@@ -151,7 +151,7 @@ def train(train_data: list[dict], eval_data: list[dict], dry_run: bool = False):
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         dataset_text_field="text",
-        max_seq_length=512,
+        max_seq_length=256,
         tokenizer=tokenizer,
     )
 
