@@ -29,6 +29,9 @@ image = (
     )
     .pip_install(
         "vllm==0.7.3",
+        # transformers 4.47+ introduced TokenizersBackend which vLLM 0.7.3 doesn't handle.
+        # Pin to range where PreTrainedTokenizerFast exposes all_special_tokens_extended directly.
+        "transformers>=4.45.0,<4.47.0",
         "huggingface_hub",
         "hf_transfer",
         "httpx",
