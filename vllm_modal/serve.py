@@ -85,9 +85,6 @@ class VLLMServer:
                 "--port", str(VLLM_PORT),
                 "--gpu-memory-utilization", "0.90",
                 "--max-model-len", "8192",
-                # Mistral fast tokenizer (TokenizersBackend) missing all_special_tokens_extended.
-                # Slow mode uses Python tokenizer, avoids the Rust backend entirely.
-                "--tokenizer-mode", "slow",
             ]
         )
 
