@@ -48,7 +48,7 @@ app = modal.App("aois-finetune", image=image)
     gpu="a10g",
     timeout=3600,
     volumes={
-        BASE_DIR: model_volume,
+        BASE_DIR: tinyllama_volume,
         OUTPUT_DIR: lora_volume,
     },
 )
