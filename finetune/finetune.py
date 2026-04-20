@@ -75,7 +75,7 @@ def train(train_data: list[dict], eval_data: list[dict], dry_run: bool = False):
             local_dir=BASE_DIR,
             ignore_patterns=["*.pt", "*.gguf"],
         )
-        model_volume.commit()
+        tinyllama_volume.commit()
         print("Download complete.")
 
     # --- Load tokenizer and model ---
