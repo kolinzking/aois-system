@@ -111,6 +111,7 @@ def train(train_data: list[dict], eval_data: list[dict], dry_run: bool = False):
         bias="none",
     )
     model = get_peft_model(model, lora_config)
+    model.gradient_checkpointing_enable()
     model.print_trainable_parameters()
 
     # --- Format dataset ---
