@@ -61,10 +61,12 @@ def run():
                 enable_auto_commit=True,
                 value_deserializer=lambda b: json.loads(b.decode("utf-8")),
                 consumer_timeout_ms=1000,
+                api_version=(3, 7, 0),
             )
             producer = KafkaProducer(
                 bootstrap_servers=BOOTSTRAP_SERVERS,
                 value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+                api_version=(3, 7, 0),
             )
             logger.info(f"Connected to Kafka at {BOOTSTRAP_SERVERS}")
             break
