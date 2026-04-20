@@ -23,7 +23,7 @@ volume = modal.Volume.from_name("aois-model-weights", create_if_missing=True)
 # Adding only our proxy deps on top.
 image = (
     modal.Image.from_registry("vllm/vllm-openai:v0.6.6")
-    .pip_install("huggingface_hub", "hf_transfer", "httpx")
+    .run_commands("python3 -m pip install huggingface_hub hf_transfer httpx fastapi uvicorn")
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
 
