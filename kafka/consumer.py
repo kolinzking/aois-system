@@ -28,7 +28,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("aois.kafka")
 
-BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
 INPUT_TOPIC = "aois-logs"
 OUTPUT_TOPIC = "aois-results"
 CONSUMER_GROUP = "aois-workers"
