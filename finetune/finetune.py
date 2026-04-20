@@ -33,6 +33,7 @@ image = (
         "datasets==2.20.0",
         "accelerate==0.31.0",
         "bitsandbytes==0.43.1",
+        "sentencepiece",
         "rich",
         "huggingface_hub",
         "hf_transfer",
