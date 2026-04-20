@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
 INPUT_TOPIC = "aois-logs"
 
 # Realistic SRE log samples — same categories as the fine-tuning dataset
