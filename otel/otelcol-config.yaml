@@ -1,0 +1,59 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+  # Add resource attributes to every span/metric/log
+  resource:
+    attributes:
+      - key: service.namespace
+        value: aois
+        action: upsert
+
+exporters:
+  # Traces → Tempo
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+  # Metrics → Prometheus (scraped by Prometheus)
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: aois
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # Logs → Loki
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+    default_labels_enabled:
+      exporter: false
+      job: true
+
+  # Debug (comment out in production — prints every span to collector stdout)
+  # debug:
+  #   verbosity: detailed
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch, resource]
+      exporters: [otlp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [batch, resource]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [batch, resource]
+      exporters: [loki]
