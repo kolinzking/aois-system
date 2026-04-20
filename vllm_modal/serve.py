@@ -35,6 +35,20 @@ image = (
         "fastapi",
         "uvicorn",
     )
+    .run_commands(
+        # vLLM 0.8.x accesses tokenizer.all_special_tokens_extended without a hasattr guard.
+        # TokenizersBackend (Rust fast tokenizer) dropped this attribute in tokenizers 0.21+.
+        # Patch: replace direct access with getattr(..., []) so it gracefully returns empty list.
+        "python3 -c \""
+        "import pathlib; "
+        "p = pathlib.Path('/usr/local/lib/python3.11/site-packages/vllm/transformers_utils/tokenizer.py'); "
+        "t = p.read_text(); "
+        "t2 = t.replace('tokenizer.all_special_tokens_extended)', "
+        "'getattr(tokenizer, \\\\\"all_special_tokens_extended\\\\\", []))'); "
+        "p.write_text(t2); "
+        "print('patch applied' if t2 != t else 'nothing to patch')"
+        "\""
+    )
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
 
