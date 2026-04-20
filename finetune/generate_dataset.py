@@ -111,6 +111,10 @@ def analyze_log(log: str) -> dict | None:
             messages=[{"role": "user", "content": f"Log: {log}"}],
         )
         response_text = msg.content[0].text.strip()
+        # Strip markdown code fences if present
+        if response_text.startswith("```"):
+            lines = response_text.split("\n")
+            response_text = "\n".join(lines[1:-1]).strip()
         analysis = json.loads(response_text)
         # Validate required fields
         assert all(k in analysis for k in ["summary", "severity", "suggested_action", "confidence"])
