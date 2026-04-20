@@ -22,10 +22,7 @@ volume = modal.Volume.from_name("aois-model-weights", create_if_missing=True)
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
-        "vllm==0.4.3",
-        # Pin transformers to range where lmformatenforcer is compatible.
-        # transformers>=4.44 removed LogitsWarper which lmformatenforcer 0.x requires.
-        "transformers>=4.40.0,<4.44.0",
+        "vllm==0.6.6",
         "huggingface_hub",
         "hf_transfer",
         "httpx",
