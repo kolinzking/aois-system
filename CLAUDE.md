@@ -698,11 +698,18 @@ requires explicit validation. Do not skip this step.
 
 ---
 
-### What v15 builds next
-- Curate 500-sample SRE log dataset
-- LoRA fine-tune Mistral-7B on Modal GPU
-- Deploy fine-tuned model to the same vLLM endpoint built in v14
-- Eval: fine-tuned vs base vLLM vs Claude — where specialization beats general reasoning
+### v15 — COMPLETE
+- **Dataset**: 500 SRE log→analysis pairs generated via Claude Haiku, split 450 train / 50 eval
+- **Fine-tune**: TinyLlama-1.1B LoRA (r=16, q+v proj), 63s on A10G, loss 2.25→0.23
+- **Eval results**: Base: 2% JSON valid. Fine-tuned: 94% JSON valid, 44% severity match. Claude Haiku: 100% JSON valid, 80% severity match.
+- **Verdict**: Fine-tuning bought 42pp severity improvement over base; Claude leads by 36pp — scale gap is real. P3/P4 volume → fine-tuned TinyLlama. P1/P2 → Claude.
+- Adapter saved: `aois-lora-weights` Modal volume at `/models/tinyllama-sre-lora`
+
+### What v16 builds next (Phase 6)
+- OpenTelemetry end-to-end instrumentation
+- Trace every request: HTTP → prompt build → LLM call → cache → response
+- OTel LLM semantic conventions: model, tokens, cost, cache hits per span
+- Unified in Grafana: Loki (logs) + Tempo (traces) + Prometheus (metrics)
 
 ### Current root-level state
 - `/main.py` — v14 implementation (vllm tier added, api_base routing via VLLM_MODAL_URL)
