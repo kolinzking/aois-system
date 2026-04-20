@@ -21,3 +21,9 @@ keda:
   cooldownPeriod: 300
   cpu:
     targetUtilization: "60"
+  kafka:
+    enabled: true             # switch to Kafka-based scaling once Strimzi is deployed
+    bootstrapServers: "aois-kafka-kafka-bootstrap.kafka.svc.cluster.local:9092"
+    consumerGroup: "aois-workers"
+    topic: "aois-logs"
+    lagThreshold: "50"
