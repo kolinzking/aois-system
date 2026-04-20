@@ -19,11 +19,19 @@ VLLM_PORT = 8000
 
 volume = modal.Volume.from_name("aois-model-weights", create_if_missing=True)
 
-# Use the official vLLM image — CUDA, PyTorch, transformers, tokenizers all pre-solved.
-# Adding only our proxy deps on top.
 image = (
-    modal.Image.from_registry("vllm/vllm-openai:v0.6.6")
-    .run_commands("python3 -m pip install huggingface_hub hf_transfer httpx fastapi uvicorn")
+    modal.Image.from_registry(
+        "nvidia/cuda:12.4.0-devel-ubuntu22.04",
+        add_python="3.11",
+    )
+    .pip_install(
+        "vllm==0.6.6",
+        "huggingface_hub",
+        "hf_transfer",
+        "httpx",
+        "fastapi",
+        "uvicorn",
+    )
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
 
