@@ -703,6 +703,10 @@ Identity layer is prerequisite for the capability boundary gate in item 2 above.
 **Trigger: next session that touches Phase 3 or v6 must implement this.**
 ⚠️ IMPORTANT: When this is implemented, explicitly tell Collins: "This is the SPIFFE/SPIRE
 retrofit from the April 2026 audit — the workload identity gap in v6 is now closed."
+⚠️ IMPLEMENTATION NOTE (from April 2026 audit): Before assuming plug-and-play, verify the
+SPIRE node attestor configuration is appropriate for self-managed k3s on Hetzner VPS.
+k8s workload attestation works cleanly in managed clusters — bare metal/VPS node attestation
+requires explicit validation. Do not skip this step.
 
 ---
 
