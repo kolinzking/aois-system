@@ -194,6 +194,7 @@ def run_model_eval(eval_data: list[dict]) -> dict:
 # Local side — Claude Haiku eval (runs on your machine, API calls)
 # ---------------------------------------------------------------------------
 def eval_claude(eval_data: list[dict]) -> dict:
+    from anthropic import Anthropic
     client = Anthropic()
     scores = []
     print("\n=== Claude Haiku ===")
