@@ -64,6 +64,19 @@ def train(train_data: list[dict], eval_data: list[dict], dry_run: bool = False):
     print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
     print(f"Train samples: {len(train_data)} | Eval samples: {len(eval_data)}")
 
+    # --- Download model if not already in volume ---
+    if not os.path.exists(f"{BASE_DIR}/config.json"):
+        from huggingface_hub import snapshot_download
+        print(f"Downloading {MODEL_ID} to volume...")
+        snapshot_download(
+            MODEL_ID,
+            revision=MODEL_REVISION,
+            local_dir=BASE_DIR,
+            ignore_patterns=["*.pt", "*.gguf"],
+        )
+        model_volume.commit()
+        print("Download complete.")
+
     # --- Load tokenizer and model ---
     print(f"\nLoading {MODEL_ID}...")
     tokenizer = AutoTokenizer.from_pretrained(
