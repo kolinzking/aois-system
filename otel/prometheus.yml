@@ -16,4 +16,4 @@ scrape_configs:
       - targets: ["aois:8000"]
         labels:
           service: aois
-    metrics_path: /metrics
+    metrics_path: /metrics/
