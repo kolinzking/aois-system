@@ -85,9 +85,10 @@ services:
   loki:
     image: grafana/loki:3.0.0
     command: ["-config.file=/etc/loki/config.yaml"]
+    user: "0"
     volumes:
       - ./otel/loki-config.yaml:/etc/loki/config.yaml:ro
-      - loki_data:/tmp/loki
+      - loki_data:/loki
     ports:
       - "3100:3100"
     restart: unless-stopped
