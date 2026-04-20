@@ -713,11 +713,18 @@ requires explicit validation. Do not skip this step.
 - Grafana pre-provisioned: Prometheus + Loki + Tempo datasources, AOIS LLM dashboard
 - Pipeline validated: request → Prometheus query confirms `aois_incidents_total` scraped
 
-### What v17 builds next (Phase 6 continues)
-- Kafka on k8s (Strimzi operator)
-- Applications publish logs to Kafka topic
-- AOIS consumes in real-time, analyzes, publishes results to another topic
-- KEDA scales AOIS pods based on Kafka consumer lag
+### v17 — COMPLETE
+- Local: `apache/kafka:3.7.0` in Docker Compose (KRaft, dual-listener for host+container access)
+- `kafka/producer.py` — load generator publishing SRE log events to `aois-logs` at configurable rate
+- `kafka/consumer.py` — long-lived worker: read `aois-logs` → `analyze()` → publish to `aois-results`
+- k8s: Strimzi operator + Kafka 4.1.0 cluster on Hetzner — `aois-logs` and `aois-results` topics
+- KEDA ScaledObject switched from CPU trigger to Kafka consumer lag trigger (`lagThreshold=50`)
+- Full pipeline validated: producer → Kafka → consumer → analysis → `aois-results`
+
+### What v18 builds next (Phase 6 continues)
+- Cilium replaces kube-proxy: L7 network policy, deep observability
+- Falco: runtime rules — alert on unexpected syscalls, network connections, process behaviors
+- Falco alerts published to `aois-logs` Kafka topic — AI-analyzed security events
 
 ### Current root-level state
 - `/main.py` — v16 implementation (OTel instrumented, Prometheus metrics, GenAI spans)
