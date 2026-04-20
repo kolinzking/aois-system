@@ -52,3 +52,9 @@ keda:
   pollingInterval: 30   # seconds between KEDA metric checks
   cpu:
     targetUtilization: "50"   # percent — scale up when CPU exceeds this
+  kafka:
+    enabled: false            # set true in values.prod.yaml when Kafka is deployed
+    bootstrapServers: "aois-kafka-kafka-bootstrap.kafka.svc.cluster.local:9092"
+    consumerGroup: "aois-workers"
+    topic: "aois-logs"
+    lagThreshold: "50"        # scale up when lag > 50 unprocessed messages per replica
