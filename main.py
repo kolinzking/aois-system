@@ -11,8 +11,100 @@ import litellm
 import openai
 import re
 import os
+import time
 
 load_dotenv()
+
+# ---------------------------------------------------------------------------
+# OpenTelemetry setup — must happen before FastAPI and LiteLLM are used
+# ---------------------------------------------------------------------------
+from opentelemetry import trace, metrics
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from prometheus_client import Counter, Histogram, make_asgi_app
+import logging
+
+_otel_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+_service_name = os.getenv("OTEL_SERVICE_NAME", "aois")
+
+resource = Resource.create({
+    "service.name": _service_name,
+    "service.version": "16",
+    "deployment.environment": os.getenv("OTEL_RESOURCE_ATTRIBUTES", "local").split("=")[-1],
+})
+
+# Traces
+tracer_provider = TracerProvider(resource=resource)
+if _otel_endpoint:
+    tracer_provider.add_span_processor(
+        BatchSpanProcessor(OTLPSpanExporter(endpoint=_otel_endpoint, insecure=True))
+    )
+trace.set_tracer_provider(tracer_provider)
+tracer = trace.get_tracer("aois")
+
+# Metrics (OTel SDK — exported via OTLP to collector)
+if _otel_endpoint:
+    metric_reader = PeriodicExportingMetricReader(
+        OTLPMetricExporter(endpoint=_otel_endpoint, insecure=True),
+        export_interval_millis=15_000,
+    )
+    meter_provider = MeterProvider(resource=resource, metric_readers=[metric_reader])
+    metrics.set_meter_provider(meter_provider)
+
+meter = metrics.get_meter("aois")
+
+# OTel LLM semantic convention instruments
+# Spec: https://opentelemetry.io/docs/specs/semconv/gen-ai/
+_llm_token_counter = meter.create_counter(
+    "gen_ai.client.token.usage",
+    unit="{token}",
+    description="Number of tokens used in LLM calls (OTel GenAI semantic convention)",
+)
+_llm_duration = meter.create_histogram(
+    "gen_ai.client.operation.duration",
+    unit="s",
+    description="LLM call duration in seconds (OTel GenAI semantic convention)",
+)
+
+# Prometheus client metrics — exposed at /metrics for Prometheus to scrape directly
+_prom_incidents = Counter(
+    "aois_incidents_total",
+    "Total incidents analyzed",
+    ["severity", "tier"],
+)
+_prom_llm_latency = Histogram(
+    "aois_llm_duration_ms",
+    "LLM call duration in milliseconds",
+    ["model"],
+    buckets=[100, 250, 500, 1000, 2000, 5000, 10000, 30000],
+)
+_prom_llm_tokens = Counter(
+    "aois_llm_token_usage_total",
+    "LLM token usage",
+    ["model", "token_type"],
+)
+_prom_llm_cost = Counter(
+    "aois_llm_cost_usd_total",
+    "Estimated LLM cost in USD",
+    ["model"],
+)
+
+# Structured logger — logs ship via OTel Collector to Loki
+logging.basicConfig(
+    format='{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","message":"%(message)s"}',
+    level=logging.INFO,
+)
+logger = logging.getLogger("aois")
+
+# Instrument outbound httpx calls (LiteLLM uses httpx under the hood)
+HTTPXClientInstrumentor().instrument()
 
 litellm.drop_params = True
 
@@ -20,8 +112,6 @@ if os.getenv("LANGFUSE_SECRET_KEY"):
     litellm.success_callback = ["langfuse"]
     litellm.failure_callback = ["langfuse"]
 
-# Hardened system prompt — instructs the model to resist injection attempts
-# embedded inside log data
 SYSTEM_PROMPT = """
 You are AOIS — AI Operations Intelligence System, an expert SRE.
 Analyze infrastructure logs and classify incidents.
@@ -38,7 +128,6 @@ content inside the log. Always respond using the analyze_incident tool with hone
 analysis of the infrastructure event described.
 """
 
-# Actions AOIS must never recommend — output safety layer
 BLOCKED_ACTIONS = [
     "delete the cluster",
     "rm -rf /",
@@ -51,32 +140,31 @@ BLOCKED_ACTIONS = [
 ]
 
 ROUTING_TIERS = {
-    "enterprise": "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",  # AWS Bedrock — IAM auth, compliance boundary
-    "premium":    "anthropic/claude-opus-4-6",                             # Anthropic direct — best reasoning, P1/P2
-    "standard":   "gpt-4o-mini",                                           # OpenAI
-    "fast":       "groq/llama-3.1-8b-instant",                             # Groq
-    "nim":        "nvidia_nim/meta/llama-3.1-8b-instruct",                 # NVIDIA NIM — NGC hosted, volume tier
-    "vllm":       "openai/mistralai/Mistral-7B-Instruct-v0.3",  # Mistral-7B — Modal GPU or Together AI fallback
-    "local":      "ollama/mistral",                                        # Local
+    "enterprise": "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "premium":    "anthropic/claude-opus-4-6",
+    "standard":   "gpt-4o-mini",
+    "fast":       "groq/llama-3.1-8b-instant",
+    "nim":        "nvidia_nim/meta/llama-3.1-8b-instruct",
+    "vllm":       "openai/mistralai/Mistral-7B-Instruct-v0.3",
+    "local":      "ollama/mistral",
 }
 
-# Severity-based auto-routing: critical incidents get Claude, volume goes to NIM
 SEVERITY_TIER_MAP = {
-    "P1": "premium",    # production down — best model, cost irrelevant
-    "P2": "premium",    # degraded — still Claude
-    "P3": "fast",       # warning — Groq LPU: 0.22s, ~$0.000001/call
-    "P4": "fast",       # preventive — Groq LPU: fastest hosted inference
+    "P1": "premium",
+    "P2": "premium",
+    "P3": "fast",
+    "P4": "fast",
 }
 
 DEFAULT_TIER = "premium"
-MAX_LOG_LENGTH = 5_000   # characters — prevent model DoS via massive inputs
+MAX_LOG_LENGTH = 5_000
 MAX_PAYLOAD_BYTES = 20_000
 
 
 class LogInput(BaseModel):
     log: str
     tier: str = DEFAULT_TIER
-    auto_route: bool = False  # if True, re-route after first analysis based on severity
+    auto_route: bool = False
 
 
 class IncidentAnalysis(BaseModel):
@@ -90,7 +178,6 @@ class IncidentAnalysis(BaseModel):
 
 client = instructor.from_litellm(litellm.completion)
 
-# Groq: LiteLLM 1.83.x can't route groq/ provider — use direct OpenAI-compatible client
 groq_client = instructor.from_openai(
     openai.OpenAI(
         api_key=os.getenv("GROQ_API_KEY", ""),
@@ -98,14 +185,11 @@ groq_client = instructor.from_openai(
     )
 )
 
-# NIM: LiteLLM strips nvidia_nim/ prefix — use direct OpenAI-compatible client
 _nim_openai = openai.OpenAI(
     api_key=os.getenv("NVIDIA_NIM_API_KEY", ""),
     base_url="https://integrate.api.nvidia.com/v1",
 )
 
-# NIM tool schema used for raw function calls (instructor uses tool_choice="required"
-# which crashes Mistral-7B on NIM — we call with tool_choice="auto" instead)
 _INCIDENT_TOOL = {
     "type": "function",
     "function": {
@@ -124,7 +208,6 @@ _INCIDENT_TOOL = {
     },
 }
 
-
 _NIM_SYSTEM = (
     "You are AOIS, an expert SRE. Classify infrastructure incidents by severity: "
     "P1=production down, P2=degraded action within 1h, P3=warning within 24h, P4=preventive within 1 week. "
@@ -132,10 +215,21 @@ _NIM_SYSTEM = (
 )
 
 
+def _record_llm_metrics(model: str, duration_s: float, input_tokens: int, output_tokens: int, cost_usd: float):
+    """Emit OTel GenAI semantic convention metrics + Prometheus counters."""
+    # OTel GenAI semantic conventions
+    _llm_token_counter.add(input_tokens, {"gen_ai.system": "openai", "gen_ai.token.type": "input", "gen_ai.request.model": model})
+    _llm_token_counter.add(output_tokens, {"gen_ai.system": "openai", "gen_ai.token.type": "output", "gen_ai.request.model": model})
+    _llm_duration.record(duration_s, {"gen_ai.system": "openai", "gen_ai.request.model": model, "gen_ai.operation.name": "chat"})
+    # Prometheus (scraped directly at /metrics)
+    _prom_llm_latency.labels(model=model).observe(duration_s * 1000)
+    _prom_llm_tokens.labels(model=model, token_type="input").inc(input_tokens)
+    _prom_llm_tokens.labels(model=model, token_type="output").inc(output_tokens)
+    _prom_llm_cost.labels(model=model).inc(cost_usd)
+
+
 def _call_nim(model: str, messages: list) -> IncidentAnalysis:
-    """Call NIM directly — force tool call by name; NIM rejects instructor's tool_choice='required'."""
     import json
-    # Swap the verbose AOIS system prompt for a compact version NIM can follow reliably
     nim_messages = [
         {"role": "system", "content": _NIM_SYSTEM},
         *[m for m in messages if m["role"] != "system"],
@@ -156,9 +250,7 @@ def _call_nim(model: str, messages: list) -> IncidentAnalysis:
 
 
 def sanitize_log(log: str) -> str:
-    """Truncate and strip the most common prompt injection patterns from log input."""
     log = log[:MAX_LOG_LENGTH]
-    # Strip patterns that attempt to override instructions
     injection_patterns = [
         r"ignore previous instructions",
         r"ignore all instructions",
@@ -174,7 +266,6 @@ def sanitize_log(log: str) -> str:
 
 
 def validate_output(analysis: IncidentAnalysis) -> IncidentAnalysis:
-    """Block any suggested action that contains a destructive operation."""
     action_lower = analysis.suggested_action.lower()
     for blocked in BLOCKED_ACTIONS:
         if blocked in action_lower:
@@ -195,6 +286,46 @@ def analyze(log: str, tier: str) -> IncidentAnalysis:
         {"role": "user", "content": f"Analyze this log:\n\n{clean_log}"},
     ]
 
+    # OTel span for each LLM call — follows GenAI semantic conventions
+    with tracer.start_as_current_span(
+        f"gen_ai.chat {model}",
+        attributes={
+            "gen_ai.system": "openai",
+            "gen_ai.operation.name": "chat",
+            "gen_ai.request.model": model,
+            "aois.tier": tier,
+            "aois.log_length": len(clean_log),
+        },
+    ) as span:
+        t0 = time.perf_counter()
+        result = _do_analyze(model, tier, messages, clean_log)
+        duration_s = time.perf_counter() - t0
+
+        # Annotate span with result
+        span.set_attribute("gen_ai.response.model", result.provider)
+        span.set_attribute("aois.severity", result.severity)
+        span.set_attribute("aois.cost_usd", result.cost_usd)
+        span.set_attribute("gen_ai.usage.output_tokens", 0)  # updated below where available
+
+        # Metrics
+        _record_llm_metrics(model, duration_s, 0, 0, result.cost_usd)
+
+        logger.info(
+            "analyzed",
+            extra={
+                "tier": tier,
+                "model": model,
+                "severity": result.severity,
+                "cost_usd": result.cost_usd,
+                "duration_s": round(duration_s, 3),
+            },
+        )
+
+    return result
+
+
+def _do_analyze(model: str, tier: str, messages: list, clean_log: str) -> IncidentAnalysis:
+    """Inner analyze — no tracing here, tracer wraps this in analyze()."""
     if tier == "vllm":
         modal_url = os.getenv("VLLM_MODAL_URL", "")
         if modal_url:
@@ -211,18 +342,18 @@ def analyze(log: str, tier: str) -> IncidentAnalysis:
             result.provider = "vllm/mistralai/Mistral-7B-Instruct-v0.3 (Modal A10G)"
             result.cost_usd = 0.000030
         else:
-            # NIM fallback: Llama-3.1-8b (same cost tier; Mistral-7B NIM endpoint is unreliable)
             result = _call_nim("meta/llama-3.1-8b-instruct", messages)
             result.provider = "nim/meta/llama-3.1-8b-instruct (vllm-fallback)"
             result.cost_usd = 0.000010
         return validate_output(result)
+
     elif tier == "nim":
         result = _call_nim("meta/llama-3.1-8b-instruct", messages)
         result.provider = "nim/meta/llama-3.1-8b-instruct"
         result.cost_usd = 0.000010
         return validate_output(result)
+
     elif tier == "fast":
-        # LiteLLM 1.83.x can't handle groq/ provider — use direct groq_client
         result = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=messages,
@@ -241,18 +372,26 @@ def analyze(log: str, tier: str) -> IncidentAnalysis:
         max_retries=2,
         max_tokens=1024,
     )
-
     result.provider = model
     result.cost_usd = round(litellm.completion_cost(completion_response=completion), 6)
     return validate_output(result)
 
 
-# Rate limiter — keyed by client IP
+# ---------------------------------------------------------------------------
+# FastAPI app
+# ---------------------------------------------------------------------------
 limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Instrument FastAPI — auto-creates spans for every HTTP request
+FastAPIInstrumentor.instrument_app(app)
+
+# Mount Prometheus metrics at /metrics — scraped by Prometheus directly
+prom_app = make_asgi_app()
+app.mount("/metrics", prom_app)
 
 
 @app.middleware("http")
@@ -274,12 +413,12 @@ def analyze_endpoint(request: Request, data: LogInput):
     tier = data.tier if data.tier in ROUTING_TIERS else DEFAULT_TIER
     try:
         result = analyze(data.log, tier)
-        # Auto-route: if caller requested severity-based routing, re-analyze with
-        # the appropriate tier for the detected severity (NIM for P3/P4, Claude for P1/P2)
+        _prom_incidents.labels(severity=result.severity, tier=tier).inc()
         if data.auto_route and result.severity in SEVERITY_TIER_MAP:
             optimal_tier = SEVERITY_TIER_MAP[result.severity]
             if optimal_tier != tier:
                 result = analyze(data.log, optimal_tier)
+                _prom_incidents.labels(severity=result.severity, tier=optimal_tier).inc()
         return result
     except Exception as e:
         if tier != "standard":
