@@ -25,7 +25,7 @@ image = (
         add_python="3.11",
     )
     .pip_install(
-        "vllm==0.6.6",
+        "vllm==0.7.3",
         "huggingface_hub",
         "hf_transfer",
         "httpx",
