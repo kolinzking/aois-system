@@ -1,0 +1,22 @@
+{
+  "base": {
+    "json_valid_pct": 2.0,
+    "fields_present_pct": 2.0,
+    "severity_match_pct": 2.0,
+    "confidence_valid_pct": 2.0
+  },
+  "finetuned": {
+    "json_valid_pct": 94.0,
+    "fields_present_pct": 66.0,
+    "severity_match_pct": 44.0,
+    "confidence_valid_pct": 57.99999999999999
+  },
+  "claude_haiku": {
+    "json_valid_pct": 100.0,
+    "fields_present_pct": 100.0,
+    "severity_match_pct": 80.0,
+    "confidence_valid_pct": 100.0
+  },
+  "eval_samples": 50,
+  "gpu_time_s": 251.20435070991516
+}
