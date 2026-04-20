@@ -650,17 +650,30 @@ curl -X POST https://l9ryxlxtpe.execute-api.us-east-1.amazonaws.com/prod/analyze
 ```
 Then measure cold vs warm start, check CloudWatch logs, complete mastery checkpoint.
 
-### v13 — INCOMPLETE (NGC API key required)
-Built and committed. Code complete:
-- `main.py` — NVIDIA NIM routing tier added
-- `test_nim.py` — benchmark script ready to run
-- `SEVERITY_TIER_MAP` — P1/P2→Claude, P3/P4→NIM auto-routing
+### v14 — INCOMPLETE (Modal serve.py needs rewrite)
+Code and benchmark complete. One blocker remaining:
 
-**Remaining:**
-1. Get NGC API key from [build.nvidia.com](https://build.nvidia.com)
-2. Add `NVIDIA_NIM_API_KEY=<key>` to `.env`
-3. Run `python3 test_nim.py` — compare NIM vs Claude latency/cost on P3/P4 logs
-4. Complete mastery checkpoint in `curriculum/phase5/v13/notes.md`
+**The bug:** `@modal.fastapi_endpoint` returns empty body / 303 redirect for vLLM's async engine. vLLM needs full ASGI lifecycle control.
+
+**The fix:** Rewrite `vllm_modal/serve.py` using `@modal.asgi_app()` pattern:
+```python
+@app.cls(gpu="a10g", ...)
+class VLLMServer:
+    @modal.enter()
+    def load(self): ...  # start vLLM engine + OpenAIServingChat
+
+    @modal.asgi_app()
+    def serve(self):
+        from vllm.entrypoints.openai.api_server import build_app
+        return build_app(...)  # returns a real ASGI app
+```
+
+**To resume next session:**
+1. Rewrite serve.py with @modal.asgi_app() pattern
+2. `modal deploy vllm_modal/serve.py`
+3. Set `VLLM_MODAL_URL` in `.env` (uncomment the line)
+4. Run `python3 test_vllm.py` — benchmark Modal GPU vs Claude
+5. Update benchmark data in curriculum/phase5/v14/notes.md
 
 ### What v15 builds next
 - Curate 500-sample SRE log dataset
