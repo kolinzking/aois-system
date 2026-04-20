@@ -258,6 +258,9 @@ def eval_claude(eval_data: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 @app.local_entrypoint()
 def main():
+    from dotenv import load_dotenv
+    load_dotenv()
+
     if not EVAL_PATH.exists():
         print("ERROR: finetune/sre_eval.jsonl not found. Run generate_dataset.py first.")
         return
