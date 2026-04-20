@@ -5,9 +5,14 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otelcol:4317
+      OTEL_SERVICE_NAME: aois
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=local
     depends_on:
       - redis
       - postgres
+      - otelcol
     restart: unless-stopped
 
   redis:
@@ -28,5 +33,79 @@ services:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
+  # OpenTelemetry Collector — receives spans/metrics/logs from AOIS,
+  # fans out to Tempo (traces), Prometheus (metrics), Loki (logs)
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.102.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel/otelcol-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus metrics exporter
+    depends_on:
+      - tempo
+      - loki
+    restart: unless-stopped
+
+  # Prometheus — scrapes OTel Collector metrics + AOIS /metrics
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./otel/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  # Grafana — dashboards for traces, metrics, logs
+  grafana:
+    image: grafana/grafana:11.0.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./otel/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    restart: unless-stopped
+
+  # Loki — log aggregation (receives logs from OTel Collector)
+  loki:
+    image: grafana/loki:3.0.0
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./otel/loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/tmp/loki
+    ports:
+      - "3100:3100"
+    restart: unless-stopped
+
+  # Tempo — distributed tracing backend
+  tempo:
+    image: grafana/tempo:2.5.0
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    volumes:
+      - ./otel/tempo-config.yaml:/etc/tempo/config.yaml:ro
+      - tempo_data:/tmp/tempo
+    ports:
+      - "3200:3200"
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  tempo_data:
