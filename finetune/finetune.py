@@ -19,7 +19,7 @@ BASE_DIR = "/models/tinyllama-1b"
 OUTPUT_DIR = "/models/tinyllama-sre-lora"
 
 # Persistent volumes: base model weights + trained adapter
-model_volume = modal.Volume.from_name("aois-model-weights", create_if_missing=True)
+tinyllama_volume = modal.Volume.from_name("aois-tinyllama-weights", create_if_missing=True)
 lora_volume = modal.Volume.from_name("aois-lora-weights", create_if_missing=True)
 
 image = (
