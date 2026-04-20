@@ -14,8 +14,20 @@ spec:
   cooldownPeriod: {{ .Values.keda.cooldownPeriod }}
   pollingInterval: {{ .Values.keda.pollingInterval }}
   triggers:
+    {{- if .Values.keda.kafka.enabled }}
+    # Scale on Kafka consumer lag — AOIS scales to zero when no logs,
+    # bursts to maxReplicas when the topic fills up under load.
+    - type: kafka
+      metadata:
+        bootstrapServers: {{ .Values.keda.kafka.bootstrapServers }}
+        consumerGroup: {{ .Values.keda.kafka.consumerGroup }}
+        topic: {{ .Values.keda.kafka.topic }}
+        lagThreshold: "{{ .Values.keda.kafka.lagThreshold }}"
+        offsetResetPolicy: latest
+    {{- else }}
     - type: cpu
       metricType: Utilization
       metadata:
         value: "{{ .Values.keda.cpu.targetUtilization }}"
+    {{- end }}
 {{- end }}
