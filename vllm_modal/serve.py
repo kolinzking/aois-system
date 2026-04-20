@@ -2,11 +2,12 @@
 vLLM inference server on Modal — OpenAI-compatible API.
 
 Serves Mistral-7B-Instruct-v0.3 on a single A10G GPU.
-Uses @modal.asgi_app() so vLLM's async engine has full ASGI lifecycle control.
+
+Pattern: vLLM's built-in OpenAI server runs as a subprocess on port 8000.
+The @modal.asgi_app() proxies all requests to it — version-agnostic and clean.
 
 Deploy:  modal deploy vllm_modal/serve.py
 Test:    curl https://<endpoint>/health
-         curl -X POST https://<endpoint>/v1/chat/completions ...
 """
 
 import modal
@@ -14,6 +15,7 @@ import modal
 MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
 MODEL_REVISION = "e0bc86c23ce5aae1db576c8cca6f06f1f73af2db"
 MODEL_DIR = "/models/mistral-7b"
+VLLM_PORT = 8000
 
 volume = modal.Volume.from_name("aois-model-weights", create_if_missing=True)
 
@@ -21,8 +23,12 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
         "vllm==0.4.3",
+        # Pin transformers to range where lmformatenforcer is compatible.
+        # transformers>=4.44 removed LogitsWarper which lmformatenforcer 0.x requires.
+        "transformers>=4.40.0,<4.44.0",
         "huggingface_hub",
         "hf_transfer",
+        "httpx",
         "fastapi",
         "uvicorn",
     )
@@ -63,66 +69,78 @@ def download_model():
 class VLLMServer:
     @modal.enter()
     def load(self):
-        import asyncio
-        from vllm import AsyncEngineArgs, AsyncLLMEngine
-        from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
+        import subprocess
+        import time
+        import httpx
 
-        engine_args = AsyncEngineArgs(
-            model=MODEL_DIR,
-            gpu_memory_utilization=0.90,
-            max_model_len=8192,
-            enforce_eager=False,
+        self.proc = subprocess.Popen(
+            [
+                "python", "-m", "vllm.entrypoints.openai.api_server",
+                "--model", MODEL_DIR,
+                "--served-model-name", MODEL_ID,
+                "--host", "127.0.0.1",
+                "--port", str(VLLM_PORT),
+                "--gpu-memory-utilization", "0.90",
+                "--max-model-len", "8192",
+            ]
         )
-        self.engine = AsyncLLMEngine.from_engine_args(engine_args)
-        self.model_config = asyncio.get_event_loop().run_until_complete(
-            self.engine.get_model_config()
-        )
-        self.chat = OpenAIServingChat(
-            self.engine,
-            self.model_config,
-            served_model_names=[MODEL_ID],
-            response_role="assistant",
-            chat_template=None,
+
+        print("Waiting for vLLM server to be ready (model loading)...")
+        client = httpx.Client()
+        for attempt in range(120):  # 10 minutes max
+            try:
+                r = client.get(f"http://127.0.0.1:{VLLM_PORT}/health", timeout=5)
+                if r.status_code == 200:
+                    print(f"vLLM server ready after {attempt * 5}s")
+                    break
+            except Exception:
+                pass
+            time.sleep(5)
+        else:
+            self.proc.kill()
+            raise RuntimeError("vLLM server failed to start within 10 minutes")
+
+        self.http_client = httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{VLLM_PORT}",
+            timeout=300,
         )
 
     @modal.asgi_app()
     def serve(self):
         from fastapi import FastAPI, Request
-        from fastapi.responses import JSONResponse, StreamingResponse
-        from vllm.entrypoints.openai.protocol import (
-            ChatCompletionRequest,
-            ErrorResponse,
-        )
+        from fastapi.responses import JSONResponse, StreamingResponse, Response
 
         fastapi_app = FastAPI(title="AOIS vLLM", version="0.1.0")
+        client = self.http_client
 
-        @fastapi_app.get("/health")
-        async def health():
-            return {"status": "ok", "model": MODEL_ID}
-
-        @fastapi_app.get("/v1/models")
-        async def list_models():
-            return {
-                "object": "list",
-                "data": [{"id": MODEL_ID, "object": "model"}],
+        @fastapi_app.api_route("/{path:path}", methods=["GET", "POST", "DELETE"])
+        async def proxy(path: str, request: Request):
+            body = await request.body()
+            headers = {
+                k: v for k, v in request.headers.items()
+                if k.lower() not in ("host", "content-length")
             }
 
-        @fastapi_app.post("/v1/chat/completions")
-        async def chat_completions(request: ChatCompletionRequest, raw_request: Request):
-            response = await self.chat.create_chat_completion(request, raw_request)
+            upstream = await client.request(
+                method=request.method,
+                url=f"/{path}",
+                content=body,
+                headers=headers,
+            )
 
-            if isinstance(response, ErrorResponse):
-                return JSONResponse(
-                    content=response.model_dump(), status_code=response.code
-                )
-
-            if request.stream:
+            content_type = upstream.headers.get("content-type", "")
+            if "text/event-stream" in content_type:
                 return StreamingResponse(
-                    content=response,
+                    upstream.aiter_bytes(),
                     media_type="text/event-stream",
+                    status_code=upstream.status_code,
                 )
 
-            return JSONResponse(content=response.model_dump())
+            return Response(
+                content=upstream.content,
+                status_code=upstream.status_code,
+                media_type=content_type,
+            )
 
         return fastapi_app
 
@@ -133,18 +151,22 @@ def main():
     import httpx
 
     base = "https://kolinzking--aois-vllm-vllmserver-serve.modal.run"
-    print(f"Health check: {base}/health")
-    r = httpx.get(f"{base}/health", timeout=30)
+    print(f"Health: GET {base}/health")
+    r = httpx.get(f"{base}/health", timeout=60)
     print("Status:", r.status_code, r.text)
 
-    print("\nChat completions (cold start may take 3–5 min)...")
+    if r.status_code != 200:
+        print("Server not healthy — aborting.")
+        return
+
+    print("\nChat (cold start may take 3–5 min first time)...")
     r = httpx.post(
         f"{base}/v1/chat/completions",
         json={
             "model": MODEL_ID,
             "messages": [
                 {"role": "system", "content": "You are a helpful SRE assistant."},
-                {"role": "user", "content": "In one sentence, what causes OOMKilled in Kubernetes?"},
+                {"role": "user", "content": "In one sentence, what causes OOMKilled?"},
             ],
             "max_tokens": 128,
             "temperature": 0.1,
