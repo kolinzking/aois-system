@@ -2,10 +2,11 @@
 vLLM inference server on Modal — OpenAI-compatible API.
 
 Serves Mistral-7B-Instruct-v0.3 on a single A10G GPU.
-Uses vLLM's built-in OpenAI server as an ASGI app — handles cold start correctly.
+Uses @modal.asgi_app() so vLLM's async engine has full ASGI lifecycle control.
 
 Deploy:  modal deploy vllm_modal/serve.py
-Test:    curl -X POST https://<endpoint>/v1/chat/completions ...
+Test:    curl https://<endpoint>/health
+         curl -X POST https://<endpoint>/v1/chat/completions ...
 """
 
 import modal
@@ -62,10 +63,9 @@ def download_model():
 class VLLMServer:
     @modal.enter()
     def load(self):
+        import asyncio
         from vllm import AsyncEngineArgs, AsyncLLMEngine
         from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
-        from vllm.entrypoints.openai.protocol import ChatCompletionRequest
-        import asyncio
 
         engine_args = AsyncEngineArgs(
             model=MODEL_DIR,
@@ -85,34 +85,71 @@ class VLLMServer:
             chat_template=None,
         )
 
-    @modal.fastapi_endpoint(method="POST")
-    async def v1_chat_completions(self, request: dict) -> dict:
-        from vllm.entrypoints.openai.protocol import ChatCompletionRequest
-        from fastapi import Request as FastAPIRequest
-        from fastapi.responses import JSONResponse
-        import json
+    @modal.asgi_app()
+    def serve(self):
+        from fastapi import FastAPI, Request
+        from fastapi.responses import JSONResponse, StreamingResponse
+        from vllm.entrypoints.openai.protocol import (
+            ChatCompletionRequest,
+            ErrorResponse,
+        )
 
-        chat_request = ChatCompletionRequest(**request)
-        response = await self.chat.create_chat_completion(chat_request, None)
+        fastapi_app = FastAPI(title="AOIS vLLM", version="0.1.0")
 
-        return json.loads(response.model_dump_json())
+        @fastapi_app.get("/health")
+        async def health():
+            return {"status": "ok", "model": MODEL_ID}
+
+        @fastapi_app.get("/v1/models")
+        async def list_models():
+            return {
+                "object": "list",
+                "data": [{"id": MODEL_ID, "object": "model"}],
+            }
+
+        @fastapi_app.post("/v1/chat/completions")
+        async def chat_completions(request: ChatCompletionRequest, raw_request: Request):
+            response = await self.chat.create_chat_completion(request, raw_request)
+
+            if isinstance(response, ErrorResponse):
+                return JSONResponse(
+                    content=response.model_dump(), status_code=response.code
+                )
+
+            if request.stream:
+                return StreamingResponse(
+                    content=response,
+                    media_type="text/event-stream",
+                )
+
+            return JSONResponse(content=response.model_dump())
+
+        return fastapi_app
 
 
 @app.local_entrypoint()
 def main():
     """Smoke test: modal run vllm_modal/serve.py"""
     import httpx
-    url = "https://kolinzking--aois-vllm-vllmserver-v1-chat-completions.modal.run"
-    print(f"Calling: {url}")
-    print("Cold start may take 3-5 minutes on first call...")
-    r = httpx.post(url, json={
-        "model": MODEL_ID,
-        "messages": [
-            {"role": "system", "content": "You are a helpful SRE assistant."},
-            {"role": "user", "content": "In one sentence, what causes OOMKilled in Kubernetes?"},
-        ],
-        "max_tokens": 128,
-        "temperature": 0.1,
-    }, timeout=600)
+
+    base = "https://kolinzking--aois-vllm-vllmserver-serve.modal.run"
+    print(f"Health check: {base}/health")
+    r = httpx.get(f"{base}/health", timeout=30)
+    print("Status:", r.status_code, r.text)
+
+    print("\nChat completions (cold start may take 3–5 min)...")
+    r = httpx.post(
+        f"{base}/v1/chat/completions",
+        json={
+            "model": MODEL_ID,
+            "messages": [
+                {"role": "system", "content": "You are a helpful SRE assistant."},
+                {"role": "user", "content": "In one sentence, what causes OOMKilled in Kubernetes?"},
+            ],
+            "max_tokens": 128,
+            "temperature": 0.1,
+        },
+        timeout=600,
+    )
     print("Status:", r.status_code)
     print("Body:", r.text[:500])
