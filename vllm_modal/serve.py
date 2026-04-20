@@ -29,7 +29,6 @@ image = (
     )
     .pip_install(
         "vllm==0.8.4",
-        "transformers>=4.40.0,<4.44.0",
         "huggingface_hub",
         "hf_transfer",
         "httpx",
