@@ -675,6 +675,26 @@ class VLLMServer:
 4. Run `python3 test_vllm.py` — benchmark Modal GPU vs Claude
 5. Update benchmark data in curriculum/phase5/v14/notes.md
 
+### Pending Curriculum Additions (April 2026 Audit)
+Two gaps identified from external curriculum audit — not yet in any version, must be added at the right phase:
+
+**1. Per-incident cost attribution — add at v20**
+AOIS currently tracks cost per API call (v2 LiteLLM). Not enough for agentic workflows.
+When AOIS gets tools in v20, a single incident investigation will span 10-15 LLM calls.
+Need an `incident_id` threading through every call from detection to resolution.
+Goal metric: "investigating this OOMKilled cost $0.04 across 12 LLM calls."
+Without this, agents never get approved for production — cost spiral kills them.
+**Trigger: add this as the first task when starting v20.**
+
+**2. Agent capability boundary — add before v20, as Phase 7 gate**
+v5 has an output blocklist (reactive). That is not governance.
+Before AOIS gets any tools (kubectl, metrics, logs), define what it is structurally
+prevented from doing regardless of LLM output — enforced at invocation layer, auditable.
+Tools: OPA or Cedar as the policy engine.
+**Trigger: build this as the opening section of Phase 7, before v20 hands AOIS any tools.**
+
+---
+
 ### What v15 builds next
 - Curate 500-sample SRE log dataset
 - LoRA fine-tune Mistral-7B on Modal GPU
