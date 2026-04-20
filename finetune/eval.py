@@ -15,10 +15,6 @@ import json
 import os
 import time
 from pathlib import Path
-from dotenv import load_dotenv
-from anthropic import Anthropic
-
-load_dotenv()
 
 EVAL_PATH = Path("finetune/sre_eval.jsonl")
 
