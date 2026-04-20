@@ -17,8 +17,10 @@ import os
 import random
 import time
 from pathlib import Path
+from dotenv import load_dotenv
 from anthropic import Anthropic
 
+load_dotenv()
 client = Anthropic()
 
 # Seed logs covering the full range of SRE incident types AOIS sees
