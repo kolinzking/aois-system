@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Scrape the OTel Collector's Prometheus exporter (LLM metrics from AOIS)
+  - job_name: aois-otel
+    static_configs:
+      - targets: ["otelcol:8889"]
+        labels:
+          service: aois
+
+  # Scrape AOIS app directly (http request metrics via prometheus_fastapi_instrumentator)
+  - job_name: aois-app
+    static_configs:
+      - targets: ["aois:8000"]
+        labels:
+          service: aois
+    metrics_path: /metrics
