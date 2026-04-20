@@ -138,8 +138,11 @@ def vary_log(base_log: str) -> str:
     # Vary numbers
     def replace_num(m):
         n = int(m.group())
-        variation = random.randint(max(1, n - n // 3), n + n // 3)
-        return str(variation)
+        if n == 0:
+            return str(n)
+        lo = max(1, n - n // 3)
+        hi = max(lo + 1, n + n // 3)
+        return str(random.randint(lo, hi))
     varied = re.sub(r'\b\d+\b', replace_num, base_log)
     # Vary pod names
     suffixes = ["7d9f", "6b8c", "4a2e", "9f1d", "3c5b", "8e4a", "2d7f", "5b9c"]
