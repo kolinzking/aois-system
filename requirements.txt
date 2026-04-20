@@ -12,7 +12,7 @@ slowapi
 modal
 jaraco.context>=6.1.0
 # v17 — Kafka
-kafka-python==2.0.2
+kafka-python-ng==2.2.3
 # v16 — OpenTelemetry
 opentelemetry-sdk
 opentelemetry-exporter-otlp-proto-grpc
