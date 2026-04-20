@@ -705,14 +705,22 @@ requires explicit validation. Do not skip this step.
 - **Verdict**: Fine-tuning bought 42pp severity improvement over base; Claude leads by 36pp — scale gap is real. P3/P4 volume → fine-tuned TinyLlama. P1/P2 → Claude.
 - Adapter saved: `aois-lora-weights` Modal volume at `/models/tinyllama-sre-lora`
 
-### What v16 builds next (Phase 6)
-- OpenTelemetry end-to-end instrumentation
-- Trace every request: HTTP → prompt build → LLM call → cache → response
-- OTel LLM semantic conventions: model, tokens, cost, cache hits per span
-- Unified in Grafana: Loki (logs) + Tempo (traces) + Prometheus (metrics)
+### v16 — COMPLETE
+- OTel SDK + GenAI semantic convention spans on every LLM call (model, tier, severity, cost, duration)
+- FastAPI auto-instrumentation + httpx instrumentation
+- Prometheus counters/histograms at `/metrics/`: `aois_incidents_total`, `aois_llm_duration_ms`, `aois_llm_cost_usd_total`, `aois_llm_token_usage_total`
+- Docker Compose: +OTel Collector, Prometheus, Grafana, Loki, Tempo (7-container stack)
+- Grafana pre-provisioned: Prometheus + Loki + Tempo datasources, AOIS LLM dashboard
+- Pipeline validated: request → Prometheus query confirms `aois_incidents_total` scraped
+
+### What v17 builds next (Phase 6 continues)
+- Kafka on k8s (Strimzi operator)
+- Applications publish logs to Kafka topic
+- AOIS consumes in real-time, analyzes, publishes results to another topic
+- KEDA scales AOIS pods based on Kafka consumer lag
 
 ### Current root-level state
-- `/main.py` — v14 implementation (vllm tier added, api_base routing via VLLM_MODAL_URL)
+- `/main.py` — v16 implementation (OTel instrumented, Prometheus metrics, GenAI spans)
 - `/Dockerfile` — v4 multi-stage build
 - `/docker-compose.yml` — AOIS + Redis + Postgres
 - `/requirements.txt` — consolidated dependencies (modal added)
