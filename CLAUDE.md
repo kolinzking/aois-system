@@ -593,8 +593,8 @@ Make the outputs trustworthy and systematically optimal.
 - Both in `~/.claude/settings.json`
 
 ### Current Position
-- **v14 INCOMPLETE. Phase 0–4 complete (v0.1–v12). Phase 5 in progress (v13 complete, v14 blocked).**
-- v10/v11 blocked on AWS Bedrock daily quota. v14 blocked on Modal serve.py bug.
+- **Phase 0–5 COMPLETE (v0.1–v15). Phase 6 is next (OpenTelemetry).**
+- v10/v11 blocked on AWS Bedrock daily quota. v14 closed (Modal GPU cost). v15 complete.
 
 ### What's been built (v1–v12)
 - **v1**: FastAPI + Claude (prompt caching) + OpenAI fallback, structured Pydantic output (summary, severity P1–P4, suggested_action, confidence)
