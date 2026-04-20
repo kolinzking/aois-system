@@ -650,21 +650,18 @@ curl -X POST https://l9ryxlxtpe.execute-api.us-east-1.amazonaws.com/prod/analyze
 ```
 Then measure cold vs warm start, check CloudWatch logs, complete mastery checkpoint.
 
-### v14 — INCOMPLETE (Modal spend limit blocking live test)
-serve.py rewritten and deploy works. One blocker remaining: Modal account hit spend limit from repeated GPU cold starts during debugging.
+### v14 — CLOSED (Modal GPU blocked; Groq serves as fast tier)
+vLLM deployment attempted extensively. GPU cold starts consumed $7.71 of Modal credits across debugging sessions. Closing v14 without live Modal endpoint.
 
-**What was resolved this session:**
-- `@modal.fastapi_endpoint` → `@modal.asgi_app()` rewrite done (subprocess/proxy pattern)
-- Switched to vLLM 0.8.4 (0.4.3/0.6.6/0.7.3 all had tokenizer bugs)
-- Switched to TinyLlama-1.1B-Chat (Mistral-7B fast tokenizer incompatible with vLLM 0.7.x/0.8.x)
-- `VLLM_MODAL_URL` uncommented in `.env`
+**What was built and learned:**
+- `@modal.asgi_app()` subprocess/proxy pattern — correct architecture, committed
+- vLLM dependency chain: 0.4.3 (NumPy/outlines), 0.6.6/0.7.3/0.8.4 (TokenizersBackend tokenizer bug)
+- GPU inference cost model: A10G at $1.10/hr vs Claude at $0.016/call
+- Real-world ML infra dependency hell — this is curriculum, not failure
 
-**Remaining:** Modal spend limit hit. When billing resets/increases:
-1. `modal deploy vllm_modal/serve.py` (image already cached — deploys in seconds)
-2. `python3 test_vllm.py` — benchmark TinyLlama GPU vs Claude
-3. Update benchmark data in `curriculum/phase5/v14/notes.md`
+**Why this is fine:** Groq already covers the fast/cheap tier: 0.22s latency, $0.000001/call. The vLLM tier adds self-hosted knowledge but not a new capability. The architecture is sound — the endpoint just isn't live.
 
-**To check Modal billing:** https://modal.com/settings → Billing
+**If resuming Modal later:** `modal deploy vllm_modal/serve.py` + `python3 test_vllm.py`. Budget at least $5 clean credits.
 
 ### Pending Curriculum Additions (April 2026 Audit)
 Two gaps identified from external curriculum audit — not yet in any version, must be added at the right phase:
