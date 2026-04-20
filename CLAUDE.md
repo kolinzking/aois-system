@@ -650,30 +650,21 @@ curl -X POST https://l9ryxlxtpe.execute-api.us-east-1.amazonaws.com/prod/analyze
 ```
 Then measure cold vs warm start, check CloudWatch logs, complete mastery checkpoint.
 
-### v14 — INCOMPLETE (Modal serve.py needs rewrite)
-Code and benchmark complete. One blocker remaining:
+### v14 — INCOMPLETE (Modal spend limit blocking live test)
+serve.py rewritten and deploy works. One blocker remaining: Modal account hit spend limit from repeated GPU cold starts during debugging.
 
-**The bug:** `@modal.fastapi_endpoint` returns empty body / 303 redirect for vLLM's async engine. vLLM needs full ASGI lifecycle control.
+**What was resolved this session:**
+- `@modal.fastapi_endpoint` → `@modal.asgi_app()` rewrite done (subprocess/proxy pattern)
+- Switched to vLLM 0.8.4 (0.4.3/0.6.6/0.7.3 all had tokenizer bugs)
+- Switched to TinyLlama-1.1B-Chat (Mistral-7B fast tokenizer incompatible with vLLM 0.7.x/0.8.x)
+- `VLLM_MODAL_URL` uncommented in `.env`
 
-**The fix:** Rewrite `vllm_modal/serve.py` using `@modal.asgi_app()` pattern:
-```python
-@app.cls(gpu="a10g", ...)
-class VLLMServer:
-    @modal.enter()
-    def load(self): ...  # start vLLM engine + OpenAIServingChat
+**Remaining:** Modal spend limit hit. When billing resets/increases:
+1. `modal deploy vllm_modal/serve.py` (image already cached — deploys in seconds)
+2. `python3 test_vllm.py` — benchmark TinyLlama GPU vs Claude
+3. Update benchmark data in `curriculum/phase5/v14/notes.md`
 
-    @modal.asgi_app()
-    def serve(self):
-        from vllm.entrypoints.openai.api_server import build_app
-        return build_app(...)  # returns a real ASGI app
-```
-
-**To resume next session:**
-1. Rewrite serve.py with @modal.asgi_app() pattern
-2. `modal deploy vllm_modal/serve.py`
-3. Set `VLLM_MODAL_URL` in `.env` (uncomment the line)
-4. Run `python3 test_vllm.py` — benchmark Modal GPU vs Claude
-5. Update benchmark data in curriculum/phase5/v14/notes.md
+**To check Modal billing:** https://modal.com/settings → Billing
 
 ### Pending Curriculum Additions (April 2026 Audit)
 Two gaps identified from external curriculum audit — not yet in any version, must be added at the right phase:
