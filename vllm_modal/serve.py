@@ -67,7 +67,7 @@ class VLLMServer:
 
         self.proc = subprocess.Popen(
             [
-                "python", "-m", "vllm.entrypoints.openai.api_server",
+                "python3", "-m", "vllm.entrypoints.openai.api_server",
                 "--model", MODEL_DIR,
                 "--served-model-name", MODEL_ID,
                 "--host", "127.0.0.1",
