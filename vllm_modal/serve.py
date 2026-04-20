@@ -1,7 +1,10 @@
 """
 vLLM inference server on Modal — OpenAI-compatible API.
 
-Serves Mistral-7B-Instruct-v0.3 on a single A10G GPU.
+Serves TinyLlama-1.1B-Chat on a single A10G GPU.
+(Mistral-7B skipped: its Rust fast tokenizer is incompatible with vLLM 0.7.x —
+ TokenizersBackend missing all_special_tokens_extended. TinyLlama uses LLaMA
+ tokenizer which has no such issue and is faster to load on the benchmark.)
 
 Pattern: vLLM's built-in OpenAI server runs as a subprocess on port 8000.
 The @modal.asgi_app() proxies all requests to it — version-agnostic and clean.
@@ -12,9 +15,9 @@ Test:    curl https://<endpoint>/health
 
 import modal
 
-MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
-MODEL_REVISION = "e0bc86c23ce5aae1db576c8cca6f06f1f73af2db"
-MODEL_DIR = "/models/mistral-7b"
+MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+MODEL_REVISION = "fe8a4ea1ffedaf415f4da2f062534de366a451e6"
+MODEL_DIR = "/models/tinyllama-1b"
 VLLM_PORT = 8000
 
 volume = modal.Volume.from_name("aois-model-weights", create_if_missing=True)
