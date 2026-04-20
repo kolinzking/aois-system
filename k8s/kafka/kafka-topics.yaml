@@ -1,0 +1,30 @@
+---
+# Input topic: raw log events from infrastructure
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: aois-logs
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: aois-kafka
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 86400000   # 24 hours
+    cleanup.policy: delete
+---
+# Output topic: structured AOIS analysis results
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: aois-results
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: aois-kafka
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 604800000  # 7 days — results are durable
+    cleanup.policy: delete
