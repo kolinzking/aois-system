@@ -9,10 +9,12 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otelcol:4317
       OTEL_SERVICE_NAME: aois
       OTEL_RESOURCE_ATTRIBUTES: deployment.environment=local
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     depends_on:
       - redis
       - postgres
       - otelcol
+      - kafka
     restart: unless-stopped
 
   redis:
