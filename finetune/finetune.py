@@ -89,7 +89,7 @@ def train(train_data: list[dict], eval_data: list[dict], dry_run: bool = False):
 
     model = AutoModelForCausalLM.from_pretrained(
         BASE_DIR,
-        torch_dtype=torch.float16,
+        torch_dtype=torch.bfloat16,
         device_map="auto",
         trust_remote_code=True,
     )
