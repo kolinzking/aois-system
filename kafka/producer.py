@@ -95,6 +95,7 @@ def main():
             producer = KafkaProducer(
                 bootstrap_servers=args.bootstrap,
                 value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+                api_version=(3, 7, 0),
             )
             print(f"Connected to Kafka at {args.bootstrap}")
             break
