@@ -722,8 +722,9 @@ requires explicit validation. Do not skip this step.
 ### Current root-level state
 - `/main.py` — v16 implementation (OTel instrumented, Prometheus metrics, GenAI spans)
 - `/Dockerfile` — v4 multi-stage build
-- `/docker-compose.yml` — AOIS + Redis + Postgres
-- `/requirements.txt` — consolidated dependencies (modal added)
+- `/docker-compose.yml` — v16: AOIS + Redis + Postgres + OTel Collector + Prometheus + Grafana + Loki + Tempo
+- `/otel/` — OTel Collector config, Prometheus scrape config, Loki config, Tempo config, Grafana provisioning
+- `/requirements.txt` — consolidated dependencies (OTel SDK added)
 - `/test.py` — tier routing + cost comparison test suite
 - `/test_vllm.py` — v14 benchmark: vllm vs premium on 4 log samples
 - `/test_nim.py` — v13 benchmark (pending NGC key)
