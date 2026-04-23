@@ -343,13 +343,32 @@ Stop calling models directly. Build a routing layer with real cost tiers.
 - One codebase, any model — swap without code changes
 - Cost tracking per request: understand what each tier actually costs
 
+**v2.5 — AI Gateway: Production LLM Proxy**
+LiteLLM routes models. This version builds the control plane around that routing.
+- Per-user and per-team cost budgets enforced at the gateway — agent workflows that exceed budget are halted, not just logged
+- PII redaction before any prompt leaves your network — regex + ML-based detection, configurable per-route
+- Semantic caching: identical or near-identical prompts return cached responses — cost reduction without touching model code
+- Full request/response audit log: every prompt, every response, every token count, every model — immutable, queryable
+- Rate limiting per API key, per team, per model tier
+- This is the layer enterprises build before they let any team call an LLM directly
+
 **v3 — Instructor + DSPy: Reliable Intelligence**
 Make the outputs trustworthy and systematically optimal.
 - Instructor for guaranteed Pydantic-validated LLM responses
-- DSPy: define what good output looks like, let the framework find the best prompt — the future of prompt engineering
+- DSPy: dedicated full section — treat prompts like code, write the eval first, let DSPy optimize the prompt automatically (eval-driven prompt development, not artisanal hand-crafting)
+- Prompt versioning: prompts checked into git, diffs reviewed like code, rollback like a deployment
 - Reasoning models: when to use Claude extended thinking vs. standard — measure cost/latency tradeoff on real incidents
 - Eval suite: score AOIS against a ground truth set of 20 real incidents
 - Langfuse: every LLM call traced, costed, scored
+
+**v3.5 — RAG: Retrieval-Augmented Generation**
+The pattern behind half of all production AI applications — AOIS needs it for incident history retrieval.
+- pgvector vs Qdrant: build the same RAG pipeline on both, benchmark query latency and recall at 10k/100k documents
+- Chunking strategies: fixed-size vs semantic vs document-structure-aware — measure the difference in retrieval quality
+- Hybrid search: vector similarity + BM25 keyword search combined — the production standard, not pure vector
+- Reranking: cross-encoder reranker scores candidate chunks, top-k sent to the LLM — precision over recall
+- RAGAS evaluation: faithfulness, answer relevance, context precision — RAG quality is measurable, not vibes
+- AOIS application: retrieve similar past incidents during investigation — "seen this before, here's what fixed it"
 
 ---
 
@@ -459,6 +478,7 @@ Make the outputs trustworthy and systematically optimal.
 
 **v15 — Fine-tuning with SRE Data**
 - Curate a dataset: 500 real log samples + ideal AOIS responses
+- Synthetic data pipeline: distilabel for programmatic dataset generation, data quality scoring, deduplication — dataset versioned in git alongside model code
 - LoRA fine-tune a small model (Mistral 7B) on Modal GPU
 - Deploy fine-tuned model via vLLM
 - Eval: fine-tuned vs base vs Claude vs Claude extended thinking — where does specialization beat general reasoning?
@@ -474,6 +494,15 @@ Make the outputs trustworthy and systematically optimal.
 - Metrics, logs, traces unified in Grafana (Loki + Tempo + Prometheus)
 - OTel LLM semantic conventions: standardized spans for model, tokens, cost, cache hits
 - VictoriaMetrics: drop-in Prometheus replacement for when AI telemetry volume gets serious
+
+**v16.5 — ClickHouse: Analytics at Scale**
+Prometheus has limits. When AOIS is processing thousands of incidents per hour, you need a columnar database.
+- ClickHouse deployed on k8s — query 100 million AOIS incident rows in under a second
+- AOIS writes every incident analysis to ClickHouse: timestamp, severity, tier, model, latency, cost, tokens, resolution
+- Replace Prometheus/Grafana for analytics queries: "which incident type costs most per month?" — PromQL cannot answer this
+- Materialized views: pre-aggregate cost-by-tier, accuracy-by-severity, latency percentiles — live dashboards without scan overhead
+- Retention tiers: hot data in memory, warm on SSD, cold on object storage — the production ClickHouse pattern
+- Compare: Prometheus for real-time alerting (keep it), ClickHouse for analytics and audit (new layer) — they coexist
 
 **v17 — Kafka: Real Log Streaming**
 - Kafka on k8s (Strimzi operator)
@@ -514,6 +543,16 @@ Make the outputs trustworthy and systematically optimal.
 - MCP = how tools connect to AI. A2A = how AI agents talk to each other across vendors
 - This is the emerging multi-vendor agent standard — understand both sides
 
+**v21.5 — MCP Security + Production Deployment**
+MCP without security is a new attack surface. This version hardens the MCP server built in v21.
+- OAuth 2.0 authorization on every MCP tool — AOIS tools require explicit user consent before execution
+- Tool sandboxing: each MCP tool runs in an isolated context — one compromised tool cannot access another's state
+- Input validation at the MCP layer: malformed tool arguments rejected before reaching AOIS logic
+- Multi-server orchestration: AOIS MCP server communicates with a second MCP server (Kubernetes tools) — agent delegates to specialist
+- MCP observability: every tool call traced via OTel — who called what, when, with what arguments, what was returned
+- Rate limiting per MCP client — Claude.ai, Cursor, and custom agents each get independent quotas
+- This is the difference between an MCP demo and an MCP server you'd expose to real users
+
 **v22 — Temporal: Durable Agent Execution**
 - Wrap AOIS investigation workflows in Temporal
 - A 10-minute incident investigation survives pod restarts, crashes, deployments
@@ -530,9 +569,10 @@ Make the outputs trustworthy and systematically optimal.
 **v23.5 — Agent Evaluation (CRITICAL)**
 - Unit evals: given a known incident input, assert the correct severity, tool calls, and remediation step — agents must be testable like functions
 - LLM-as-judge: use Claude to score agent outputs against a rubric (correctness, safety, conciseness) — automated quality gate before any agent update ships
+- Eval-driven development: write the eval before changing the agent — same discipline as TDD, applied to agents
 - Production scoring: track accuracy, false positive rate, escalation rate, and mean time to correct remediation over real traffic
 - Regression testing: every change to the agent graph runs the full eval suite — no silent degradation
-- Dataset curation: build a golden set of 50 labeled incidents with ground-truth actions — the benchmark everything is measured against
+- Dataset curation: build a golden set of 50 labeled incidents with ground-truth actions — versioned in git, the benchmark everything is measured against
 - **Agent SLOs (enforced, not aspirational)**: accuracy ≥ 90% on severity classification, hallucination rate ≤ 5% (suggested actions that are factually wrong), safety rate = 100% (no destructive action recommended without human approval). No agent ships without all three met.
 - Without this version, agents go to production unscored. You cannot improve what you cannot measure, and you cannot trust what you haven't measured.
 
@@ -619,6 +659,15 @@ Make the outputs trustworthy and systematically optimal.
 - Playwright + AI: browser automation driven by natural language
 - EU AI Act compliance: risk classification, audit trails, model cards, human oversight gates
 - This is what gets AI into regulated industries — governance is the enterprise gate
+
+**v34.5 — AI SRE Capstone: Everything Tied Together**
+The curriculum ends here. This version does not introduce new tools — it forces mastery of everything built.
+- AI-specific SLOs as first-class engineering: model accuracy SLO, hallucination rate SLO, latency SLO, cost SLO — monitored, alerted on, owned by an on-call rotation
+- Incident playbooks for AI-specific failures: model degradation (accuracy drops without error), embedding drift (RAG quality declines over time), prompt injection in production (attacker manipulates live traffic), cost runaway (agent loop burns budget in minutes)
+- On-call runbook for AOIS itself: what breaks first under load, how to diagnose it, how to recover — written from the experience of having built and run the system
+- Game day: simulate a full AI system failure — model API outage, Kafka lag spike, agent runaway, security alert flood — AOIS must detect, respond, and recover within SLO
+- The portfolio artifact: a documented, live system with measurable SLOs, real incident history, a security posture, and a cost model — the evidence that you have done this, not just studied it
+- **The mastery bar:** you can walk into any AI infrastructure conversation — engineering, product, security, finance — and answer every question from first principles, with evidence from a system you built and ran.
 
 ---
 
