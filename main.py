@@ -156,7 +156,7 @@ SEVERITY_TIER_MAP = {
     "P4": "fast",
 }
 
-DEFAULT_TIER = "premium"
+DEFAULT_TIER = "fast"
 MAX_LOG_LENGTH = 5_000
 MAX_PAYLOAD_BYTES = 20_000
 
@@ -365,9 +365,17 @@ def _do_analyze(model: str, tier: str, messages: list, clean_log: str) -> Incide
         result.cost_usd = 0.000001
         return validate_output(result)
 
+    # Anthropic prompt caching — system prompt cached after first call, 90% cheaper on repeats
+    cached_messages = [
+        {
+            "role": "system",
+            "content": [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+        },
+        *[m for m in messages if m["role"] != "system"],
+    ]
     result, completion = client.chat.completions.create_with_completion(
         model=model,
-        messages=messages,
+        messages=cached_messages,
         response_model=IncidentAnalysis,
         max_retries=2,
         max_tokens=1024,

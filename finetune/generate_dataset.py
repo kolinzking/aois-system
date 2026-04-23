@@ -18,10 +18,16 @@ import random
 import time
 from pathlib import Path
 from dotenv import load_dotenv
-from anthropic import Anthropic
+import openai
 
 load_dotenv()
-client = Anthropic()
+
+# Groq for batch dataset generation — simple JSON classification, no reasoning needed.
+# Never use Anthropic for bulk labelling jobs: no caching = full input token cost * N calls.
+_groq = openai.OpenAI(
+    api_key=os.getenv("GROQ_API_KEY", ""),
+    base_url="https://api.groq.com/openai/v1",
+)
 
 # Seed logs covering the full range of SRE incident types AOIS sees
 SEED_LOGS = [
@@ -102,15 +108,18 @@ P4 = informational / preventive maintenance
 Respond with only the JSON object, no other text."""
 
 def analyze_log(log: str) -> dict | None:
-    """Call Claude Haiku to generate one training example."""
+    """Call Groq to generate one training example. Simple JSON classification — no reasoning needed."""
     try:
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        msg = _groq.chat.completions.create(
+            model="llama-3.1-8b-instant",
             max_tokens=256,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": f"Log: {log}"}],
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": f"Log: {log}"},
+            ],
         )
-        response_text = msg.content[0].text.strip()
+        response_text = msg.choices[0].message.content.strip()
         # Strip markdown code fences if present
         if response_text.startswith("```"):
             lines = response_text.split("\n")
