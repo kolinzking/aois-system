@@ -810,3 +810,41 @@ NVIDIA NIM requires NVIDIA GPUs. Groq runs on custom LPU silicon. Claude runs on
 **The mastery bar (summarized):** NIM is not magic — it is a well-packaged model running on NVIDIA-optimized infrastructure. What matters is routing the right severity to the right model at the right cost. P1/P2 get Claude because reasoning quality justifies the premium. P3/P4 get Groq because 0.22s at $0.000001/call with deterministic LPU silicon is the correct engineering decision after benchmarking all options. The routing decision follows data, not assumptions. The infrastructure serves the product, not the other way around.
 
 **The mastery bar:** You can connect AOIS to NVIDIA NIM and Groq, explain the cost-aware routing logic (`SEVERITY_TIER_MAP`, `auto_route`), and quantify the cost difference at production volume. You understand the hardware difference between NVIDIA GPU and Groq LPU, when each wins, and when self-hosted NIM on a dedicated GPU becomes the right choice over the hosted API.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### NVIDIA NIM
+
+| Layer | |
+|---|---|
+| **Plain English** | A pre-packaged way to run AI models on NVIDIA GPUs — you get an API endpoint that works exactly like OpenAI's, but the model runs on your own GPU hardware instead of someone else's cloud. |
+| **System Role** | NIM is AOIS's self-hosted inference option. When you have a dedicated GPU (cloud or on-premise), NIM lets you run open-source models at OpenAI-compatible endpoints, routed to via LiteLLM. In the AOIS severity tier map, NIM sits below Claude/GPT-4o and above Groq for latency — but costs nothing per-call once the GPU is provisioned. |
+| **Technical** | NIM is a Docker container from NVIDIA's NGC registry. It wraps a model (Llama, Mistral, etc.) in a TensorRT-optimised runtime and exposes `/v1/chat/completions`. Authentication requires an NGC API key. The container handles batching, KV cache, and GPU memory management internally. LiteLLM routes to it via the `openai/` prefix pointed at the NIM base URL. |
+| **Remove it** | Without NIM, self-hosted inference requires manually installing CUDA drivers, a model server (vLLM or Triton), configuring batching, and handling GPU memory — a week of setup that NIM reduces to a `docker run`. For enterprises with air-gapped GPU clusters, NIM is the only production-grade path to private inference. |
+
+**Say it at three levels:**
+- *Non-technical:* "NIM is a ready-to-run AI model in a box. You plug it into a server with an NVIDIA graphics card and it immediately accepts the same requests as ChatGPT — but all your data stays private on your hardware."
+- *Junior engineer:* "Pull the NIM container from NGC, set `NGC_API_KEY`, and `docker run` it on a GPU host. It starts an HTTP server on port 8000 with the OpenAI chat completions API. LiteLLM routes to `openai/nvidia/llama-3.1-8b-instruct` with `api_base` pointing at your NIM host. Response format is identical to OpenAI — no AOIS code changes."
+- *Senior engineer:* "NIM is TensorRT-LLM under the hood — the same engine Triton uses, but pre-tuned per model. The trade-off vs raw vLLM: NIM is faster out of the box on NVIDIA hardware but less flexible (no custom model architectures, no quantization beyond what NVIDIA ships). Groq's LPU beats NIM on token generation latency for the token volumes AOIS produces — NIM wins on cost at scale when you already own the GPU. The right choice is determined by your existing infrastructure, not by benchmarks alone."
+
+---
+
+### Groq (LPU Inference API)
+
+| Layer | |
+|---|---|
+| **Plain English** | An AI inference API that returns responses 10× faster than standard GPU-based services, because Groq built custom chips specifically designed for running language models — not general compute. |
+| **System Role** | Groq is AOIS's fast tier for P3/P4 severity logs. At 0.22s median latency and $0.000001/call, it handles high-volume non-critical analysis. The `SEVERITY_TIER_MAP` routes anything below P2 here. Groq replaces what NIM and vLLM were meant to solve — it's cheaper, faster, and requires zero infrastructure. |
+| **Technical** | Groq exposes an OpenAI-compatible REST API (`api.groq.com/openai/v1`). The underlying hardware is the Language Processing Unit (LPU) — a deterministic, streaming chip with massive memory bandwidth designed to eliminate the memory bottleneck of GPU token generation. LiteLLM routes to it via the `groq/` prefix. Models available: Llama 3, Mixtral, Gemma. |
+| **Remove it** | Without Groq, P3/P4 logs either hit Claude (10× the cost per call) or wait for a GPU cold start on NIM/vLLM. At 1,000 P3/P4 logs/day, Groq costs $0.001. The same volume on Claude costs $16+. The AOIS cost architecture requires a fast, cheap tier — Groq is currently the best option in that slot. |
+
+**Say it at three levels:**
+- *Non-technical:* "Groq is a specialist. Like a human who only does one thing, Groq's chips are built to do exactly one thing — run language models — and they do it faster than anything else available."
+- *Junior engineer:* "Groq API call: `base_url='https://api.groq.com/openai/v1'`, `model='llama-3.1-8b-instant'`. LiteLLM handles this with `groq/llama-3.1-8b-instant`. The AOIS v13 workaround: LiteLLM 1.83.x has a bug with Groq structured output — use `groq_client` (direct `openai.OpenAI` pointed at Groq) to bypass LiteLLM for the fast tier."
+- *Senior engineer:* "The LPU's architectural advantage is sequential token generation bandwidth, not parallel compute. GPUs are fast at matrix multiplications (prefill phase) but slow at sequential autoregressive decoding (generation phase). The LPU is optimised entirely for the decoding phase. This means the Groq advantage shrinks for long-context or batch inference and grows for streaming single-user requests — exactly AOIS's workload. The risk: Groq is a single vendor with a novel architecture. The mitigation: LiteLLM routing means swapping Groq for Together AI or Fireworks is a one-line change."

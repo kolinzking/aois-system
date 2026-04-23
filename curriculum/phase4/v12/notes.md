@@ -1008,3 +1008,57 @@ eksctl delete cluster --name aois-cluster --region us-east-1
 This takes 10–15 minutes. Watch the CloudFormation stacks delete in order. Verify in the AWS console that no EKS resources remain. The cluster is gone — you can rebuild it from the config file in under 20 minutes. That is infrastructure as code working correctly.
 
 **The mastery bar:** You can provision an EKS cluster, configure IRSA so pods authenticate to AWS without static credentials, deploy AOIS using the existing Helm chart, install Karpenter, and explain the cost and compliance trade-offs between Hetzner k3s and EKS. You can tear down the cluster completely and rebuild it from the config file.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### Amazon EKS (Elastic Kubernetes Service)
+
+| Layer | |
+|---|---|
+| **Plain English** | AWS runs the Kubernetes control plane for you — you never manage `etcd`, API servers, or control plane upgrades. You only manage the worker nodes (and with Karpenter, AWS manages those too). |
+| **System Role** | EKS is the production-grade target for AOIS when compliance, VPC isolation, and AWS-native IAM are requirements. The same Helm chart that deploys to Hetzner k3s deploys to EKS — `values.eks.yaml` is the only change. |
+| **Technical** | EKS runs the k8s control plane on AWS-managed EC2 instances. Worker nodes are separate EC2 instances in your VPC. `eksctl` provisions both via CloudFormation. The kubeconfig uses `aws eks get-token` as a credential plugin — tokens are short-lived and derived from your IAM identity, not a static key. |
+| **Remove it** | Without EKS, you self-manage the control plane on EC2 — etcd backups, API server upgrades, HA across AZs. This is weeks of work and an ongoing operational burden. Every major enterprise on AWS uses EKS or an equivalent managed service because the control plane is not where you want to spend engineering time. |
+
+**Say it at three levels:**
+- *Non-technical:* "EKS is AWS running the Kubernetes brain for you. You still decide what apps run and how many, but AWS makes sure the system that coordinates everything stays healthy."
+- *Junior engineer:* "You `eksctl create cluster` and AWS provisions EC2 instances for the control plane invisibly. Your kubectl commands hit an AWS-managed API server endpoint. Node groups are separate EC2s you define. The cluster costs $0.10/hr regardless of workload — that's the managed control plane fee."
+- *Senior engineer:* "EKS control plane is multi-AZ by default; your worker nodes are not unless you configure node groups across AZs. Upgrade path: control plane upgrades first via EKS API, then node group AMI rolling update. IRSA is the auth primitive that makes EKS superior to self-managed for AWS workloads — no static credentials, short-lived tokens, policy at pod granularity. Karpenter supersedes managed node groups for dynamic workloads."
+
+---
+
+### Karpenter
+
+| Layer | |
+|---|---|
+| **Plain English** | Watches for pods that can't be scheduled because there's no node with enough CPU/memory, then provisions exactly the right EC2 instance for those pods in under 60 seconds — and terminates it when the pods are gone. |
+| **System Role** | Karpenter replaces the Cluster Autoscaler for AOIS on EKS. When a Kafka consumer lag spike causes KEDA to scale AOIS from 1 to 10 pods, Karpenter provisions the extra nodes automatically. When the spike subsides, it terminates them. You pay for compute only when you need it. |
+| **Technical** | Karpenter watches the k8s scheduler's unschedulable pod queue. When pods are pending, it calls the EC2 `RunInstances` API to provision a new node matching the pod's resource requests. `NodePool` defines constraints (instance families, zones, capacity type). `EC2NodeClass` defines the AMI and security groups. No ASG involved — Karpenter talks directly to EC2. |
+| **Remove it** | Without Karpenter, you pre-provision a fixed node group. You either over-provision (pay for idle nodes) or under-provision (pods stay pending during spikes). The Cluster Autoscaler alternative requires ASG configuration and is 3–5× slower to provision than Karpenter's direct EC2 approach. |
+
+**Say it at three levels:**
+- *Non-technical:* "Karpenter is on-demand compute. Your app needs more servers? Karpenter orders them from AWS in under a minute and cancels them when the work is done."
+- *Junior engineer:* "Karpenter watches for `Pending` pods. It selects the cheapest EC2 instance type that satisfies the pod's CPU and memory requests, launches it, registers it with EKS, and the pod schedules. When the pod terminates, Karpenter checks if the node is empty and terminates it. New node in the AOIS test: 43 seconds."
+- *Senior engineer:* "Karpenter's `consolidation` policy merges underutilized nodes — bin-packs running pods onto fewer nodes and terminates the rest. This is the real cost lever. `spot` capacity type cuts EC2 cost by 70–90% for interruption-tolerant workloads. Spot interruption handling: Karpenter drains the node on the 2-minute warning. AOIS's stateless pods tolerate this — Kafka consumers reconnect after restart."
+
+---
+
+### IRSA (IAM Roles for Service Accounts)
+
+| Layer | |
+|---|---|
+| **Plain English** | Instead of putting an AWS API key in your pod's environment variables, the pod automatically gets a temporary AWS identity based on which Kubernetes service account it uses — no keys to rotate, no keys to leak. |
+| **System Role** | IRSA is how AOIS authenticates to Bedrock and S3 on EKS. The pod's service account is annotated with an IAM role ARN. AWS issues a short-lived token to the pod via a projected volume. The AWS SDK picks it up automatically — zero code changes from the Hetzner deployment. |
+| **Technical** | EKS exposes an OIDC provider endpoint. IAM trusts that endpoint as an identity provider. A role's trust policy allows the OIDC provider to assume it for a specific namespace/service account. The pod receives a projected service account token at `/var/run/secrets/eks.amazonaws.com/serviceaccount/token` — the AWS SDK exchanges this for STS credentials with a 1-hour TTL. |
+| **Remove it** | Without IRSA, you put `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` into k8s Secrets. Those are long-lived, rotated manually, and a single Secret leak exposes your entire AWS account. Every AWS security audit flags static credentials in pods. IRSA is the only acceptable pattern in enterprise EKS. |
+
+**Say it at three levels:**
+- *Non-technical:* "IRSA is a badge system. Instead of giving the app a password, AWS gives it a temporary badge that says 'this app is allowed to use Bedrock' — the badge expires automatically and a new one is issued."
+- *Junior engineer:* "Annotate the k8s ServiceAccount with `eks.amazonaws.com/role-arn`. The IAM role's trust policy references the EKS OIDC endpoint and the service account name. The AWS SDK in the pod picks up the projected token automatically via `WebIdentityTokenFileCredentialsProvider`. No env vars needed."
+- *Senior engineer:* "IRSA scope is namespace + service account name — finer-grained than EC2 instance profiles, which grant permissions to all pods on a node. The OIDC token is audience-restricted to `sts.amazonaws.com` — it cannot be replayed against other services. Rotation is automatic via STS `AssumeRoleWithWebIdentity` with a 1-hour TTL. This is the same mechanism Azure Workload Identity and GKE Workload Identity use — the pattern is cross-cloud."

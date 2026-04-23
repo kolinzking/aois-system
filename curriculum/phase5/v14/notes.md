@@ -884,3 +884,41 @@ Complete these before moving to v15:
 8. `modal logs aois-vllm` — you can read the container logs and identify a cold start vs a warm serving event.
 
 **The mastery bar:** you can take any open-source model from HuggingFace, deploy it on Modal with vLLM, expose it as an OpenAI-compatible endpoint, and route AOIS traffic to it via a single `VLLM_MODAL_URL` env var — without changing any other code.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### vLLM
+
+| Layer | |
+|---|---|
+| **Plain English** | An open-source server for running large language models that uses a smarter memory management system to serve more requests simultaneously — turning a single GPU into a high-throughput inference engine. |
+| **System Role** | vLLM is AOIS's self-hosted open-source inference tier. It exposes an OpenAI-compatible endpoint, routed to by LiteLLM. The case for vLLM: once a model is deployed, marginal inference cost is GPU time only — no per-token API charges. At scale, this flips the break-even economics against managed APIs. |
+| **Technical** | vLLM uses PagedAttention — KV cache stored in non-contiguous memory pages, allocated on demand, shared across requests using copy-on-write. This eliminates KV cache fragmentation and allows continuous batching: new requests join mid-batch instead of waiting for the current batch to finish. Result: 2–24× higher throughput than naive HuggingFace inference. Served via `vllm serve` as an OpenAI-compatible HTTP server. |
+| **Remove it** | Without vLLM, self-hosted inference either uses HuggingFace's `pipeline()` (single-threaded, no batching, 1/10th the throughput) or Triton (full control but requires manual batching configuration). vLLM is the standard production choice for open-source model serving — used at Mistral, scale-AI, and most inference startups as the internal serving engine. |
+
+**Say it at three levels:**
+- *Non-technical:* "vLLM is a smarter way to share a GPU. Instead of one user waiting for the previous user to finish, vLLM figures out how to run multiple requests at the same time on the same hardware."
+- *Junior engineer:* "`vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000`. It starts an OpenAI-compatible server. LiteLLM routes to it with `openai/llama-3.1-8b-instruct` and `api_base=http://localhost:8000/v1`. PagedAttention means the GPU doesn't pre-allocate max-sequence-length KV cache for every request — memory is used only as tokens are generated."
+- *Senior engineer:* "PagedAttention's real benefit is at high concurrency — 50+ simultaneous requests. For AOIS's typical load (1–10 concurrent), standard batching achieves similar throughput. The production decision: vLLM for batch inference workloads and high concurrency; Groq for low-latency streaming; NIM when you have NVIDIA infra and want the operational simplicity. Quantization tradeoff: INT4 cuts VRAM requirement ~4× with ~5% quality degradation on benchmarks — real-world quality loss is task-dependent, always eval before deploying quantized models to production tiers."
+
+---
+
+### Modal (Serverless GPU Compute)
+
+| Layer | |
+|---|---|
+| **Plain English** | A cloud platform where you write Python functions and Modal runs them on GPUs — without you provisioning, configuring, or managing any servers. You pay only for the seconds your code actually runs. |
+| **System Role** | Modal is how AOIS runs GPU workloads (vLLM serving, fine-tuning) without owning or renting a dedicated GPU instance. In v14 the vLLM server runs on Modal's A10G GPUs. In v15 the fine-tuning job runs on Modal. The cost model: $1.10/GPU-hr, billed per second, zero cost when idle. |
+| **Technical** | Modal uses a Python decorator pattern: `@app.function(gpu="A10G")` turns a Python function into a Modal function that executes remotely. Container images are built from `modal.Image` definitions and cached. `@modal.asgi_app()` exposes a FastAPI/ASGI app as a persistent endpoint. Deployments are triggered via `modal deploy`. Logs stream back to the terminal. |
+| **Remove it** | Without Modal, running GPU workloads requires: renting a GPU VM (minimum 1-hour billing), SSHing in, installing CUDA + dependencies, managing the process, and terminating the instance manually. Modal reduces this to a `modal run` command. The alternative for AOIS-scale GPU jobs: Lambda Labs, RunPod, or AWS SageMaker — all require more operational overhead than Modal for experimentation workloads. |
+
+**Say it at three levels:**
+- *Non-technical:* "Modal is serverless for AI. You write your code, Modal finds a GPU, runs it, and charges you only for the time it took. No servers to set up or shut down."
+- *Junior engineer:* "Define your container image with `modal.Image.debian_slim().pip_install(...)`. Decorate your function with `@app.function(gpu='A10G', timeout=600)`. Run with `modal run script.py` or deploy persistently with `modal deploy script.py`. The function executes in Modal's cloud, not your local machine. GPU cold start is 30–60 seconds — design workflows to minimize cold starts."
+- *Senior engineer:* "Modal's container caching is the key operational detail. First run builds and pushes the image (~5 min for vLLM dependencies). Subsequent runs reuse the cached image — cold start is model download time, not build time. The architectural constraint: Modal functions are stateless — the vLLM model loads fresh on each cold start. Warm instances stay alive for ~5 minutes after last request. For AOIS's sporadic GPU needs this is fine; for low-latency production serving, keep-warm via a periodic dummy request or use a persistent GPU provider."

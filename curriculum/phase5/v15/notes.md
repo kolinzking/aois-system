@@ -591,3 +591,41 @@ You have completed v15 when you can do all of the following:
 ---
 
 *Phase 5 complete. You now have six inference tiers: Claude (premium), GPT-4o-mini (general), Groq (fast), NIM (self-hosted), vLLM (open-source server), fine-tuned TinyLlama (domain-specialised). Phase 6 is the observability stack that makes all six tiers visible, measurable, and comparable.*
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### LoRA Fine-tuning
+
+| Layer | |
+|---|---|
+| **Plain English** | A technique to teach a pre-trained AI model new specialised skills — like SRE log analysis — without retraining the entire model from scratch. It adds a small set of new weights and only trains those, leaving the original model untouched. |
+| **System Role** | LoRA is how AOIS's domain-specialised TinyLlama was created. The base model had general language ability but poor SRE log understanding. LoRA training on 450 log→analysis pairs brought JSON validity from 2% to 94%. The resulting adapter is a ~50MB file layered on top of the 1.1B base model — used for P3/P4 volume where Claude's cost is not justified. |
+| **Technical** | LoRA (Low-Rank Adaptation) decomposes the weight update matrix into two low-rank matrices: `W' = W + BA` where `B ∈ R^{d×r}` and `A ∈ R^{r×k}`, with rank `r << d,k`. Only `A` and `B` are trained — typically 0.1–1% of original parameter count. `r=16` was used for AOIS. After training, the adapter weights (`.safetensors`) can be merged with the base model or loaded dynamically via PEFT. Training ran in 63 seconds on a Modal A10G. |
+| **Remove it** | Without fine-tuning, AOIS uses the base model for P3/P4 logs — which produces 2% valid JSON. The only alternative for reliable structured output from a small model is prompt engineering, which fails at the token budget of a 1B model. Fine-tuning is the only path to production-quality behaviour from a model small enough to run cheaply at scale. The eval result — 94% vs 2% — is the case for fine-tuning in one number. |
+
+**Say it at three levels:**
+- *Non-technical:* "Fine-tuning is like a specialist training program. The base model knows language generally. LoRA gives it 500 worked examples of exactly the job you need done — and it learns the job without forgetting everything else it knows."
+- *Junior engineer:* "LoRA adds two small matrices to specific layers (`target_modules=['q_proj','v_proj']`). Training updates only those matrices. `peft.LoraConfig(r=16, lora_alpha=32, task_type='CAUSAL_LM')`. After training, `model.save_pretrained()` saves the adapter separately from the base. Load with `PeftModel.from_pretrained(base_model, adapter_path)`. The AOIS training loop: `transformers.Trainer` with the 450-sample dataset, 3 epochs, loss 2.25→0.23."
+- *Senior engineer:* "LoRA's rank `r` controls the adaptation capacity. Low `r` (4–8): fewer parameters, faster training, risks underfitting on complex tasks. High `r` (32–64): more capacity, risk of overfitting on small datasets. r=16 is the standard starting point. The AOIS eval result (44% severity match vs Claude's 80%) reflects the model scale gap, not a LoRA limitation — TinyLlama at 1.1B cannot match Claude's reasoning regardless of fine-tuning. The production decision: fine-tuned small model for format compliance and P3/P4 volume; frontier model for reasoning-intensive P1/P2. Fine-tuning and API routing are complementary, not competing strategies."
+
+---
+
+### Hugging Face (Model Hub + Transformers)
+
+| Layer | |
+|---|---|
+| **Plain English** | The GitHub of AI models — a platform where anyone can publish, download, and run pre-trained models. Also the library (`transformers`) that makes loading and running those models a few lines of Python. |
+| **System Role** | HuggingFace is where AOIS's fine-tuning base model (TinyLlama-1.1B) was downloaded from, and where the `transformers` + `datasets` + `peft` libraries come from. Every version of AOIS that runs open-source models starts at HuggingFace — it is the source layer of the open-source model stack. |
+| **Technical** | `AutoModelForCausalLM.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")` downloads the model weights from the HuggingFace Hub and loads them into memory. `datasets.Dataset` handles the training data format. `peft.get_peft_model()` wraps the model with LoRA adapters. `AutoTokenizer` handles tokenisation. The Hub stores model weights as `.safetensors` files with model cards documenting training data and intended use. |
+| **Remove it** | Without HuggingFace, accessing open-source models requires finding weights elsewhere (often unofficial mirrors), writing custom loading code, and managing tokeniser configs manually. The `transformers` library alone is the reason open-source model research is accessible — it abstracts CUDA, quantization, tokenization, and generation across 500k+ model architectures with a single consistent interface. |
+
+**Say it at three levels:**
+- *Non-technical:* "HuggingFace is the app store for AI models. You search for a model, download it with one command, and the `transformers` library makes it work in your code immediately."
+- *Junior engineer:* "`from transformers import AutoModelForCausalLM, AutoTokenizer` then `.from_pretrained('model-name')`. This downloads and caches the weights locally. `model.generate()` runs inference. For fine-tuning: load the model, wrap with PEFT, pass to `Trainer` with a `datasets.Dataset`. All three libraries (transformers, peft, datasets) are HuggingFace projects."
+- *Senior engineer:* "HuggingFace Hub models are versioned by git commit hash — `from_pretrained('model', revision='abc123')` pins to an exact version. Important for production reproducibility. Model cards are a dual concern: marketing copy AND the only place base training data is documented, which matters for compliance (GDPR, copyright). `safetensors` format vs legacy `.bin`: safetensors is faster to load (memory-mapped, no Python unpickling) and safer (no arbitrary code execution). Always prefer safetensors when available."

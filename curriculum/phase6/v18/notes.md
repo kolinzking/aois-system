@@ -624,3 +624,41 @@ Or use a macro to exclude known-good containers from a rule condition.
 ---
 
 *Phase 6 is complete. v17 built the Kafka streaming layer. v18 brought runtime security — every process, every file, every connection now visible to AOIS. Phase 7 is next: autonomous agents. v20 gives AOIS tools — and now Falco watches what it does with them.*
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### Falco
+
+| Layer | |
+|---|---|
+| **Plain English** | A real-time security monitor that watches everything happening inside your containers at the kernel level — processes spawned, files opened, network connections made — and fires an alert the moment something unexpected occurs. |
+| **System Role** | Falco is AOIS's runtime security sensor. It watches every pod on the Hetzner cluster. When a container spawns a shell, writes to `/etc`, or makes an unexpected outbound connection, Falco fires a rule, Falco Sidekick publishes the alert to the `aois-security` Kafka topic, and the AOIS consumer analyzes it with Claude (CRITICAL/ERROR) or Groq (WARNING). This closes the loop: AOIS doesn't just analyze logs — it analyzes its own security events. |
+| **Technical** | Falco uses a kernel module or eBPF driver to intercept system calls. Rules are written in a YAML DSL: `condition: container and proc.name = bash` triggers on any shell inside a container. The modern eBPF driver uses BTF (BPF Type Format) built into the kernel — no kernel headers needed on Linux 5.8+. Falco Sidekick is a separate process that receives Falco alerts via HTTP and fans them out to 50+ destinations including Kafka, Slack, PagerDuty, and webhooks. |
+| **Remove it** | Without Falco, container compromises are only visible in application logs — if the attacker doesn't touch the application. A shell spawned inside an AOIS pod, a curl to an exfiltration endpoint, or a privilege escalation attempt produce zero application-layer logs. Falco catches these at the syscall layer regardless of what the application does or doesn't log. This is the visibility layer that application logging fundamentally cannot provide. |
+
+**Say it at three levels:**
+- *Non-technical:* "Falco is a security camera at the kernel level. It doesn't watch what your app decides to report — it watches everything the container actually does at the OS level. An attacker who disables application logging can't disable Falco."
+- *Junior engineer:* "Falco rules: `- rule: Shell in container, condition: container and spawned_process and proc.name in (shell_binaries), output: '%container.name shell spawned', priority: WARNING`. Deploy via Helm: `helm install falco falcosecurity/falco --set driver.kind=ebpf`. Falco Sidekick config: `kafka.brokers`, `kafka.topic`, `kafka.minimumpriority`. The AOIS consumer detects Falco format by checking for `rule` and `priority` fields in the JSON."
+- *Senior engineer:* "Falco's performance cost is syscall inspection overhead — roughly 2–5% CPU on a busy host. The eBPF driver is lower-overhead than the kernel module and safer (eBPF is verified by the kernel before loading; kernel modules run as ring-0 code). The operational gap: Falco rules require tuning per workload. Default rules generate significant noise on development clusters — every `kubectl exec` fires. AOIS's 5 custom rules are scoped to the actual threat model: unexpected shells, /etc writes, outbound connections not to known endpoints, privilege escalation, package manager execution. This is the minimum viable threat model for a container running untrusted input (log data from potentially compromised services)."
+
+---
+
+### eBPF
+
+| Layer | |
+|---|---|
+| **Plain English** | A way to run small custom programs inside the Linux kernel — safely, without modifying the kernel or loading risky kernel modules — to observe or control exactly what the system is doing at the lowest possible level. |
+| **System Role** | eBPF is the kernel technology that makes Falco's modern driver work. Instead of a loadable kernel module (which can crash the kernel), Falco uses an eBPF program verified by the kernel verifier before execution. eBPF is also the foundation of Cilium (v18 notes) — the same primitive that powers network policy and deep observability without a service mesh. Understanding eBPF is understanding why the next generation of observability and security tools is fundamentally different from the previous one. |
+| **Technical** | eBPF programs are compiled to bytecode, verified by the kernel verifier (checks for loops, out-of-bounds access, unsafe operations), then JIT-compiled to native instructions. Programs attach to kernel hooks: kprobes (function entry/exit), tracepoints (static kernel events), XDP (network packet processing). They communicate with userspace via eBPF maps (key-value stores shared between kernel and userspace). Falco attaches eBPF programs to syscall tracepoints — every `open()`, `execve()`, `connect()` call is inspected. |
+| **Remove it** | Without eBPF, kernel-level observability requires: (a) kernel modules — risky, kernel-version specific, crash the node if buggy; or (b) application instrumentation — misses anything the application doesn't instrument. eBPF is the reason tools like Falco, Cilium, Datadog's APM, and Pixie can provide deep observability without touching application code. It is the infrastructure primitive that makes the next generation of security and observability tools possible — every tool in this space is converging on eBPF as the mechanism. |
+
+**Say it at three levels:**
+- *Non-technical:* "eBPF is a safe way to put a recording device inside the Linux kernel. Previous approaches were like wiring directly into the engine — dangerous and fragile. eBPF is like installing a sensor that the engine itself validates before allowing."
+- *Junior engineer:* "You don't write eBPF programs directly in this curriculum — Falco and Cilium handle that. What you need to understand: when Falco says 'eBPF driver', it means a kernel-level program is intercepting syscalls and sending events to Falco userspace via a ring buffer. `bpftool prog list` shows loaded eBPF programs on the node. `sudo kubectl exec -it falco-XXX -- bpftool prog list` shows Falco's programs. The kernel version requirement: Linux 5.8+ for BTF-based eBPF (no kernel headers), which is why the Hetzner k3s setup works cleanly on kernel 6.8."
+- *Senior engineer:* "eBPF's verifier is the safety guarantee — it's a formal proof that the program terminates and doesn't corrupt kernel memory. This is why eBPF programs can be loaded into production kernels that would never accept a foreign kernel module. The performance characteristic: eBPF maps use copy-on-write and lock-free ring buffers for kernel→userspace communication — much lower overhead than the alternative (netlink sockets, /proc polling). The ecosystem trajectory: eBPF is becoming the universal instrumentation layer. Cilium replaces kube-proxy, iptables, and CNI with eBPF programs. Tetragon extends Falco's syscall visibility with process tree tracking. Every new observability or security tool built in 2024+ is built on eBPF."

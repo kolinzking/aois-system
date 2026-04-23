@@ -453,3 +453,41 @@ You have completed v17 when you can do all of the following:
 ---
 
 *Phase 6 continues. v18 brings eBPF and Falco — kernel-level observability and runtime security alerts, consumed by the Kafka pipeline you just built.*
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### Apache Kafka
+
+| Layer | |
+|---|---|
+| **Plain English** | A high-throughput message queue where producers write events and consumers read them — designed to handle millions of events per second and retain them for days, so nothing is lost even if consumers are temporarily offline. |
+| **System Role** | Kafka is AOIS's real-time log ingestion backbone. Applications publish log events to the `aois-logs` topic. The AOIS consumer reads them, calls the LLM, and publishes results to `aois-results`. Falco publishes security alerts to `aois-security`. Kafka decouples event production from analysis — a spike in log volume doesn't overwhelm AOIS, it builds up in the topic and KEDA scales consumers to drain it. |
+| **Technical** | Kafka is a distributed commit log. Topics are partitioned — each partition is an ordered, immutable sequence of records with a monotonically increasing offset. Consumers track their offset independently — multiple consumer groups can read the same topic at different positions. KRaft mode (used here) replaces ZooKeeper with Kafka's own Raft-based metadata consensus. Retention is time-based (`log.retention.hours=24`) or size-based. |
+| **Remove it** | Without Kafka, AOIS receives logs via direct HTTP POST — synchronous, lossy, and unbuffered. A 10× traffic spike means either dropped logs or a queue in memory that dies with the process. Kafka's durability guarantee: a log event written to a topic is retained for 24 hours regardless of what happens to consumers or AOIS pods. This is the difference between a demo system and a production SRE tool. |
+
+**Say it at three levels:**
+- *Non-technical:* "Kafka is a conveyor belt for data. Events are placed on the belt by one part of the system and picked up by another — at whatever speed each side can manage. The belt holds the events until they're consumed, so nothing falls off if one side is slow."
+- *Junior engineer:* "Producer: `KafkaProducer(bootstrap_servers='...')` then `producer.send('aois-logs', value=json.dumps(event).encode())`. Consumer: `KafkaConsumer('aois-logs', group_id='aois-analyzer', bootstrap_servers='...')` then loop over messages with `for msg in consumer`. Consumer groups: two consumers in the same `group_id` split the partitions — horizontal scaling. Two consumers in different `group_id`s both get every message — fan-out."
+- *Senior engineer:* "Kafka's performance comes from sequential disk I/O — producers append to the end of partition logs, consumers read sequentially. Random I/O is avoided entirely. Consumer lag is the production health metric: `kafka-consumer-groups.sh --describe` shows how far behind each consumer group is. KEDA's Kafka trigger scales AOIS pods on `lagThreshold` — when lag exceeds 50 messages per partition, a new pod is provisioned. The AOIS setup (ephemeral storage, single partition) is dev-grade — production requires persistent volumes, replication factor ≥ 3, and rack-aware partition assignment."
+
+---
+
+### Strimzi Operator
+
+| Layer | |
+|---|---|
+| **Plain English** | A Kubernetes add-on that lets you manage Kafka using the same `kubectl apply` workflow you use for everything else — instead of managing Kafka separately with its own tooling. |
+| **System Role** | Strimzi is how Kafka runs on the Hetzner k3s cluster. Without Strimzi, deploying Kafka to Kubernetes requires writing StatefulSets, Services, ConfigMaps, and init containers manually — a week of work. With Strimzi, `kubectl apply -f kafka-cluster.yaml` creates a production-configured Kafka cluster. ArgoCD manages Strimzi resources the same way it manages AOIS. |
+| **Technical** | Strimzi installs CRDs: `Kafka`, `KafkaNodePool`, `KafkaTopic`, `KafkaUser`. The `strimzi-cluster-operator` pod watches these CRDs and reconciles the actual Kafka StatefulSets to match the desired spec. `KafkaNodePool` (v14+ Strimzi) replaced the monolithic `spec.kafka` for node configuration — it enables different resource profiles for broker vs controller roles. Kafka version upgrades are handled by changing `spec.kafka.version` and letting the operator roll the cluster. |
+| **Remove it** | Without Strimzi, Kafka on Kubernetes is a manual StatefulSet that doesn't handle rolling upgrades, broker scaling, TLS cert rotation, or user management. The operator encodes 5+ years of Kafka-on-Kubernetes operational knowledge into a reconciliation loop. The trade-off: Strimzi adds a layer of abstraction — debugging requires understanding both Kafka internals and the operator's reconciliation state. The `kubectl get kafka -o yaml` status conditions are the debugging entry point. |
+
+**Say it at three levels:**
+- *Non-technical:* "Strimzi is the middle manager for Kafka on Kubernetes. You describe what you want (one Kafka cluster, these settings), and Strimzi figures out all the details of making it happen and keeping it running."
+- *Junior engineer:* "`kubectl apply -f kafka-cluster.yaml` creates a `Kafka` CR. The Strimzi operator sees it and creates the StatefulSet, Services, and ConfigMaps automatically. Add a topic: `kubectl apply -f kafka-topics.yaml` with a `KafkaTopic` CR. Check status: `kubectl get kafka aois-kafka -n kafka -o jsonpath='{.status.conditions}'`. The operator handles the Kafka broker startup sequence — you never run `kafka-server-start.sh` manually."
+- *Senior engineer:* "Strimzi's KRaft support (Kafka 3.3+) eliminates ZooKeeper — the operator manages the combined controller+broker nodes via `KafkaNodePool`. The resource management gap we hit on AOIS: Strimzi doesn't set JVM options or resource limits by default — the operator creates pods with unbounded memory. Always add `jvmOptions` and `resources` to `KafkaNodePool.spec` before running in any environment where memory contention is possible. The operator reconciles on a 2-minute loop — changes to the CR take up to 2 minutes plus rolling restart time to apply."

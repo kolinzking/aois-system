@@ -574,3 +574,57 @@ You have completed v16 when you can do all of the following:
 ---
 
 *Phase 6 has begun. v17 brings Kafka — real log streaming into AOIS. The observability stack you built here will watch the Kafka pipeline too.*
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### OpenTelemetry (OTel)
+
+| Layer | |
+|---|---|
+| **Plain English** | A universal standard for collecting metrics, logs, and traces from your application — so you can send observability data to any monitoring tool without rewriting your instrumentation code when you change tools. |
+| **System Role** | OTel is the instrumentation layer for all of AOIS. Every LLM call, every FastAPI request, every cache hit generates OTel spans and metrics. The OTel Collector receives this data and fans it out to Prometheus (metrics), Loki (logs), and Tempo (traces). Change the backend — the AOIS code doesn't change. |
+| **Technical** | OTel SDK instruments the application: `trace.get_tracer()` creates spans, `meter.create_counter()` creates metrics. The `OTLPExporter` sends data to the Collector via gRPC on port 4317. The Collector's pipeline: `receivers → processors → exporters`. AOIS uses the GenAI semantic conventions: `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` — standardised attribute names for LLM spans across all vendors. |
+| **Remove it** | Without OTel, you write Prometheus-specific metric code, Datadog-specific trace code, and vendor-specific log shipping config — and rewrite everything when you change backends. OTel is the reason "instrument once, send anywhere" is real. Removing it means either vendor lock-in or no observability — and you cannot improve a system you cannot measure. |
+
+**Say it at three levels:**
+- *Non-technical:* "OTel is like a universal adapter for monitoring. Instead of buying a different cable for every device, you use one standard connector and it works with everything."
+- *Junior engineer:* "`from opentelemetry import trace` then `with tracer.start_as_current_span('llm.call') as span: span.set_attribute('gen_ai.request.model', model)`. The OTel Collector config defines where the data goes — change the `exporters` section, the app code stays the same. FastAPI auto-instrumentation: `FastAPIInstrumentor().instrument_app(app)` adds spans for every request automatically."
+- *Senior engineer:* "OTel's GenAI semantic conventions are a 2024 addition — not yet stable as of early 2026 but converging fast. Standardised token/cost attributes mean Langfuse, Grafana, and Datadog all read the same span attributes. The Collector is the operationally important component: it buffers, retries, and batches exports — losing the Collector doesn't lose spans immediately because the SDK buffers in-process. The Collector also does tail-based sampling (sample only traces with errors or high latency) which head-based SDK sampling cannot do."
+
+---
+
+### Prometheus
+
+| Layer | |
+|---|---|
+| **Plain English** | A monitoring system that regularly asks your application "how many requests did you handle? how much did the last LLM call cost?" and stores the answers as time-series data you can query and graph. |
+| **System Role** | Prometheus scrapes AOIS's `/metrics` endpoint every 15 seconds and stores `aois_incidents_total`, `aois_llm_duration_ms`, `aois_llm_cost_usd_total`, and `aois_llm_token_usage_total`. These counters and histograms power the Grafana dashboard. Without Prometheus, the LLM cost spiral that kills production AI systems is invisible until the invoice arrives. |
+| **Technical** | AOIS exposes metrics via `prometheus_client` in the Pull model: Prometheus initiates the scrape, the app serves the current metric values. The OTel Collector can also push to Prometheus's remote write endpoint (Push model). Histograms bucket latency observations — `aois_llm_duration_ms_bucket{le="500"}` counts calls under 500ms. `rate()` in PromQL converts cumulative counters to per-second rates for dashboards. |
+| **Remove it** | Without Prometheus, you have no answer to "which model tier is slowest?" or "how much did yesterday's Kafka consumer spike cost in LLM calls?" You also lose alerting — Alertmanager reads Prometheus rules and fires when `aois_llm_cost_usd_total` rate exceeds your budget threshold. This is the difference between knowing about a cost problem on Monday morning and knowing about it the moment it starts. |
+
+**Say it at three levels:**
+- *Non-technical:* "Prometheus is the pulse monitor. Every 15 seconds it checks AOIS's vital signs — cost, latency, error rate — and records them. Grafana turns those recordings into charts."
+- *Junior engineer:* "`from prometheus_client import Counter, Histogram` then `incidents_total = Counter('aois_incidents_total', 'Count', ['severity','tier'])`. Increment with `incidents_total.labels(severity='P1', tier='premium').inc()`. The `/metrics` endpoint is mounted via `make_asgi_app()`. Prometheus scrape config: `scrape_configs: [{job_name: aois, static_configs: [{targets: ['aois:8000']}]}]`."
+- *Senior engineer:* "Cardinality is the Prometheus operational risk. Each unique label combination creates a separate time series. `aois_llm_cost_usd_total{tier, severity, model}` is safe — bounded cardinality. Never label with unbounded values (user IDs, request IDs, log content). High cardinality kills Prometheus memory. VictoriaMetrics handles 10× higher cardinality than Prometheus at the same hardware — the migration path when AOIS telemetry volume grows past Prometheus's comfortable range."
+
+---
+
+### Grafana
+
+| Layer | |
+|---|---|
+| **Plain English** | The dashboard layer — connects to Prometheus, Loki, and Tempo and turns raw numbers and logs into visual panels, graphs, and alerts that humans can actually read and act on. |
+| **System Role** | Grafana is AOIS's observability UI. The pre-provisioned AOIS LLM dashboard shows: requests/sec by severity, cost per tier over time, P95 latency per model, cache hit rate, and token usage. In v19, Grafana shows the chaos experiment results. In v26, the React frontend replaces Grafana for end-user views — but Grafana stays for operational monitoring. |
+| **Technical** | Grafana datasources connect to Prometheus (metrics), Loki (logs), and Tempo (traces). Provisioning via YAML in `/etc/grafana/provisioning/` means datasources and dashboards are configured as code — no clicking through the UI to set up a new environment. Dashboard JSON models are checked into the repo. Panels use PromQL, LogQL, and TraceQL respectively. |
+| **Remove it** | Without Grafana, observability data exists in Prometheus/Loki/Tempo but requires knowing the query language for each to extract anything useful. Grafana is not optional — it's the interface that makes the data actionable for both engineers and stakeholders who don't know PromQL. Replacing it requires building a custom dashboard (v26 does this for the user-facing surface — Grafana stays for the ops surface). |
+
+**Say it at three levels:**
+- *Non-technical:* "Grafana turns numbers into pictures. Prometheus stores the data. Grafana makes it into graphs you can actually look at during an incident and understand immediately."
+- *Junior engineer:* "Grafana datasource provisioning: YAML in `/etc/grafana/provisioning/datasources/` with `type: prometheus`, `url: http://prometheus:9090`. Dashboards provisioned from JSON in `/etc/grafana/provisioning/dashboards/`. A panel pointing at AOIS cost: PromQL `rate(aois_llm_cost_usd_total[5m])` gives cost per second, multiply by 3600 for hourly rate."
+- *Senior engineer:* "Grafana's value in a multi-signal setup (metrics + logs + traces) is unified correlation. Click a spike in the cost panel → jump to Loki logs at that timestamp → click a trace ID in the log → Tempo shows the full request trace including which LLM call was slow. This full-stack correlation is what separates a monitoring setup from an observability setup. Provisioning-as-code is non-negotiable for reproducibility — the first thing lost in a 'we just click around in Grafana' setup is the ability to recreate the environment after a cluster rebuild."
