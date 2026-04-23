@@ -488,6 +488,7 @@ Make the outputs trustworthy and systematically optimal.
 - Mem0: persistent memory layer — AOIS remembers past incidents, recurring failures, resolved root causes
 - Without memory: every investigation starts cold. With memory: AOIS says "this auth service had the same spike last Tuesday — here's what fixed it"
 - Short-term memory (current session) + long-term memory (across sessions) — understand both layers
+- **Memory poisoning protection**: agent memory is an attack surface — a crafted log event can cause AOIS to store a false memory ("deleting the namespace fixed this last time") that poisons every future investigation. Detect and reject poisoned writes at the Mem0 layer before they persist.
 
 **v21 — MCP + A2A: AOIS as an Interoperable Platform**
 - Build AOIS as an MCP server — any MCP client (Claude.ai, Cursor) can use AOIS
@@ -514,6 +515,7 @@ Make the outputs trustworthy and systematically optimal.
 - Production scoring: track accuracy, false positive rate, escalation rate, and mean time to correct remediation over real traffic
 - Regression testing: every change to the agent graph runs the full eval suite — no silent degradation
 - Dataset curation: build a golden set of 50 labeled incidents with ground-truth actions — the benchmark everything is measured against
+- **Agent SLOs (enforced, not aspirational)**: accuracy ≥ 90% on severity classification, hallucination rate ≤ 5% (suggested actions that are factually wrong), safety rate = 100% (no destructive action recommended without human approval). No agent ships without all three met.
 - Without this version, agents go to production unscored. You cannot improve what you cannot measure, and you cannot trust what you haven't measured.
 
 **v24 — Multi-Agent Frameworks: AutoGen + CrewAI**
@@ -695,11 +697,12 @@ Goal metric: "investigating this OOMKilled cost $0.04 across 12 LLM calls."
 Without this, agents never get approved for production — cost spiral kills them.
 **Trigger: add this as the first task when starting v20.**
 
-**2. Agent capability boundary — add before v20, as Phase 7 gate**
-v5 has an output blocklist (reactive). That is not governance.
-Before AOIS gets any tools (kubectl, metrics, logs), define what it is structurally
-prevented from doing regardless of LLM output — enforced at invocation layer, auditable.
+**2. Agent capability boundary + circuit breaker + kill switch — add before v20, as Phase 7 gate**
+v5 has an output blocklist (reactive — blocks a bad recommendation after the LLM returns it). That is not governance.
+Before AOIS gets any tools (kubectl, metrics, logs), define what it is structurally prevented from doing regardless of LLM output — enforced at invocation layer, auditable.
 Tools: OPA or Cedar as the policy engine.
+**Circuit breaker**: if AOIS makes more than N tool calls in one investigation, or cost exceeds a threshold, or tool call sequence looks anomalous — halt the agent mid-execution before it does more. This is different from the output blocklist (which only fires at response time).
+**Kill switch**: a hard stop that halts the agent entirely and requires human restart — for runaway agents, unexpected escalation, or any time the circuit breaker fires repeatedly.
 **Trigger: build this as the opening section of Phase 7, before v20 hands AOIS any tools.**
 
 **3. SPIFFE/SPIRE workload identity — retrofit into v6 (Option 1, decided 2026-04-20)**
