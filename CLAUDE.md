@@ -721,10 +721,20 @@ requires explicit validation. Do not skip this step.
 - KEDA ScaledObject switched from CPU trigger to Kafka consumer lag trigger (`lagThreshold=50`)
 - Full pipeline validated: producer → Kafka → consumer → analysis → `aois-results`
 
-### What v18 builds next (Phase 6 continues)
-- Cilium replaces kube-proxy: L7 network policy, deep observability
-- Falco: runtime rules — alert on unexpected syscalls, network connections, process behaviors
-- Falco alerts published to `aois-logs` Kafka topic — AI-analyzed security events
+### v18 — COMPLETE
+- Falco installed on Hetzner cluster (modern eBPF driver, kernel 6.8 BTF, no kernel headers needed)
+- Falco Sidekick configured → `aois-security` Kafka topic (minimumpriority=warning)
+- 5 custom AOIS rules: shell in container, /etc writes, unexpected outbound, privilege escalation, package manager at runtime
+- `aois-security` KafkaTopic created via Strimzi (3 partitions, 7-day retention)
+- `kafka/consumer.py` updated: subscribes to both `aois-logs` + `aois-security`; detects Falco format by `rule`+`priority` fields; ERROR/CRITICAL → Claude, WARNING → Groq
+- Pipeline validated end-to-end: `kubectl exec` → Falco fires → Sidekick publishes → `Kafka - Publish OK`
+- Cilium: full fresh-cluster recipe documented in notes (not deployed live — CNI swap requires k3s rebuild)
+
+### What v19 builds next (Phase 6 closes)
+- Chaos Mesh: kill random pods, inject latency, corrupt network packets
+- Does AOIS detect and alert on the chaos it's subjected to?
+- Game day: 1 hour of chaos, measure MTTR with and without AOIS
+- SLO definition: 99.5% of P1 alerts analyzed within 30 seconds
 
 ### Current root-level state
 - `/main.py` — v16 implementation (OTel instrumented, Prometheus metrics, GenAI spans)
