@@ -1,0 +1,77 @@
+customRules:
+  aois_rules.yaml: |-
+    # AOIS v18 — custom Falco runtime security rules
+    # These fire for events relevant to AI infrastructure: privilege escalation,
+    # unexpected shells, and suspicious network behaviour in AOIS containers.
+
+    - rule: Shell spawned in AOIS container
+      desc: A shell was opened inside the AOIS FastAPI container — likely an intruder or a misconfigured exec.
+      condition: >
+        spawned_process
+        and container
+        and container.image.repository contains "aois"
+        and proc.name in (bash, sh, zsh, dash, ash)
+      output: >
+        Shell spawned in AOIS container
+        (user=%user.name container=%container.name image=%container.image.repository
+        proc=%proc.name parent=%proc.pname cmdline=%proc.cmdline)
+      priority: WARNING
+      tags: [aois, shell, T1059]
+
+    - rule: AOIS container writing to /etc
+      desc: AOIS wrote to /etc — could indicate config tampering or a prompt-injection-driven command.
+      condition: >
+        open_write
+        and container
+        and container.image.repository contains "aois"
+        and fd.name startswith /etc
+      output: >
+        AOIS container wrote to /etc
+        (user=%user.name file=%fd.name container=%container.name proc=%proc.name)
+      priority: ERROR
+      tags: [aois, filesystem, T1565]
+
+    - rule: Unexpected outbound from AOIS on non-AI port
+      desc: >
+        AOIS made an outbound TCP connection to a port other than 443 (HTTPS to AI APIs).
+        Could indicate C2 beaconing or data exfiltration triggered by prompt injection.
+      condition: >
+        outbound
+        and container
+        and container.image.repository contains "aois"
+        and fd.sport != 443
+        and fd.sport != 9092
+        and fd.sport != 5432
+        and fd.sport != 6379
+      output: >
+        AOIS unexpected outbound connection
+        (container=%container.name dest=%fd.rip:%fd.rport sport=%fd.sport proc=%proc.name)
+      priority: WARNING
+      tags: [aois, network, T1071]
+
+    - rule: Privilege escalation attempt in any container
+      desc: A process tried to use sudo or su — unusual in containerised workloads.
+      condition: >
+        spawned_process
+        and container
+        and proc.name in (sudo, su, newgrp)
+      output: >
+        Privilege escalation attempt in container
+        (user=%user.name container=%container.name proc=%proc.name parent=%proc.pname)
+      priority: WARNING
+      tags: [privilege_escalation, T1548]
+
+    - rule: Container running a package manager
+      desc: >
+        apt, yum, pip, or npm ran inside a container at runtime.
+        Indicates a misconfigured image or an attacker installing tools.
+      condition: >
+        spawned_process
+        and container
+        and proc.name in (apt, apt-get, yum, dnf, pip, pip3, npm, curl, wget)
+        and not proc.pname in (sh, bash)
+      output: >
+        Package manager or downloader ran in container
+        (container=%container.name proc=%proc.name cmdline=%proc.cmdline image=%container.image.repository)
+      priority: WARNING
+      tags: [software_install, T1072]

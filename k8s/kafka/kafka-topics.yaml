@@ -28,3 +28,18 @@ spec:
   config:
     retention.ms: 604800000  # 7 days — results are durable
     cleanup.policy: delete
+---
+# Security topic: raw Falco runtime alerts from Falco Sidekick
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: aois-security
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: aois-kafka
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    retention.ms: 604800000  # 7 days — security events are durable
+    cleanup.policy: delete

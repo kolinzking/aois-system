@@ -1,15 +1,17 @@
 """
 AOIS Kafka consumer worker.
 
-Consumes SRE log events from `aois-logs`, runs analyze(), publishes
-structured results to `aois-results`.
+Consumes from two topics:
+  aois-logs     — SRE log events from infrastructure (producer.py format)
+  aois-security — Falco runtime security alerts (Falco Sidekick JSON format)
+
+Both feed into analyze() and results go to aois-results.
 
 Usage (local):
     python3 kafka/consumer.py
 
 Usage (container):
     Set KAFKA_BOOTSTRAP_SERVERS, ANTHROPIC_API_KEY, GROQ_API_KEY in env.
-    Runs as a long-lived process alongside the FastAPI server (or separately).
 """
 
 import json
@@ -29,7 +31,7 @@ logging.basicConfig(
 logger = logging.getLogger("aois.kafka")
 
 BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
-INPUT_TOPIC = "aois-logs"
+INPUT_TOPICS = ["aois-logs", "aois-security"]
 OUTPUT_TOPIC = "aois-results"
 CONSUMER_GROUP = "aois-workers"
 
@@ -40,6 +42,27 @@ def get_tier_for_log(log: str) -> str:
     if any(kw.lower() in log.lower() for kw in p1_keywords):
         return "premium"
     return "fast"
+
+
+def extract_from_falco(event: dict) -> tuple[str, str]:
+    """
+    Falco Sidekick sends alerts in this shape:
+      { "rule": "Shell spawned in AOIS container",
+        "priority": "Warning",
+        "output": "Shell spawned ... (user=root container=aois ...)",
+        "output_fields": { ... },
+        "source": "syscall", "hostname": "...", "time": "..." }
+
+    Returns (log_text, tier). Priority ERROR/CRITICAL → premium (Claude);
+    WARNING → fast (Groq).
+    """
+    output = event.get("output", "")
+    rule = event.get("rule", "unknown rule")
+    priority = event.get("priority", "warning").lower()
+    log_text = f"[SECURITY ALERT] Rule: {rule} | {output}"
+
+    tier = "premium" if priority in ("error", "critical", "emergency") else "fast"
+    return log_text, tier
 
 
 def run():
@@ -54,7 +77,7 @@ def run():
     for attempt in range(12):
         try:
             consumer = KafkaConsumer(
-                INPUT_TOPIC,
+                *INPUT_TOPICS,
                 bootstrap_servers=BOOTSTRAP_SERVERS,
                 group_id=CONSUMER_GROUP,
                 auto_offset_reset="earliest",
@@ -86,7 +109,7 @@ def run():
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
 
-    logger.info(f"Consuming from '{INPUT_TOPIC}' → publishing to '{OUTPUT_TOPIC}'")
+    logger.info(f"Consuming from {INPUT_TOPICS} → publishing to '{OUTPUT_TOPIC}'")
     processed = 0
 
     while running:
@@ -95,9 +118,15 @@ def run():
                 break
 
             event = message.value
-            log_text = event.get("log", "")
-            event_id = event.get("id", f"msg-{message.offset}")
-            tier = event.get("tier") or get_tier_for_log(log_text)
+            is_falco = "rule" in event and "priority" in event
+
+            if is_falco:
+                log_text, tier = extract_from_falco(event)
+                event_id = event.get("uuid", f"falco-{message.offset}")
+            else:
+                log_text = event.get("log", "")
+                event_id = event.get("id", f"msg-{message.offset}")
+                tier = event.get("tier") or get_tier_for_log(log_text)
 
             t0 = time.perf_counter()
             try:
@@ -106,6 +135,7 @@ def run():
 
                 output = {
                     "id": event_id,
+                    "source_topic": message.topic,
                     "log": log_text,
                     "tier": tier,
                     "summary": result.summary,
