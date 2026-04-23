@@ -16,6 +16,16 @@ spec:
     - broker
   storage:
     type: ephemeral
+  jvmOptions:
+    "-Xms": "256m"
+    "-Xmx": "512m"
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "100m"
+    limits:
+      memory: "768Mi"
+      cpu: "1000m"
 ---
 apiVersion: kafka.strimzi.io/v1beta2
 kind: Kafka

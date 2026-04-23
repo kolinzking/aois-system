@@ -796,10 +796,20 @@ requires explicit validation. Do not skip this step.
 
 ### Hetzner cluster
 - Server: 46.225.235.51 (root access, k3s running)
+- **Upgraded 2026-04-23**: 8 vCPU / 16GB RAM / 150GB disk (was 4GB RAM — old OOM kills no longer possible)
 - Live URL: https://aois.46.225.235.51.nip.io
 - Image: ghcr.io/kolinzking/aois:v6 (v9 has no app code changes — same image)
 - ArgoCD: installed, managing AOIS via GitOps (git push = deploy)
 - KEDA: installed, ScaledObject active, HPA `keda-hpa-aois` managed automatically
+
+### Resource management (applied 2026-04-23)
+System-level controls to prevent OOM kills and disk exhaustion:
+- **journald**: capped at 200MB (`/etc/systemd/journald.conf.d/size-limit.conf`), 2-week retention
+- **Kafka JVM**: heap `-Xms256m -Xmx512m`, container limit 768Mi — captured in `k8s/kafka/kafka-cluster.yaml`
+- **AOIS pod**: 512Mi request / 1Gi limit (prod via `values.prod.yaml`)
+- **Docker cleanup**: weekly cron at `/etc/cron.weekly/docker-cleanup` — prunes stopped containers + old images
+- **Memory alert**: `/usr/local/bin/memory-check.sh` runs every 5 min — logs to `/var/log/aois-alerts.log` when available < 2GB
+- **SSH root access**: `ssh hetzner-root` uses `~/.ssh/hetzner_nopass` (configured in `~/.ssh/config`)
 
 ### k8s/secret.yaml note
 Real API keys were scrubbed from git history (2026-04-19) before first push to GitHub — keys were never exposed. `k8s/secret.yaml` now contains placeholders. The live cluster Secret was applied manually in v6 and is intact. To re-apply: temporarily put real keys in, `kubectl apply -f k8s/secret.yaml`, then revert. Better path: Vault (covered in v5).
