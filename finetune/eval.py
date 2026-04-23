@@ -1,10 +1,10 @@
 """
-v15 — Evaluation: fine-tuned TinyLlama vs base TinyLlama vs Claude Haiku.
+v15 — Evaluation: fine-tuned TinyLlama vs base TinyLlama vs Groq.
 
 Runs the 50 held-out eval samples through all three models and scores each on:
   - json_valid: did the model return parseable JSON?
   - fields_present: are all 4 required fields present?
-  - severity_match: does severity match the Claude-generated ground truth?
+  - severity_match: does severity match the ground truth?
   - confidence_valid: is confidence a float in [0.0, 1.0]?
 
 Usage:
@@ -191,26 +191,34 @@ def run_model_eval(eval_data: list[dict]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Local side — Claude Haiku eval (runs on your machine, API calls)
+# Local side — Groq eval (runs on your machine, API calls)
 # ---------------------------------------------------------------------------
-def eval_claude(eval_data: list[dict]) -> dict:
-    from anthropic import Anthropic
-    client = Anthropic()
+def eval_groq(eval_data: list[dict]) -> dict:
+    import openai
+    from dotenv import load_dotenv
+    load_dotenv()
+    _groq = openai.OpenAI(
+        api_key=os.getenv("GROQ_API_KEY", ""),
+        base_url="https://api.groq.com/openai/v1",
+    )
     scores = []
-    print("\n=== Claude Haiku ===")
+    print("\n=== Groq (llama-3.1-8b-instant) ===")
     for i, example in enumerate(eval_data):
         msgs = example["messages"]
         log_text = msgs[1]["content"].replace("Log: ", "", 1)
         ground_truth = json.loads(msgs[2]["content"])
 
         try:
-            msg = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+            msg = _groq.chat.completions.create(
+                model="llama-3.1-8b-instant",
                 max_tokens=256,
-                system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user", "content": f"Log: {log_text}"}],
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": f"Log: {log_text}"},
+                ],
             )
-            response = msg.content[0].text.strip()
+            response = msg.choices[0].message.content.strip()
             text = response
             if text.startswith("```"):
                 lines = text.split("\n")
@@ -275,8 +283,8 @@ def main():
     gpu_time = time.time() - t0
     print(f"GPU eval done in {gpu_time:.0f}s")
 
-    print("Running Claude Haiku eval locally...")
-    claude_scores = eval_claude(eval_data)
+    print("Running Groq eval locally...")
+    claude_scores = eval_groq(eval_data)
 
     # ---------------------------------------------------------------------------
     # Print comparison table
@@ -284,7 +292,7 @@ def main():
     print("\n" + "="*70)
     print("EVALUATION RESULTS — v15 Fine-tune vs Base vs Claude")
     print("="*70)
-    print(f"{'Metric':<28} {'Base TinyLlama':>16} {'Fine-tuned LoRA':>16} {'Claude Haiku':>14}")
+    print(f"{'Metric':<28} {'Base TinyLlama':>16} {'Fine-tuned LoRA':>16} {'Groq Llama-3.1':>14}")
     print("-"*70)
 
     metrics = [
@@ -316,17 +324,17 @@ def main():
 
     gap = cl_sev - ft_sev
     if gap < 5:
-        print(f"  Fine-tuned TinyLlama matches Claude Haiku on severity (gap: {gap:.1f}pp).")
+        print(f"  Fine-tuned TinyLlama matches Groq on severity (gap: {gap:.1f}pp).")
     elif gap < 15:
-        print(f"  Claude Haiku leads by {gap:.1f}pp — general reasoning still edges specialization.")
+        print(f"  Groq leads by {gap:.1f}pp — general instruction-following still edges specialization.")
     else:
-        print(f"  Claude Haiku leads by {gap:.1f}pp — larger model / RLHF gives significant advantage.")
+        print(f"  Groq leads by {gap:.1f}pp — larger model gives significant advantage.")
 
     # Save results
     out = {
         "base": gpu_results["base"],
         "finetuned": gpu_results["finetuned"],
-        "claude_haiku": claude_scores,
+        "groq": claude_scores,
         "eval_samples": len(eval_data),
         "gpu_time_s": gpu_time,
     }
