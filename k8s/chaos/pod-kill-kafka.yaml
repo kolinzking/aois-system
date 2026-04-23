@@ -1,0 +1,18 @@
+---
+# Experiment 3: Kill the Kafka broker pod.
+# Tests: does the Strimzi operator recover the broker? Does the AOIS consumer
+# reconnect automatically? How long is the analysis pipeline interrupted?
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: kafka-pod-kill
+  namespace: chaos-mesh
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - kafka
+    labelSelectors:
+      app.kubernetes.io/name: kafka
+  gracePeriod: 0

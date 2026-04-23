@@ -146,7 +146,7 @@ Expected: you land at a root shell on the Ubuntu server.
 Verify:
 ```bash
 uname -a
-# Linux ubuntu-8gb-nbg1-1 6.x.x-xx-generic x86_64 GNU/Linux
+# Linux aois 6.x.x-xx-generic x86_64 GNU/Linux
 
 free -h
 #               total        used        free
@@ -174,7 +174,7 @@ kubectl get nodes
 Expected output:
 ```
 NAME                STATUS   ROLES                  AGE   VERSION
-ubuntu-8gb-nbg1-1   Ready    control-plane,master   1m    v1.34.x+k3s1
+aois   Ready    control-plane,master   1m    v1.34.x+k3s1
 ```
 
 `Ready` means k3s is running and the node has registered itself.
@@ -225,7 +225,7 @@ kubectl get nodes
 Expected:
 ```
 NAME                STATUS   ROLES                  AGE   VERSION
-ubuntu-8gb-nbg1-1   Ready    control-plane,master   5m    v1.34.x+k3s1
+aois   Ready    control-plane,master   5m    v1.34.x+k3s1
 ```
 
 You are now controlling the remote cluster from your local machine. Every `kubectl` command you run goes over HTTPS to port 6443 on the Hetzner server, authenticated with the certificates from the kubeconfig.

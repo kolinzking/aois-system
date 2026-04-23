@@ -29,7 +29,7 @@ docker compose ps | grep kafka
 
 # Hetzner cluster reachable
 kubectl get nodes
-# Expected: ubuntu-8gb-nbg1-1   Ready   control-plane
+# Expected: aois   Ready   control-plane
 
 # kafka-python-ng installed
 python3 -c "from kafka import KafkaProducer; print('ok')"

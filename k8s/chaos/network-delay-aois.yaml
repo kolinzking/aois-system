@@ -1,0 +1,23 @@
+---
+# Experiment 2: Inject 500ms latency (±100ms jitter) on all traffic leaving AOIS pods.
+# Tests: does OTel trace the latency spike? Does analysis duration exceed the SLO?
+# Does the LLM call timeout or retry correctly?
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: aois-network-delay
+  namespace: chaos-mesh
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces:
+      - aois
+    labelSelectors:
+      app: aois
+  delay:
+    latency: "500ms"
+    jitter: "100ms"
+    correlation: "25"
+  direction: to
+  duration: "5m"

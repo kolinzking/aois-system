@@ -11,7 +11,7 @@ k3s running on Hetzner with Strimzi Kafka and KEDA from v17.
 ```bash
 sudo kubectl get nodes --kubeconfig /etc/rancher/k3s/k3s.yaml
 # NAME                STATUS   ROLES           AGE   VERSION
-# ubuntu-8gb-nbg1-1   Ready    control-plane   ...   v1.34.6+k3s1
+# aois   Ready    control-plane   ...   v1.34.6+k3s1
 
 sudo kubectl get kafkatopic -n kafka --kubeconfig /etc/rancher/k3s/k3s.yaml
 # NAME            CLUSTER      PARTITIONS   READY
@@ -315,7 +315,7 @@ When Sidekick sends an alert to Kafka, this is the shape:
     "user.name": "root"
   },
   "source": "syscall",
-  "hostname": "ubuntu-8gb-nbg1-1",
+  "hostname": "aois",
   "time": "2026-04-23T20:18:29.000Z",
   "tags": ["aois", "shell", "T1059"]
 }

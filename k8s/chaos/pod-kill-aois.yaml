@@ -1,0 +1,18 @@
+---
+# Experiment 1: Kill one AOIS pod every 2 minutes.
+# Tests: does k8s reschedule it? Does KEDA maintain minimum replicas?
+# Does the Kafka consumer reconnect cleanly after pod loss?
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: aois-pod-kill
+  namespace: chaos-mesh
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - aois
+    labelSelectors:
+      app: aois
+  gracePeriod: 0
