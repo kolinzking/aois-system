@@ -347,6 +347,7 @@ Make the outputs trustworthy and systematically optimal.
 **v5 — Security Hardening**
 - OWASP API Top 10 applied to every endpoint
 - OWASP LLM Top 10 applied to every AI interaction — prompt injection, model DoS, training data leakage
+- OWASP Agentic AI Top 10 (2025) applied to the agent design — excessive agency, unsafe tool invocation, uncontrolled memory manipulation, identity spoofing across agent boundaries
 - Prompt injection defense: AOIS accepts untrusted log data — an attacker can embed instructions in a log line
 - Guardrails AI: runtime output validation — AOIS should never recommend "delete the cluster"
 - PyRIT + Garak: systematic red-team session — automated adversarial testing before production
@@ -419,11 +420,23 @@ Make the outputs trustworthy and systematically optimal.
 - High-severity incidents → Claude API (best reasoning)
 - Cost-aware routing: NVIDIA for volume, Claude for quality
 
+**v13.5 — NVIDIA Triton Inference Server**
+- Triton is the production inference server NIM is built on — understand the layer underneath
+- Backends: TensorRT (NVIDIA optimised), ONNX Runtime, PyTorch, Python — one server, any framework
+- Dynamic batching: Triton groups concurrent requests and processes them together — how throughput scales
+- Model ensemble: chain a preprocessing model → LLM → postprocessor as a single inference pipeline
+- Perf Analyzer: measure throughput and latency under load before production
+- Compare: NIM (abstracted, API-ready) vs Triton (full control, requires configuration) — when to use each
+- Deploy the fine-tuned TinyLlama from v15 on Triton instead of vLLM — same model, different server
+
 **v14 — vLLM Inference Server**
 - Deploy vLLM on Modal (serverless GPU, no hardware needed)
 - Serve an open-source model via OpenAI-compatible API
-- AOIS can now use: Claude, OpenAI, Bedrock, Groq, Together AI, Fireworks, NIM, vLLM — all via LiteLLM
-- Understand: throughput, latency, batching, KV cache
+- AOIS can now use: Claude, OpenAI, Bedrock, Groq, Together AI, Fireworks, NIM, Triton, vLLM — all via LiteLLM
+- KV cache: what it is, why it matters, how vLLM's PagedAttention manages it
+- Quantization: INT8 and INT4 — how much quality you lose for how much speed you gain
+- Speculative decoding: draft model proposes tokens, main model verifies — latency trick for large models
+- Cost tracking: GPU-hours vs API calls — build the break-even model for self-hosted vs managed
 - Inference hardware comparison: NVIDIA GPU vs Groq LPU vs Cerebras WSE — why they exist, what each wins at
 
 **v15 — Fine-tuning with SRE Data**
@@ -494,6 +507,14 @@ Make the outputs trustworthy and systematically optimal.
 - Full audit trail persisted to Postgres
 - Dapr: agent nodes communicate via Dapr pub/sub — portable messaging across cloud providers
 - Handles multi-step incidents: one root cause, five downstream effects
+
+**v23.5 — Agent Evaluation (CRITICAL)**
+- Unit evals: given a known incident input, assert the correct severity, tool calls, and remediation step — agents must be testable like functions
+- LLM-as-judge: use Claude to score agent outputs against a rubric (correctness, safety, conciseness) — automated quality gate before any agent update ships
+- Production scoring: track accuracy, false positive rate, escalation rate, and mean time to correct remediation over real traffic
+- Regression testing: every change to the agent graph runs the full eval suite — no silent degradation
+- Dataset curation: build a golden set of 50 labeled incidents with ground-truth actions — the benchmark everything is measured against
+- Without this version, agents go to production unscored. You cannot improve what you cannot measure, and you cannot trust what you haven't measured.
 
 **v24 — Multi-Agent Frameworks: AutoGen + CrewAI**
 - **CrewAI pattern**: Crew of Detector, Root Cause Analyst, Remediation, Report Writer agents — role-based, sequential collaboration
