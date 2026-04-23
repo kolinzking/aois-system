@@ -894,3 +894,57 @@ Expected: `InvokeModel` → `allowed`, `DeleteFoundationModel` and `CreateModelC
 Without notes: explain to a skeptical colleague why a regulated company would use Bedrock over Anthropic direct even though Bedrock costs more and has higher latency. Cover: audit trail, data residency, IAM vs API keys, VPC PrivateLink, and CloudTrail integration. If you can make this argument convincingly, you understand enterprise AI deployment — not just the commands, but the why behind the architecture.
 
 **The mastery bar:** You can call Claude via Bedrock using IAM credentials (not API keys), route AOIS through Bedrock via LiteLLM with a config change, invoke a Bedrock Agent that calls a Lambda tool, and explain the compliance rationale for Bedrock in a production enterprise context. You know exactly what changes in v12 (IRSA replaces manual IAM role) and v11 (Lambda becomes the primary deployment surface).
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels. Read this after completing the exercises — it turns what you did into something you can explain.*
+
+---
+
+### Amazon Bedrock
+
+| Layer | |
+|---|---|
+| **Plain English** | AWS's managed service for running frontier AI models — Claude, Titan, Llama — without managing any GPU infrastructure or API keys from individual providers. |
+| **System Role** | The enterprise deployment surface for AOIS in AWS. Replaces direct Anthropic API calls when compliance, data residency, and audit trail are requirements. LiteLLM routes to it via the `bedrock/` prefix. |
+| **Technical** | A fully managed inference endpoint backed by AWS infrastructure. Authentication uses IAM roles (not static API keys). Every invocation is logged in CloudTrail. Data stays in your AWS region. Pricing is per-token, typically 10–20% higher than direct API. |
+| **Remove it** | Without Bedrock, AOIS cannot be deployed in regulated enterprise environments (HIPAA, FedRAMP, SOC2-audited accounts). You lose CloudTrail audit logs, VPC PrivateLink routing, and data residency guarantees. Static API keys replace IAM roles — every enterprise security team will flag this. |
+
+**Say it at three levels:**
+- *Non-technical:* "Bedrock lets big companies use AI without worrying about where their data goes or who can see it. Everything stays inside their AWS account."
+- *Junior engineer:* "Bedrock is Claude via AWS. Same models, same API shape — but authentication is IAM roles instead of API keys, every call is logged in CloudTrail, and data stays in your region. LiteLLM routes to it with a prefix change. Costs ~15% more but unlocks enterprise compliance."
+- *Senior engineer:* "Bedrock's value is not inference — it is the compliance posture: CloudTrail audit trail, VPC PrivateLink for network isolation, AWS data processing addendum, and no static credentials to rotate. IRSA (v12) binds a k8s ServiceAccount to an IAM role via OIDC — the pod gets automatic credential rotation through the AWS SDK credential chain, no manual AssumeRole needed. The latency premium (~200ms vs. direct API) is the cost of that compliance layer."
+
+---
+
+### AWS IAM (Identity and Access Management)
+
+| Layer | |
+|---|---|
+| **Plain English** | The system that controls who — people or services — can do what inside an AWS account. Every AWS API call passes through IAM. |
+| **System Role** | AOIS on AWS authenticates to Bedrock using an IAM role, not an API key. The role carries exactly the permissions needed (`bedrock:InvokeModel` on specific model ARNs) and nothing else. This is the credential model for every AWS workload in AOIS. |
+| **Technical** | IAM policies are JSON documents attached to users, roles, or groups. Roles are assumed by EC2 instances, Lambda functions, EKS pods (IRSA), or other AWS services — they issue temporary credentials with a short TTL. Policy evaluation: explicit Deny > explicit Allow > implicit Deny. |
+| **Remove it** | Without IAM roles, you use static API keys. Static keys do not expire, can leak via git, and cannot be scoped to specific Bedrock model ARNs. Every security audit flags static credentials in a production AI system. IRSA in v12 eliminates even the manual AssumeRole step. |
+
+**Say it at three levels:**
+- *Non-technical:* "IAM is like a keycard system — every person and every program gets a card that only opens the doors it needs."
+- *Junior engineer:* "IAM roles issue temporary credentials that expire in hours. My pod gets a role scoped to `bedrock:InvokeModel` on specific model ARNs only. If credentials are compromised, they expire quickly and are too narrow to do real damage."
+- *Senior engineer:* "Least-privilege means resource ARNs (specific model IDs), not `*`. In v12, IRSA uses the EKS OIDC provider to bind a Kubernetes ServiceAccount to an IAM role — the pod environment gets `AWS_ROLE_ARN` and `AWS_WEB_IDENTITY_TOKEN_FILE`, and the AWS SDK credential chain handles AssumeRoleWithWebIdentity transparently. No secrets to rotate, no ambient EC2 instance profile risk."
+
+---
+
+### Amazon Bedrock Agents
+
+| Layer | |
+|---|---|
+| **Plain English** | AWS's managed orchestration layer for AI agents — give it a prompt, a set of tools (Lambda functions), and optionally a knowledge base, and Bedrock runs the reasoning loop automatically. |
+| **System Role** | An alternative agent runtime to LangGraph. Enterprises already invested in AWS use Bedrock Agents to build agentic workflows without managing orchestration infrastructure. In AOIS, it demonstrates the fully-managed-agent pattern versus the self-managed LangGraph pattern introduced in Phase 7. |
+| **Technical** | Bedrock Agents use a ReAct-style planning loop internally. An action group maps agent intent to Lambda functions (described by an OpenAPI schema). A knowledge base is backed by an S3-managed vector store. The agent decides which tools to invoke, calls them via Lambda, and synthesizes results. Session context is managed by AWS. |
+| **Remove it** | Without Bedrock Agents, you own the orchestration loop (LangGraph in v23). The trade-off: Bedrock Agents ships faster with less infrastructure overhead, but LangGraph gives full control over state transitions, retry logic, cost attribution per step, and evaluation tooling. Bedrock Agents is right when you are inside an enterprise AWS account and cannot maintain an orchestration framework. |
+
+**Say it at three levels:**
+- *Non-technical:* "Bedrock Agents is like a smart assistant who decides which phone calls to make and in what order to answer your question — you don't need to script every step."
+- *Junior engineer:* "You define tools as Lambda functions with an OpenAPI spec. Bedrock decides when to call them. You do not write the for-loop — AWS runs the ReAct loop. Right for teams that are AWS-native and do not want to maintain an agent framework."
+- *Senior engineer:* "Bedrock Agents abstracts the planning loop but also hides it — you cannot customize the system prompt, inject custom state between steps, or reproduce a failure trace without CloudTrail. It trades flexibility for operational simplicity. The right call for enterprise lift-and-shift; the wrong call for a system you need to evaluate and improve systematically (use LangGraph + Langfuse instead, which you build in v23)."

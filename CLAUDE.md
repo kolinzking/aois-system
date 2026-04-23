@@ -66,6 +66,23 @@ Every AI section covers current state AND direction. What does production look l
 **9. User-friendly language**
 No unexplained jargon. Every new term defined in one tight plain-English sentence when it first appears. Long concept sections broken by STOP exercises — the learner never reads more than ~10 minutes without doing something.
 
+**10. The 4-Layer Understanding Rule — every tool, every version**
+Mastery is not just doing. It is being able to explain the doing. For every tool that enters AOIS, the learner must be able to answer at four levels. If any level is missing, the tool has not been learned — it has been used.
+
+| Layer | Question | Example (Redis) |
+|-------|----------|-----------------|
+| **Plain English** | What problem does this solve? | "Avoids recomputing things by storing results temporarily." |
+| **System Role** | Where does it sit in AOIS? | "Between the API and LLM/database — reduces repeated work and latency." |
+| **Technical** | What is it, precisely? | "In-memory key-value store used for caching and fast data access." |
+| **Remove it** | What breaks, and how fast? | "Remove Redis → every request hits the LLM directly → latency spikes, cost multiplies." |
+
+Every tool introduced in a version gets a 4-layer entry in a `## 4-Layer Tool Understanding` section at the end of its notes. The Mastery Checkpoint must include at least one prompt asking the learner to explain a tool at each level.
+
+**Explaining at three audience levels** is also a required skill — the same system described to:
+- A non-technical person: plain language, outcome-focused
+- A junior engineer: what it does, where it sits, what replaces it if removed
+- A senior engineer: tradeoffs, failure modes, why this over alternatives
+
 ### Mandatory Structure (every vN/notes.md, in this order)
 
 1. `⏱ **Estimated time: X–Y hours**` — immediately under the `#` heading
@@ -77,6 +94,7 @@ No unexplained jargon. Every new term defined in one tight plain-English sentenc
 7. `## Troubleshooting` — verbatim error messages, diagnosis steps, fix
 8. **Connection to later phases** — explicit forward references ("this is what changes in vN")
 9. `## Mastery Checkpoint` — 6–9 practical tasks closing with "The mastery bar:" statement
+10. `## 4-Layer Tool Understanding` — one entry per new tool introduced, all four layers filled in
 
 ### Minimum length
 - 600+ lines for focused versions
@@ -85,9 +103,9 @@ No unexplained jargon. Every new term defined in one tight plain-English sentenc
 
 ### Audit command (run before declaring any version complete)
 ```bash
-grep -c 'Estimated time\|## Prerequisites\|Learning [Gg]oals\|STOP — do this now\|Common Mistakes\|## Troubleshooting\|Connection to\|Mastery Checkpoint' curriculum/phaseN/vN/notes.md
+grep -c 'Estimated time\|## Prerequisites\|Learning [Gg]oals\|STOP — do this now\|Common Mistakes\|## Troubleshooting\|Connection to\|Mastery Checkpoint\|4-Layer Tool Understanding' curriculum/phaseN/vN/notes.md
 ```
-Expected: 8+ matches. Line count must meet the minimum above. If either fails, the notes are not done.
+Expected: 9+ matches. Line count must meet the minimum above. If either fails, the notes are not done.
 
 ### Retroactive application
 This standard applies to ALL versions v0.1 through v34. Versions v0.1–v9 have been written — any found below this bar in a future session must be fixed before that session proceeds to the next version.

@@ -819,3 +819,57 @@ All 10 should succeed. Check CloudWatch — you will see 10 separate invocations
 Given this scenario: AOIS receives 200 alerts per day on average, but during incidents it can spike to 500 alerts in 10 minutes. SLA is P1 alerts analyzed within 60 seconds. Should you use Lambda, always-on k8s, or both? Write your answer with cost estimates and latency analysis. There is no single right answer — the quality is in the reasoning.
 
 **The mastery bar:** You can deploy a Python Lambda function, wire it to API Gateway, invoke it via curl, read CloudWatch logs, measure cold vs warm start latency, and calculate whether Lambda is cheaper than always-on k8s for a given workload. You know exactly when Lambda is the wrong choice and why.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels. Read this after completing the exercises — it turns what you did into something you can explain.*
+
+---
+
+### AWS Lambda
+
+| Layer | |
+|---|---|
+| **Plain English** | A service that runs your code in response to events — no server to provision, no idle cost when nothing is happening. You upload a function; AWS handles everything else. |
+| **System Role** | The serverless deployment surface for AOIS's `/analyze` endpoint on AWS. One Lambda function replaces the always-on Hetzner VM for bursty, event-driven workloads — zero cost when idle, scales to hundreds of concurrent invocations automatically. |
+| **Technical** | Lambda executes a handler function triggered by events (HTTP via API Gateway, S3 uploads, SQS messages, etc.). Each invocation runs in an isolated container. Cold start = first invocation after inactivity (new container spin-up, 200–800ms). Warm start = reused container (sub-10ms overhead). Execution limit: 15 minutes. Memory: 128MB–10GB. |
+| **Remove it** | Without Lambda, every low-frequency endpoint needs an always-on instance. At fewer than ~5,000 calls/day, Hetzner or EKS costs more than Lambda's pay-per-invocation pricing. Remove Lambda from the architecture and you pay for idle compute 24/7 — the cost comparison in `cost_comparison.py` makes this concrete. |
+
+**Say it at three levels:**
+- *Non-technical:* "Lambda is like a vending machine — nothing runs until someone presses a button, and you only pay for the button presses, not for the machine sitting there."
+- *Junior engineer:* "Lambda runs my Python handler on request. No server to SSH into, no pod to monitor. Cold start adds ~500ms on the first request after inactivity, then it's warm. API Gateway puts an HTTPS endpoint in front. Under ~5k calls/day it is cheaper than any always-on option."
+- *Senior engineer:* "Cold start is the main reliability variable — minimize it by keeping the deployment package under 50MB (no heavy ML deps in the Lambda layer), setting provisioned concurrency for latency-sensitive paths, and using Lambda SnapStart for JVM-based workloads. Execution context reuse means global variables (SDK clients, DB connections) persist across warm invocations — initialize them outside the handler. Lambda behind API Gateway with IAM auth is zero-trust by default."
+
+---
+
+### Amazon API Gateway
+
+| Layer | |
+|---|---|
+| **Plain English** | The HTTPS front door for Lambda — it gives your function a public URL, handles TLS, routing, and authentication, so you do not have to run a web server. |
+| **System Role** | Converts external HTTP POST requests to AOIS into Lambda invocations. In AOIS's serverless architecture, API Gateway is the load balancer, reverse proxy, and TLS terminator — all in one managed service. |
+| **Technical** | REST API Gateway maps HTTP methods and paths to Lambda functions via integration. Request/response transformation happens in mapping templates or via Lambda proxy integration (the simpler approach — Lambda receives the full event and returns the full response). Rate limiting, API keys, IAM auth, and Cognito authorizers are configured at the stage level. |
+| **Remove it** | Without API Gateway, Lambda has no public endpoint. You would need ALB (Application Load Balancer) as an alternative — more control, more cost, more configuration. API Gateway is the right default for AOIS's simple HTTP-to-Lambda pattern; ALB wins when you need WebSocket support or per-rule routing at scale. |
+
+**Say it at three levels:**
+- *Non-technical:* "API Gateway is the address on the building — without it, your Lambda function exists but nobody can find it."
+- *Junior engineer:* "API Gateway gives Lambda a URL. It handles TLS, maps `POST /analyze` to my handler, and passes the full HTTP event as a JSON object. Lambda returns a dict with `statusCode` and `body` — API Gateway converts that back to an HTTP response."
+- *Senior engineer:* "Lambda proxy integration is simpler than mapping templates — the function owns the full response shape. Throttling limits (10k RPS per stage by default) and per-method burst limits matter at scale. For AOIS, the cost is $3.50/million requests on HTTP API (cheaper than REST API). Usage plans and API keys are the lightweight auth mechanism; for AOIS production, IAM-signed requests or a Cognito authorizer are more appropriate."
+
+---
+
+### Amazon CloudWatch
+
+| Layer | |
+|---|---|
+| **Plain English** | AWS's logging, metrics, and alerting service — every Lambda invocation writes logs here automatically. It is where you look when something breaks in a serverless environment. |
+| **System Role** | The observability layer for AOIS on Lambda. Cold start timing, error tracebacks, invocation duration, and Bedrock response logs all land in CloudWatch Logs. CloudWatch Metrics exposes invocation count, error rate, and duration for dashboards and alarms. |
+| **Technical** | Lambda automatically creates a log group `/aws/lambda/function-name`. Each invocation writes a log stream. Structured JSON logs are queryable via CloudWatch Logs Insights. Metrics are emitted at 1-minute resolution. Alarms trigger SNS, Lambda, or Auto Scaling actions when thresholds are crossed. |
+| **Remove it** | Without CloudWatch, Lambda invocations are a black box. You cannot see errors, cannot measure cold start frequency, and cannot diagnose why a specific request returned a 500. In a serverless architecture you have no SSH access to the runtime — CloudWatch is the only window into the function. |
+
+**Say it at three levels:**
+- *Non-technical:* "CloudWatch is the logbook for your Lambda functions. Every time the function runs, it writes what happened — including any errors."
+- *Junior engineer:* "`aws logs tail /aws/lambda/aois-analyzer --follow` streams live logs. `filter_pattern=ERROR` filters to failures. CloudWatch Insights lets me query structured logs with SQL-like syntax. This is how I debug Lambda issues without SSH."
+- *Senior engineer:* "Structured JSON logs (not print statements) are queryable at query time — emit `{severity, duration_ms, model, tokens, cost}` fields and you can aggregate cost per model tier in Insights without a separate data pipeline. CloudWatch EMF (Embedded Metric Format) lets Lambda emit custom metrics inline without a separate PutMetricData call — useful for per-invocation cost tracking."

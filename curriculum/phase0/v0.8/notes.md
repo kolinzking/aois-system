@@ -1440,3 +1440,57 @@ Work through each of these in your local Postgres container. Do not move to v1 u
 8. Write a query using `pg_stat_user_tables` that identifies which tables have not been autovacuumed in the last 24 hours and have more than 100 dead tuples.
 
 **The mastery bar:** You can write production-quality SQL queries and PL/pgSQL functions without looking up the syntax. You understand what EXPLAIN ANALYZE output tells you, when to add an index, and how to diagnose lock contention. You can translate between Oracle PL/SQL and PL/pgSQL fluently. You would not hesitate to open psql during a production incident.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### PostgreSQL
+
+| Layer | |
+|---|---|
+| **Plain English** | A database that stores data in tables and lets you ask questions about it using a structured language (SQL). Every incident AOIS analyses, every remediation it suggests, lives in Postgres long-term. |
+| **System Role** | PostgreSQL is the persistent layer of AOIS. LLM analysis results are stored here. The Langfuse tracing data (v3) writes to Postgres. The incident history that AOIS remembers across sessions (v20) lives here. Redis is fast but volatile — Postgres is the ground truth. |
+| **Technical** | An open-source relational database management system (RDBMS). Data is stored in tables with typed columns. SQL (Structured Query Language) is used for all operations. ACID transactions guarantee data integrity. Indexes speed up queries; `EXPLAIN ANALYZE` shows the query plan. In AOIS, it runs as a Docker container (development) and a managed service (production). |
+| **Remove it** | Without Postgres, AOIS has no persistent memory. Restart the service and all incident history disappears. The Langfuse observability stack (v3) cannot store traces. Future features — incident trend analysis, recurring failure detection — have nothing to query. |
+
+**Say it at three levels:**
+- *Non-technical:* "Postgres is where AOIS remembers things permanently. Every incident analysed, every action taken — it's all stored here and can be queried later."
+- *Junior engineer:* "`SELECT * FROM incidents WHERE severity = 'P1' ORDER BY created_at DESC LIMIT 10` — that's the power of Postgres. Structured data, joins across tables, indexes for fast queries. `EXPLAIN ANALYZE` shows me why a query is slow. `psycopg2` is how Python talks to it."
+- *Senior engineer:* "Postgres is the right default for 95% of persistence needs. pgvector (v20+) adds vector similarity search — the same Postgres instance handles both relational incident data and vector embeddings for RAG. Connection pooling via PgBouncer is mandatory in production — FastAPI's async handlers can exhaust Postgres's default 100-connection limit under modest load. Alembic handles schema migrations without dropping tables."
+
+---
+
+### SQL
+
+| Layer | |
+|---|---|
+| **Plain English** | The language you use to talk to a database — asking it questions (SELECT), adding data (INSERT), changing data (UPDATE), and removing data (DELETE). |
+| **System Role** | SQL is how every AOIS component reads from and writes to Postgres. Understanding SQL means being able to write ad hoc queries during incidents — "how many P1 incidents in the last 24 hours?", "which pods have crashed more than three times this week?" |
+| **Technical** | Structured Query Language — a declarative language where you describe WHAT you want, not HOW to get it. The database engine (query planner) decides the execution strategy. Key constructs: `SELECT/FROM/WHERE/GROUP BY/ORDER BY`, JOINs (INNER/LEFT/RIGHT), CTEs (`WITH`), window functions, aggregates. `EXPLAIN ANALYZE` reveals the execution plan. |
+| **Remove it** | Without SQL fluency, database interactions require writing ORM code for every query. Ad-hoc incident investigation ("how many P1s caused by OOMKilled in the past week?") becomes a programming task instead of a 30-second query. In production incidents, the ability to query the database directly is a critical SRE skill. |
+
+**Say it at three levels:**
+- *Non-technical:* "SQL lets me ask the database anything I want in plain-ish language: 'show me all P1 incidents from last week, sorted by time.' The database handles the rest."
+- *Junior engineer:* "`SELECT pod_name, COUNT(*) as crash_count FROM incidents WHERE severity = 'P1' AND created_at > NOW() - INTERVAL '7 days' GROUP BY pod_name ORDER BY crash_count DESC` — this is a real production query. CTEs make complex queries readable. `EXPLAIN ANALYZE` tells me if I need an index."
+- *Senior engineer:* "SQL declarative semantics mean the query planner can choose between index scan, sequential scan, hash join, or merge join depending on table statistics. For AOIS's incident table, a partial index on `(severity, created_at)` WHERE `severity IN ('P1', 'P2')` is far more efficient than a full index — most queries are for high-severity incidents. `pg_stat_activity` and `pg_locks` are the tools for diagnosing slow queries in production."
+
+---
+
+### psycopg2
+
+| Layer | |
+|---|---|
+| **Plain English** | The Python library that connects Python code to a PostgreSQL database — the bridge between AOIS's application logic and its data storage. |
+| **System Role** | psycopg2 is how Python writes and reads from Postgres in AOIS. Every incident result that gets persisted, every query for incident history, goes through psycopg2. In production, it will be replaced by `asyncpg` (async version) to avoid blocking the FastAPI event loop. |
+| **Technical** | A Python DB-API 2.0 compliant PostgreSQL adapter. `psycopg2.connect(DSN)` opens a connection. `conn.cursor()` creates a cursor. `cursor.execute(sql, params)` runs parameterised queries — `%s` placeholders prevent SQL injection. `conn.commit()` / `conn.rollback()` manage transactions. |
+| **Remove it** | Without psycopg2 (or asyncpg), Python cannot talk to Postgres. All persistence fails. The incident results that AOIS generates exist only in memory — they vanish on restart. |
+
+**Say it at three levels:**
+- *Non-technical:* "psycopg2 is the cable that plugs Python into the database. Without it, the application cannot save or retrieve anything."
+- *Junior engineer:* "`cursor.execute('INSERT INTO incidents (log, severity) VALUES (%s, %s)', (log_text, 'P1'))` — always use parameterised queries, never f-strings with SQL. `%s` is replaced safely by psycopg2; f-strings are SQL injection vulnerabilities."
+- *Senior engineer:* "psycopg2 is synchronous — every `execute()` blocks the calling thread. In FastAPI async handlers, this blocks the event loop and kills concurrency. For production, use `asyncpg` with a connection pool (`asyncpg.create_pool()`). Keep the synchronous psycopg2 for migration scripts and one-off admin queries where async is unnecessary overhead."

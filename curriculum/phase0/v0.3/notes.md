@@ -849,3 +849,41 @@ On main, make a change to any file and commit it. Then use `git revert HEAD` to 
 Run `git blame main.py | head -30`. For each line shown: you can see the commit hash, author, date, and line number. This is how you answer "who changed this line and when?" in a production incident.
 
 **The mastery bar**: git should feel like a superpower, not a danger. You commit cleanly, you can undo safely, you can investigate history, and your `.gitignore` is protecting your secrets. The engineers who lose work or accidentally commit credentials are the ones who never understood the three areas and the safety rules.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### Git
+
+| Layer | |
+|---|---|
+| **Plain English** | A system that tracks every change you make to your code, lets you go back to any previous state, and lets multiple people work on the same codebase without overwriting each other. |
+| **System Role** | Git is the source of truth for every file in AOIS. Every deployment, every ArgoCD sync, every CI run starts from a git commit. In v8, a `git push` to main IS a deployment — ArgoCD watches the repo and applies what git says. |
+| **Technical** | A distributed version control system that stores content-addressed snapshots (not diffs). The three areas — working tree, staging index, repository — model the three states a file can be in. Branches are pointers to commits; merging creates a new commit with two parents. |
+| **Remove it** | Without git, there is no audit trail of what changed and when. Rolling back a bad deployment means manually undoing code changes. Collaboration without git means people email zip files and overwrite each other's work. In GitOps (v8), no git means no automated deploys. |
+
+**Say it at three levels:**
+- *Non-technical:* "Git is like infinite undo for my code, with a full history of every change, who made it, and why. I can always go back to any point in time."
+- *Junior engineer:* "Git's three areas: working tree (what I'm editing), staging index (what I'm about to commit), repository (the permanent history). `git add` moves to staging, `git commit` creates a snapshot. Branches let me work on features without touching main."
+- *Senior engineer:* "Git's object model is a content-addressed DAG. Commits reference tree objects, trees reference blobs — deduplication is automatic. For AOIS, the git log IS the deployment history. `git revert` is preferable to `git reset --hard` in shared repos because it adds a commit rather than rewriting history."
+
+---
+
+### GitHub
+
+| Layer | |
+|---|---|
+| **Plain English** | A website where your git repository lives online, visible to anyone you share it with — and in this case, to recruiters and future employers. |
+| **System Role** | AOIS lives on GitHub. ArgoCD pulls from GitHub on every push. GitHub Actions will run CI/CD from GitHub. The repo IS the CV — every commit is evidence of what was built. |
+| **Technical** | A managed git hosting platform with pull requests, issues, Actions (CI/CD), Packages (GHCR), and Codespaces. Authentication via SSH keys or HTTPS tokens. GitHub Actions triggers on push/PR events and runs workflows in managed runners. |
+| **Remove it** | Without GitHub, ArgoCD has nowhere to pull from. CI/CD has no trigger. The work is not publicly verifiable. In the context of this curriculum, the GitHub repo is the difference between "I learned this" and "I can prove I built this." |
+
+**Say it at three levels:**
+- *Non-technical:* "GitHub is where my code lives on the internet. It shows everything I've built, with timestamps proving when I built it."
+- *Junior engineer:* "GitHub hosts the git remote. Pull requests are how code review works in teams. GitHub Actions runs tests and deployments on every push. GHCR stores the Docker images built from this repo."
+- *Senior engineer:* "GitHub is the integration point for GitOps. ArgoCD polls or webhooks the repo. Every merge to main triggers a pipeline — build, test, scan, push image, ArgoCD detects the new tag and syncs. The git history is the deployment record and audit trail."

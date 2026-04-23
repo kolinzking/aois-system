@@ -871,3 +871,57 @@ In a single Python session, do both:
 Write a one-paragraph explanation of what tool use actually does mechanically: it does not "teach" the model to return JSON. It changes the API contract — instead of generating text, the model must generate a function call in JSON format. The JSON is part of the protocol, not the content.
 
 **The mastery bar**: You understand LLMs well enough to make intelligent engineering decisions. When someone proposes "just ask the model nicely for structured JSON", you know why that fails in production. When someone asks about cost optimization, you know the levers: caching, tier routing, max_tokens, model selection. When someone asks about context management, you understand the constraint. These mental models guide every decision from v1 to v34.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### Large Language Models (LLMs)
+
+| Layer | |
+|---|---|
+| **Plain English** | AI systems trained on massive amounts of text that can understand and generate language — they turn your question or log line into a structured, reasoned response. |
+| **System Role** | LLMs are the intelligence layer of AOIS. Every log analysis, incident summary, and remediation suggestion comes from an LLM call. Without the LLM, AOIS is just a REST API wrapper around a regex script. |
+| **Technical** | Neural networks trained on text via next-token prediction. At inference time, they take a tokenised input (prompt) and predict the most probable next tokens until they reach a stop condition. Temperature controls randomness. Context window limits total input + output tokens. Cost is proportional to tokens consumed. |
+| **Remove it** | Without an LLM, log analysis falls back to regex — as demonstrated by `log_analyzer.sh`. Regex cannot understand context ("OOMKilled in staging is low severity; OOMKilled in prod at 3am is P1"). LLMs provide the contextual reasoning that makes AOIS worth building. |
+
+**Say it at three levels:**
+- *Non-technical:* "An LLM is like an extremely well-read assistant that has processed almost all text ever written. I give it a log line and it explains what happened, how serious it is, and what to do about it."
+- *Junior engineer:* "I send a system prompt (context/instructions) + user message (the log) to the API. The model returns text. The cost is `(input_tokens + output_tokens) × price_per_token`. Context window limits how much I can send at once. Temperature 0.1 gives consistent, reproducible outputs for structured analysis."
+- *Senior engineer:* "LLM inference is stateless — no memory between calls. 'Memory' in agents (v20) is retrieved context injected into the prompt. Token cost is the primary production constraint: a 4k-token system prompt repeated on every call gets expensive fast — which is why prompt caching (v1) is not optional. Model selection is a cost/quality/latency tradeoff: Claude Opus for complex reasoning, Groq for speed, fine-tuned TinyLlama for volume."
+
+---
+
+### Claude API (Anthropic SDK)
+
+| Layer | |
+|---|---|
+| **Plain English** | The connection to Anthropic's Claude AI — what AOIS uses to send log lines and receive intelligent analysis back. |
+| **System Role** | Claude is the primary intelligence tier of AOIS. P1/P2 incidents go to Claude for the highest quality reasoning. The SDK handles authentication, serialisation, retries, and streaming. In v2, the direct SDK call is replaced by LiteLLM — but understanding the raw API first is essential. |
+| **Technical** | `anthropic.Anthropic()` creates a client. `client.messages.create()` sends a request with model, max_tokens, system prompt, and messages list. The response is a `Message` object with a `content` list — each item is either a `TextBlock` or `ToolUseBlock`. Tool use forces structured JSON output via a defined schema. |
+| **Remove it** | Without the Claude API, the highest-quality analysis tier disappears. P1 incidents would fall to GPT-4o-mini or Groq, which have lower reasoning quality for complex infrastructure analysis. The fallback exists (OpenAI in v1), but it is a degraded experience. |
+
+**Say it at three levels:**
+- *Non-technical:* "The Claude API is the phone line to Anthropic's AI. I send it a log, it sends back an analysis. I pay per message."
+- *Junior engineer:* "`client.messages.create(model='claude-sonnet-4-6', max_tokens=1024, system='...', messages=[{'role': 'user', 'content': log_text}])` — the response is at `response.content[0].text`. Tool use forces JSON: I define a schema, Claude must fill it in exactly."
+- *Senior engineer:* "Anthropic's tool use is the reliable path to structured output — more reliable than prompt engineering alone. The `tool_choice={'type': 'tool', 'name': 'X'}` parameter forces the model to call a specific tool, eliminating the possibility of a plain-text response slipping through. Prompt caching on the system prompt reduces input token costs by ~90% for repeated calls with the same system prompt — mandatory in production."
+
+---
+
+### Prompt caching
+
+| Layer | |
+|---|---|
+| **Plain English** | Anthropic remembers the first part of your message (the instructions you send every time) so you don't have to pay to process it again on every call. |
+| **System Role** | AOIS sends the same 500-token system prompt on every `/analyze` call. Without caching, those 500 tokens are billed at full price every time. With caching, the first call is billed fully; subsequent calls pay only 10% for the cached portion — a 90% cost reduction on the system prompt. |
+| **Technical** | Add `"cache_control": {"type": "ephemeral"}` to any content block in the system or messages array. Anthropic caches that block server-side for 5 minutes (TTL resets on each cache hit). Cache hits are visible in the response's `usage` field: `cache_read_input_tokens`. |
+| **Remove it** | Without prompt caching, the 500-token AOIS system prompt costs $0.003 per call (at Claude Sonnet pricing). With 1000 calls/day, that is $3/day from the system prompt alone — before the actual incident text. Caching brings it to $0.0003. At scale, caching is not optional — it is the difference between a viable product and a cost spiral. |
+
+**Say it at three levels:**
+- *Non-technical:* "Prompt caching is like pre-loading the instructions before every meeting. Instead of re-reading the whole manual each time, the AI remembers it and you only pay for the new part."
+- *Junior engineer:* "Add `'cache_control': {'type': 'ephemeral'}` to the system prompt block. Check `response.usage.cache_read_input_tokens` — if it's non-zero, caching is working. The cache lives for 5 minutes and resets on every hit."
+- *Senior engineer:* "Caching is applied at the token boundary where the content block ends — everything after the cached block is billed normally. This means the system prompt (static) should always be first and marked cacheable; the user message (dynamic) comes after and is never cached. Multi-turn conversations can cache the growing context: mark the entire conversation history as cacheable, append only the new message uncached. This is the pattern for low-cost agentic workflows in v20+."

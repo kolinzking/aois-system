@@ -909,3 +909,41 @@ diff /tmp/helm-manifest.yaml /tmp/kubectl-manifest.yaml
 The kubectl output will have many additional fields (status, resourceVersion, annotations added by Kubernetes). These are fields Kubernetes added after Helm applied the manifest. This is why Helm stores its own copy — it needs to diff against what it originally applied, not what Kubernetes has mutated since.
 
 **The mastery bar**: You understand why Helm exists, know where it stores state, can trace any value from `values.yaml` through the template to rendered output, can diagnose and recover from common error states, and understand how the chart will extend as AOIS grows. When someone says "bump the chart version" or "the Helm release is in a failed state," you know exactly what to do.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### Helm
+
+| Layer | |
+|---|---|
+| **Plain English** | A package manager for Kubernetes — instead of managing 10 separate YAML files for every environment, Helm bundles them into one chart with variables, so one chart deploys correctly to dev, staging, and prod with different settings. |
+| **System Role** | Helm is how AOIS is deployed to every environment. `helm install aois ./charts/aois -f values.prod.yaml` deploys the full stack with production settings. ArgoCD (v8) uses the same Helm chart — every git push causes ArgoCD to re-render the chart and apply the diff. Without Helm, every environment would have separate, diverging YAML files. |
+| **Technical** | A templating and packaging system for Kubernetes manifests. A `Chart` is a directory with `Chart.yaml` (metadata), `values.yaml` (defaults), and `templates/` (Kubernetes manifests with Go template syntax). `{{ .Values.image.tag }}` is replaced with the value from the values file. `helm template` renders the final YAML without applying it — essential for debugging. `helm install/upgrade/rollback` manages releases. |
+| **Remove it** | Without Helm, AOIS has separate YAML files for dev, staging, and prod — differing only in image tag, replica count, and resource limits. When a new environment field is added, it must be updated in every file. Helm means one source of truth for the manifest structure; values files capture the per-environment differences. |
+
+**Say it at three levels:**
+- *Non-technical:* "Helm is like a template for deployment. Instead of manually adjusting settings for each environment, I change one variable and the correct deployment is generated automatically."
+- *Junior engineer:* "`values.yaml` has `replicaCount: 1, image.tag: latest`. `values.prod.yaml` overrides to `replicaCount: 2, image.tag: v6`. `helm upgrade aois ./charts/aois -f values.prod.yaml` — only the overridden values differ. `helm template` is the most useful debugging command: it shows exactly what YAML will be applied."
+- *Senior engineer:* "Helm's release model tracks every install/upgrade as a release with a version number. `helm rollback aois 1` reverts to the previous release state in seconds. The tradeoff: Go templates in Helm can become difficult to reason about for complex logic. For those cases, Helm is the wrong tool — use Kustomize or write a Pulumi program. In v28 (CI/CD), the Helm chart version in `Chart.yaml` is bumped on every merge and used as the ArgoCD sync trigger."
+
+---
+
+### Helm values files
+
+| Layer | |
+|---|---|
+| **Plain English** | Configuration files that let the same Helm chart deploy differently in each environment — development settings in one file, production settings in another, without duplicating the template code. |
+| **System Role** | AOIS has `values.yaml` (base defaults), `values.prod.yaml` (Hetzner production overrides), and `values.eks.yaml` (AWS EKS overrides). The same chart, three environments. Every difference between environments — replica count, resource limits, image pull policy, TLS configuration — is captured in the values file, not in separate template files. |
+| **Technical** | YAML files that override keys in `values.yaml`. `helm install aois ./charts/aois -f values.prod.yaml` merges prod values over defaults. Multiple `-f` flags can stack values files in order. In ArgoCD, the values file is specified in the Application resource — ArgoCD renders the chart with that values file on every sync. |
+| **Remove it** | Without values files, environment differences would require either separate charts (code duplication) or conditional logic baked into templates (impossible to follow). Values files enforce the principle: one template, many configurations. |
+
+**Say it at three levels:**
+- *Non-technical:* "Values files are like settings profiles. The same application, configured differently for development (1 copy, small) vs production (3 copies, more memory)."
+- *Junior engineer:* "`helm install aois ./charts/aois -f values.prod.yaml` — the chart reads `values.prod.yaml` and merges it over `values.yaml`. Fields not in the override file use the default. `helm template aois ./charts/aois -f values.prod.yaml` shows the final YAML without applying it — use this for debugging."
+- *Senior engineer:* "Values files should contain ONLY environment-specific differences, not a full configuration mirror. The base `values.yaml` should have safe, runnable defaults — `helm install` with no `-f` flag should produce a working development deployment. For secret values (API keys, passwords), use Helm secrets (SOPS-encrypted values files) or inject via external-secrets-operator — never commit plaintext secrets to a values file."

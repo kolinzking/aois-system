@@ -811,3 +811,57 @@ TTFB (Time To First Byte) is how long before the server started responding. Tota
 With AOIS running, send a request while watching the server logs. Write down the complete journey of one byte of your log data: starting from the moment you press Enter, through TCP, HTTP parsing, FastAPI routing, Pydantic validation, the outbound Claude API call (another TCP connection, another HTTP request), the response parsing, the JSON serialization, and back to your terminal. If you can narrate this journey without gaps, you understand network programming.
 
 **The mastery bar**: HTTP is the plumbing of everything you build. When something breaks in Phase 3 (Kubernetes Ingress not routing), Phase 4 (Bedrock endpoint not responding), or Phase 6 (OTel trace not showing), HTTP knowledge is what lets you diagnose it. A curl command with `-v` is often the fastest debugging tool you have.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### HTTP / REST
+
+| Layer | |
+|---|---|
+| **Plain English** | The language that computers use to talk to each other on the web. When you call an AI API, submit a form, or load a webpage, HTTP is what carries the message and the response. |
+| **System Role** | Every AOIS endpoint is an HTTP endpoint. Every LLM API call (Anthropic, OpenAI, Groq) is an HTTP POST request. Kubernetes health checks are HTTP GETs. Understanding HTTP means understanding every layer of the system's communication. |
+| **Technical** | A stateless request-response protocol over TCP. A request has a method (GET/POST/PUT/DELETE/PATCH), URL, headers, and optional body. A response has a status code (1xx–5xx), headers, and optional body. REST is an architectural style that maps CRUD operations to HTTP methods and uses resource-based URLs. |
+| **Remove it** | Without HTTP knowledge, you cannot read API errors, write correct client code, debug a 401 vs 403, or understand why a 502 means "upstream is down" vs a 503 meaning "upstream is overloaded." You become dependent on SDKs you cannot debug. |
+
+**Say it at three levels:**
+- *Non-technical:* "HTTP is how my application talks to AI services, databases, and other systems over the internet — it sends a message and waits for a reply."
+- *Junior engineer:* "POST /analyze with a JSON body and Authorization header. Response is 200 with JSON body, or 422 if validation fails, or 503 if the LLM is down. Status codes tell me exactly what went wrong without reading the body."
+- *Senior engineer:* "HTTP semantics matter for caching (GET is idempotent, POST is not), retries (safe to retry 503, dangerous to retry 500 blindly), and observability (status code distribution is a primary SRE signal). gRPC is HTTP/2 with Protobuf — same transport, better for service-to-service in v30+."
+
+---
+
+### curl
+
+| Layer | |
+|---|---|
+| **Plain English** | A command-line tool that makes HTTP requests — the simplest way to test an API without writing any code. |
+| **System Role** | curl is how AOIS endpoints are tested during development, how CI verifies a deployed service is alive, and how you debug an API call before writing the SDK call. It is the universal API client. |
+| **Technical** | A command-line HTTP client supporting 20+ protocols. Key flags: `-X` (method), `-H` (header), `-d` (body), `-s` (silent), `-o` (output file), `-w` (write format for timing). Supports HTTP/1.1, HTTP/2, TLS, and follows redirects by default. |
+| **Remove it** | Without curl, debugging an API requires writing code. A misconfigured auth header discovered by curl in 30 seconds would take 10 minutes to find via a script. It is also the tool that proves an endpoint works before the application code exists. |
+
+**Say it at three levels:**
+- *Non-technical:* "curl is like making a phone call to a web server from the terminal. I type the address, it connects, and I see exactly what the server says back."
+- *Junior engineer:* "`curl -s -X POST https://api.anthropic.com/v1/messages -H 'x-api-key: $KEY' -d '{...}' | jq .` — I can hit any API, see the raw response, debug auth errors, and time the call. It's faster than writing a test script."
+- *Senior engineer:* "`curl -w '@curl-format.txt'` gives DNS resolution time, TLS handshake time, and total time separately. Useful for diagnosing whether latency is in the network, TLS, or server processing. `--resolve` overrides DNS for testing specific pods directly."
+
+---
+
+### DNS
+
+| Layer | |
+|---|---|
+| **Plain English** | The internet's phone book — it translates domain names (like `api.anthropic.com`) into IP addresses that computers can actually route to. |
+| **System Role** | Kubernetes uses DNS internally — every service gets a DNS name (`aois.aois.svc.cluster.local`). cert-manager needs DNS to validate Let's Encrypt certificates. CoreDNS runs inside the cluster and handles all internal resolution. If CoreDNS crashes, nothing can find anything. |
+| **Technical** | A distributed hierarchical naming system. A query for `api.anthropic.com` goes: recursive resolver → root nameserver → `.com` TLD nameserver → Anthropic's nameserver → A/AAAA record with IP. TTL controls how long the record is cached. In Kubernetes, CoreDNS is the cluster-internal DNS server. |
+| **Remove it** | Without DNS working, services cannot find each other by name. A misconfigured CoreDNS causes all inter-pod communication to fail — pods try to connect by name, get NXDOMAIN, and the entire application stops. This is a common failure mode in new clusters. |
+
+**Say it at three levels:**
+- *Non-technical:* "DNS is how `google.com` becomes an IP address. Without it, you'd have to memorise numbers instead of names for every website and service."
+- *Junior engineer:* "`nslookup aois.aois.svc.cluster.local` from inside a pod tells me if CoreDNS is working. If it fails, no service-to-service calls work. DNS is also how cert-manager proves ownership of a domain to Let's Encrypt."
+- *Senior engineer:* "DNS TTL is a caching parameter, not a guarantee. During rolling deploys, old DNS entries can point to terminated pods if TTL is too high. In k8s, `headless services` (ClusterIP: None) return individual pod IPs instead of a VIP — used by Kafka and stateful workloads for direct pod addressing."

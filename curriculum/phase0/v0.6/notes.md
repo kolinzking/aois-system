@@ -877,3 +877,57 @@ Close all the notes and, from memory, explain to yourself:
 If you can explain all of these clearly, you are ready for Phase 1.
 
 **The mastery bar**: You should be able to rebuild this FastAPI app from scratch in 30 minutes — models, endpoint, middleware, and test commands. The framework is transparent; you understand what every line does.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### FastAPI
+
+| Layer | |
+|---|---|
+| **Plain English** | A framework for building web APIs in Python — it handles receiving requests, routing them to the right function, validating the data, and sending back responses. |
+| **System Role** | FastAPI is the AOIS web layer. Every `/analyze` call, every health check, every webhook goes through FastAPI. It is the front door. Everything else — LLM routing, Kafka publishing, metric recording — happens inside its route handlers. |
+| **Technical** | An async Python web framework built on Starlette (ASGI) and Pydantic. Route handlers are Python async functions decorated with `@app.post()`, `@app.get()`, etc. Pydantic models define request/response schemas, which FastAPI uses to auto-validate and auto-document. Runs on uvicorn (ASGI server). |
+| **Remove it** | Without FastAPI, there is no HTTP interface. The LLM analysis logic exists but has no way to receive requests. You would need to replace it with Flask, Django, or write raw ASGI/WSGI — all slower to develop and less integrated with Pydantic. The OpenAPI docs at `/docs` disappear entirely. |
+
+**Say it at three levels:**
+- *Non-technical:* "FastAPI is the receptionist for my application. When a request arrives, it checks it's valid, passes it to the right function, and sends back the answer."
+- *Junior engineer:* "`@app.post('/analyze', response_model=IncidentAnalysis)` — FastAPI validates the request body, calls my function, validates the return value, and serves it as JSON. The `/docs` endpoint is generated automatically from Pydantic models — I never write API documentation by hand."
+- *Senior engineer:* "FastAPI's async handlers via uvicorn mean a single process handles thousands of concurrent requests without threads. Route handlers should never block — any synchronous I/O (Postgres, sync HTTP client) blocks the event loop and kills throughput. Use `httpx.AsyncClient`, `asyncpg`, and `aioredis`. In production, run behind nginx with multiple uvicorn workers."
+
+---
+
+### uvicorn
+
+| Layer | |
+|---|---|
+| **Plain English** | The engine that actually runs a FastAPI application and listens for incoming requests. FastAPI defines what to do with requests; uvicorn is what makes it actually listen. |
+| **System Role** | uvicorn is the process running inside the AOIS Docker container. When Kubernetes sends a health check to port 8000, uvicorn receives it. When the KEDA ScaledObject spawns a new pod, uvicorn starts and begins accepting requests within seconds. |
+| **Technical** | An ASGI (Asynchronous Server Gateway Interface) server built on `uvloop` (a high-performance event loop) and `httptools`. ASGI is the async successor to WSGI — it supports WebSockets, HTTP/2, and long-lived connections that WSGI cannot. Configured via CLI: `uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4`. |
+| **Remove it** | Without uvicorn (or another ASGI server like Hypercorn), a FastAPI application is just a Python object — it cannot receive network traffic. `uvicorn main:app` is the command that turns code into a running service. |
+
+**Say it at three levels:**
+- *Non-technical:* "uvicorn is what makes the application accessible over the network. FastAPI is the recipe; uvicorn is the restaurant that serves it."
+- *Junior engineer:* "`uvicorn main:app --reload` for development (auto-reloads on file change), `uvicorn main:app --workers 4` for production (4 parallel workers). `--host 0.0.0.0` makes it accessible from outside the container — `127.0.0.1` (default) would only accept connections from inside the container."
+- *Senior engineer:* "Single-worker uvicorn is fine for development; in production, `--workers $(nproc)` workers, each with their own event loop. For async code, one worker per CPU core is typically optimal — threads are not used, so there's no GIL contention. For Kubernetes, use `--workers 1` per pod and scale horizontally via KEDA instead of vertically via workers — it gives you better scaling granularity and resource isolation."
+
+---
+
+### OpenAPI / Swagger (`/docs`)
+
+| Layer | |
+|---|---|
+| **Plain English** | Automatically generated interactive documentation for your API — it shows every endpoint, what it accepts, what it returns, and lets you try it directly in the browser. |
+| **System Role** | FastAPI generates `/docs` (Swagger UI) and `/redoc` automatically from Pydantic models and route definitions. During development, it is the primary testing interface. In v27 (auth), it will be secured behind JWT. |
+| **Technical** | OpenAPI Specification (formerly Swagger) is a JSON schema that describes every endpoint, request body, response schema, and authentication mechanism. FastAPI derives this from Python type annotations — no separate specification file needed. Available at `/openapi.json`; Swagger UI renders it interactively at `/docs`. |
+| **Remove it** | Without OpenAPI, API consumers have no machine-readable contract. Integration testing requires reading source code. Clients cannot auto-generate SDK code. In a team, `/docs` is the shared contract — the difference between "what does this endpoint accept?" taking 30 seconds vs. reading Python source. |
+
+**Say it at three levels:**
+- *Non-technical:* "The `/docs` page lets anyone test the API through a web form. No code needed — just open the browser and click."
+- *Junior engineer:* "FastAPI generates `/docs` from my Pydantic models. If I add a new field to `IncidentAnalysis`, the docs update automatically. The `/openapi.json` is machine-readable — client libraries can be generated from it automatically."
+- *Senior engineer:* "OpenAPI is a contract. In a microservices environment, the OpenAPI spec is versioned alongside the code and validated in CI — breaking changes to request/response schemas are detected before merge. FastAPI's auto-generation is great for development speed; in a team, you add explicit examples and `description` fields to make the generated spec useful as a real contract."

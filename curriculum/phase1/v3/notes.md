@@ -880,3 +880,57 @@ The things Instructor does NOT solve:
 That second category is what DSPy and systematic evals address — covered in v15, v29, and v33. Instructor is the foundation. Evals are what tell you whether the foundation is producing correct answers.
 
 **The mastery bar**: When you write an LLM application, Instructor + Pydantic + Langfuse should be your default starting point, not an afterthought. Unvalidated output and unobserved calls are the root causes of most production LLM failures. You know how to prevent both.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### Instructor
+
+| Layer | |
+|---|---|
+| **Plain English** | A library that guarantees your Python data structure comes back from the AI every time — it automatically retries if the AI returns something malformed, until it gets it right. |
+| **System Role** | Instructor wraps the LLM client and adds validation + retry logic. Instead of `response.choices[0].message.content` followed by manual `json.loads()` and error handling, `instructor.from_anthropic(client)` and `response_model=IncidentAnalysis` handles everything. Pydantic model in → validated Pydantic model out, guaranteed. |
+| **Technical** | Patches the Anthropic/OpenAI client with a `response_model` parameter. Under the hood: extracts the JSON Schema from the Pydantic model, sends it as a tool definition, parses the tool call response, validates against Pydantic, and retries up to `max_retries` times if validation fails. The application only ever sees a valid Pydantic object. |
+| **Remove it** | Without Instructor, every LLM call needs manual JSON parsing, Pydantic validation, and retry logic — typically 20-30 lines of error handling per endpoint. A `ValidationError` that Instructor would retry and fix in milliseconds becomes a 500 error returned to the user. |
+
+**Say it at three levels:**
+- *Non-technical:* "Instructor is a quality control layer. It keeps asking the AI for the answer until it comes back in exactly the right format — so the application never has to deal with a badly formatted response."
+- *Junior engineer:* "`client = instructor.from_anthropic(anthropic.Anthropic()); result = client.messages.create(response_model=IncidentAnalysis, ...)` — `result` is always a valid `IncidentAnalysis` Pydantic object, or an exception after `max_retries`. No JSON parsing, no manual validation."
+- *Senior engineer:* "Instructor's retry logic uses the Pydantic `ValidationError` message as feedback to the LLM — 'field severity must be one of P1, P2, P3, P4' is sent back as a user message on retry. This is the simplest form of self-correcting LLM output. The tradeoff: retries add latency and cost. For production, set `max_retries=2` and alert on retry rate — a high retry rate signals the prompt needs tuning, not more retries."
+
+---
+
+### Langfuse
+
+| Layer | |
+|---|---|
+| **Plain English** | An observability tool specifically for AI systems — it records every LLM call, shows you how long it took, how much it cost, and how good the output was, so you can improve the system systematically. |
+| **System Role** | Langfuse is the AI-specific observability layer of AOIS. Where Prometheus (v16) measures pod metrics, Langfuse measures LLM call quality. Every `analyze()` call is a Langfuse trace containing spans for each LLM call with model name, token counts, cost, latency, and optionally a quality score. Without Langfuse, optimising AOIS means guessing. |
+| **Technical** | An open-source LLM observability platform. Python SDK wraps LLM calls with a trace context. `langfuse.trace(name="analyze")` starts a trace; `trace.span(name="llm_call")` creates a child span. Trace data is sent asynchronously to the Langfuse server. Self-hosted (Docker Compose) or managed cloud. Data model: Project → Trace → Span → Observation. |
+| **Remove it** | Without Langfuse, you cannot answer: "Is Claude performing better than GPT-4o-mini for this use case?" or "Why did costs spike on Tuesday?" or "Which prompt version produced better severity classifications?" LLM improvement becomes anecdotal instead of data-driven. |
+
+**Say it at three levels:**
+- *Non-technical:* "Langfuse is the dashboard that shows me exactly what the AI is doing — how fast, how much it costs per call, and whether the answers are getting better or worse over time."
+- *Junior engineer:* "Every `analyze()` call creates a Langfuse trace with: model used, input/output tokens, cost in USD, latency in ms, and optionally a quality score (0-1). I can filter by model, date, or score in the UI. This is how I know whether Groq is actually cheaper than Claude per call."
+- *Senior engineer:* "Langfuse gives you the three things you need to optimise an LLM system: observability (what is the model doing?), evaluation (is it doing it well?), and experimentation (did this prompt change improve it?). The scores you define in v3 become the eval dataset in v23.5 (agent evals). Building the measurement infrastructure here means Phase 7's agent evaluation is a natural extension, not a new system."
+
+---
+
+### DSPy
+
+| Layer | |
+|---|---|
+| **Plain English** | Instead of manually writing and tuning the exact wording of your AI prompts, DSPy lets you describe what good output looks like and automatically finds the best prompt to produce it. |
+| **System Role** | DSPy represents the transition from prompt engineering (hand-crafting text) to prompt programming (optimising prompts systematically). In AOIS, DSPy is used to find the optimal system prompt for incident classification — given a labeled dataset, it searches for the prompt that maximises severity accuracy. |
+| **Technical** | A framework for programming (not prompting) LLMs. You define a `Signature` (input/output types and descriptions), compose a `Module`, and run an `Optimizer` (like `BootstrapFewShot`) against a labeled dataset. The optimizer generates and evaluates prompt variants, keeping those that score best. The result is an optimised prompt that outperforms hand-written alternatives on the metric you defined. |
+| **Remove it** | Without DSPy, prompt improvement is manual: write a variant, test it on examples, compare qualitatively, decide. This doesn't scale beyond a few variants. DSPy is systematic: it evaluates hundreds of variants against a labeled dataset and picks the winner objectively. As the AOIS eval dataset (v23.5) grows, DSPy's advantage compounds. |
+
+**Say it at three levels:**
+- *Non-technical:* "DSPy is like A/B testing for AI instructions. Instead of guessing which wording works best, it automatically tests thousands of options and picks the one that gives the most accurate results."
+- *Junior engineer:* "Define what 'correct' looks like (a labeled dataset), define a metric (severity accuracy), run `BootstrapFewShot`. DSPy generates few-shot examples and prompt variants, scores each one, and returns the best. The output is a compiled module you deploy — the prompt is baked in and versioned."
+- *Senior engineer:* "DSPy is a paradigm shift: prompts are artefacts produced by an optimiser, not written by hand. This matters most when you have a good eval set — DSPy's power scales with the quality of your ground-truth labels. The compiled modules are serialisable (JSON), which means they can be versioned in git, diffed in CI, and rolled back like code. In v29 (W&B), DSPy optimisation runs become tracked experiments."

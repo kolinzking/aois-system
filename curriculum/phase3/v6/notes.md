@@ -1074,3 +1074,57 @@ Fill in each hop with the Kubernetes resource responsible. (Answer: DNS → Hetz
 Verify your understanding: what would break if you deleted the Service? (Traefik cannot reach the pod — traffic stops.) What would break if you deleted the Ingress? (External traffic has no route in — the domain stops working, but the pod and Service still exist.)
 
 **The mastery bar**: You can deploy a service to Kubernetes from scratch, debug any failure state using kubectl alone, explain the network path from browser to container, and understand what each resource type's job is. When you join a company and see their k8s setup, none of it will be mysterious — you will recognize every resource type and know what to look for when something breaks.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### Kubernetes (k8s / k3s)
+
+| Layer | |
+|---|---|
+| **Plain English** | A system that manages running your application across multiple servers — automatically restarting crashed containers, distributing load, and deploying new versions without downtime. |
+| **System Role** | Kubernetes is the production runtime for AOIS. Every service — the FastAPI app, Kafka, ArgoCD, Falco, KEDA — runs as a pod managed by Kubernetes. k3s is the lightweight distribution running on the Hetzner VPS. When KEDA scales AOIS from 1 to 5 pods under load, Kubernetes is what actually starts and stops those pods. |
+| **Technical** | A container orchestration system. Core objects: `Pod` (one or more containers), `Deployment` (manages replica sets), `Service` (stable network endpoint for pods), `Ingress` (routes external traffic to services), `ConfigMap`/`Secret` (configuration injection), `Namespace` (logical cluster partitioning). The API server is the control plane; kubelet is the agent running on each node. |
+| **Remove it** | Without Kubernetes, AOIS is a single Docker container on one server. If the server crashes, AOIS is down until manually restarted. Scaling requires manual `docker run` commands. Deploying a new version requires SSH + manual steps. k8s automates all of this — the "ops" in DevOps. |
+
+**Say it at three levels:**
+- *Non-technical:* "Kubernetes is the manager that keeps all the application containers running. If one crashes, it restarts it. If traffic spikes, it starts more copies. It works across many servers at once."
+- *Junior engineer:* "A Deployment says 'run 2 replicas of aois:v6'. k8s ensures exactly 2 pods are running at all times — if one dies, it starts another. A Service gives those pods a stable IP. An Ingress routes `aois.46.225.235.51.nip.io` to that Service. `kubectl get pods -n aois` shows what's running."
+- *Senior engineer:* "The k8s control loop is the mental model: desired state (manifests) vs actual state (running cluster) — the controller reconciles continuously. This is also how ArgoCD works (v8). k3s removes the HA control plane and uses SQLite instead of etcd — fine for a single-node Hetzner cluster, not for production multi-node. Resource requests vs limits: requests are what the scheduler uses to place pods; limits are the ceiling. Setting requests == limits is the correct pattern for predictable scheduling."
+
+---
+
+### Terraform
+
+| Layer | |
+|---|---|
+| **Plain English** | A tool that creates and manages cloud infrastructure by reading configuration files — so you can rebuild your entire server setup from scratch with one command, and track changes in git like code. |
+| **System Role** | Terraform provisions the Hetzner VPS that runs k3s. `terraform apply` creates the server, sets up SSH keys, and configures the firewall. The infrastructure is defined in `main.tf` — if the server is destroyed, `terraform apply` recreates it identically. In v12, Terraform provisions the EKS cluster on AWS. |
+| **Technical** | A declarative Infrastructure as Code tool. Resources (servers, networks, DNS records) are declared in HCL (HashiCorp Configuration Language). Terraform maintains a state file that tracks what it has created. `terraform plan` shows what will change before applying. `terraform apply` creates/updates resources to match the declared state. `terraform destroy` removes everything. |
+| **Remove it** | Without Terraform, infrastructure is created manually via cloud UIs — undocumented, unreproducible, and untrackable. When the Hetzner server is eventually replaced or a second node added, the process must be remembered and repeated manually. With Terraform, the infrastructure is code: versioned, reviewable, and reproducible. |
+
+**Say it at three levels:**
+- *Non-technical:* "Terraform is a recipe for infrastructure. I describe what I want (a server with these specs in this region), and Terraform creates it. If something is destroyed, I run the recipe again and it rebuilds everything."
+- *Junior engineer:* "`resource 'hcloud_server' 'aois' { server_type = 'cpx21', image = 'ubuntu-24.04' }` — that's the entire server declaration. `terraform plan` shows what it will create/change/destroy. `terraform apply` executes it. The state file tracks what Terraform manages. Never manually edit infra that Terraform manages — the next `terraform apply` will overwrite it."
+- *Senior engineer:* "Terraform's state file is the source of truth — it must be stored remotely (S3 + DynamoDB for locking) in team environments. State drift (manually changed infra) is the primary operational hazard; `terraform refresh` detects it. For AOIS, the Hetzner VPS Terraform state is local (solo project) — in a team environment this must be remote. Pulumi (v30) is Terraform's competitor with real programming language support — loops, functions, and conditionals that HCL cannot express."
+
+---
+
+### cert-manager + Let's Encrypt
+
+| Layer | |
+|---|---|
+| **Plain English** | Automatically obtains and renews HTTPS certificates for your domain, so the application is always accessible over a secure connection without any manual certificate management. |
+| **System Role** | cert-manager runs in the k3s cluster and manages the TLS certificate for `aois.46.225.235.51.nip.io`. It requests a certificate from Let's Encrypt, stores it as a Kubernetes Secret, and automatically renews it before it expires. Traefik uses this Secret to serve AOIS over HTTPS. Without it, AOIS is HTTP only. |
+| **Technical** | A Kubernetes controller that automates X.509 certificate management. `Issuer`/`ClusterIssuer` resources define where to get certificates (Let's Encrypt ACME server). `Certificate` resources request a cert for a domain. The ACME HTTP-01 challenge: Let's Encrypt sends an HTTP request to a token URL — cert-manager serves the response, proving domain control. Certs are stored as k8s `Secrets` and auto-renewed 30 days before expiry. |
+| **Remove it** | Without cert-manager, HTTPS requires manually obtaining a certificate from Let's Encrypt, manually storing it as a k8s Secret, manually creating a renewal reminder, and manually repeating every 90 days. In a production cluster with dozens of services, manual cert management is the thing that gets forgotten and causes a 3am outage when a cert expires. |
+
+**Say it at three levels:**
+- *Non-technical:* "cert-manager automatically gets and renews the security certificate that makes the padlock appear in the browser. It works in the background — the certificate never expires because cert-manager renews it automatically."
+- *Junior engineer:* "Apply a `ClusterIssuer` pointing at Let's Encrypt. Add an annotation to the Ingress: `cert-manager.io/cluster-issuer: letsencrypt-prod`. cert-manager sees the annotation, requests a cert for the Ingress hostname, completes the HTTP-01 challenge, and stores the cert as a Secret. Traefik reads the Secret for TLS termination."
+- *Senior engineer:* "cert-manager's reconciliation loop monitors cert expiry and renews at 2/3 of the certificate lifetime (60 days for a 90-day Let's Encrypt cert). DNS-01 challenges are required for wildcard certs and for clusters without public HTTP access. The cert Secret is a regular k8s Secret — in a multi-cluster setup, use external-secrets-operator to replicate it. Rate limits on Let's Encrypt staging vs prod matter during testing: always use the staging issuer until the pipeline works, then switch to prod."

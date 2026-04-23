@@ -824,3 +824,73 @@ docker network inspect aois-system_default    # see all containers and their IPs
 Now understand: why can the AOIS container reach `postgres:5432` using the service name `postgres`? (Docker Compose creates a DNS entry for each service name on the shared network.) Why can YOU reach `localhost:5432`? (The `ports:` mapping publishes it to the host.) What if you removed the `ports:` from postgres? (You could not reach it from your machine, but AOIS still could — internal network still works.)
 
 **The mastery bar**: You can build an image from scratch, explain every Dockerfile instruction, run a multi-service application with Compose, debug inside containers, and interpret security scan output. Docker is transparent to you now — you see through it to what it is actually doing.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### Docker
+
+| Layer | |
+|---|---|
+| **Plain English** | Packages your application and everything it needs to run into a single portable box — so it works identically on your laptop, on a Hetzner server, and on AWS, with no "it works on my machine" problems. |
+| **System Role** | Docker is the delivery mechanism for AOIS. The Dockerfile produces an image that is pushed to GHCR and pulled by Kubernetes. Every environment (dev, staging, prod) runs the same image — differences are in config (env vars), not in the application. Without Docker, deploying to k3s (v6) would require manual dependency installation on every node. |
+| **Technical** | A container runtime that uses Linux namespaces and cgroups to isolate processes. A `Dockerfile` defines a layered build: each `RUN`, `COPY`, and `FROM` instruction creates a filesystem layer. `docker build` produces an image (immutable snapshot). `docker run` creates a container (running instance). Multi-stage builds use one stage for compiling/installing and a minimal stage for the runtime — dramatically reducing image size and attack surface. |
+| **Remove it** | Without Docker, AOIS is a Python application that requires manual setup (Python version, venv, dependencies) on every machine it runs on. Kubernetes cannot orchestrate it. CI cannot build and push it. The entire GitOps pipeline (v8) depends on Docker images. |
+
+**Say it at three levels:**
+- *Non-technical:* "Docker packages the application with all its dependencies into a container — like a shipping container that holds everything needed to run the app anywhere, regardless of what's installed on the machine."
+- *Junior engineer:* "The Dockerfile is the build recipe. `FROM python:3.11-slim` is the base. `COPY requirements.txt && pip install` installs dependencies. `CMD ["uvicorn", "main:app"]` starts it. Multi-stage: build in a full image, copy only the binary/files to a minimal runtime image. Result: smaller, faster, fewer vulnerabilities."
+- *Senior engineer:* "Image layers are content-addressed and cached. Ordering matters: `COPY requirements.txt` before `COPY .` means dependency layers are cached even when source code changes. For AOIS: non-root user, read-only filesystem, no shell in the runtime stage, distroless base. Trivy scans the final image — zero HIGH/CRITICAL is the CI gate. The image digest (SHA256) is the immutable identifier; tags are mutable pointers to digests."
+
+---
+
+### Docker Compose
+
+| Layer | |
+|---|---|
+| **Plain English** | A tool for running multiple related services together with a single command — so you can start the entire AOIS stack (app, database, cache, monitoring) locally without manually starting each piece. |
+| **System Role** | Docker Compose is the local development environment for AOIS. `docker compose up` starts AOIS + Redis + Postgres + OTel Collector + Prometheus + Grafana + Loki + Tempo as a single stack. It mirrors the production Kubernetes setup, making local development representative of what runs in prod. |
+| **Technical** | A YAML-based tool for defining multi-container applications. Each `service` in `docker-compose.yml` maps to a container with its own image, environment variables, ports, volumes, and network. Services share a Docker network — service names resolve as hostnames within that network. `depends_on` controls startup order. |
+| **Remove it** | Without Compose, each service must be started manually with `docker run`, with manually specified network flags and environment variables. The full local stack requires 7+ separate commands that must be run in the correct order. Any time a new developer joins, setup takes hours instead of minutes. |
+
+**Say it at three levels:**
+- *Non-technical:* "Docker Compose is a conductor for the whole orchestra. Instead of starting each instrument (service) one by one, one command starts everything at once in the right order."
+- *Junior engineer:* "`docker compose up -d` starts everything in the background. `docker compose logs -f aois` follows AOIS logs. `docker compose down` stops and removes containers. Service names are DNS hostnames — AOIS connects to Postgres at `postgres:5432` because that's the Compose service name."
+- *Senior engineer:* "Compose is for development and testing, not production. The production equivalent is Helm + ArgoCD (v7, v8). The value is that Compose and Kubernetes use the same image — the gap between local and prod is config, not code. `healthcheck` in Compose maps to k8s readiness probes. `depends_on: condition: service_healthy` is the Compose-native equivalent of k8s init containers."
+
+---
+
+### Redis
+
+| Layer | |
+|---|---|
+| **Plain English** | An extremely fast temporary storage that keeps data in memory — used to avoid repeating expensive operations (like LLM calls) and to share state between multiple instances of the application. |
+| **System Role** | Redis serves two roles in AOIS: rate limiting state (slowapi in v5 uses Redis to count requests per IP across all pod replicas) and response caching (avoid re-calling the LLM for identical log inputs). Without Redis, rate limits reset when pods restart and identical log lines re-hit the LLM every time. |
+| **Technical** | An in-memory data structure store supporting strings, hashes, lists, sets, sorted sets, and streams. Data persists optionally to disk (RDB snapshots or AOF log). Sub-millisecond latency because all reads/writes happen in RAM. Expiry (TTL) on keys is a first-class feature — keys automatically disappear after a set time. |
+| **Remove it** | Without Redis: rate limiting becomes per-pod (trivially bypassed by load balancers), response caching disappears (duplicate log lines hit the LLM repeatedly), and any shared session state between pods is lost. In a 5-replica AOIS deployment under KEDA scaling, Redis is what makes the replicas behave like a single coherent system. |
+
+**Say it at three levels:**
+- *Non-technical:* "Redis is a super-fast notepad that all instances of the application share. Instead of each copy of the app doing the same work, they check the notepad first — if the answer is already there, they use it."
+- *Junior engineer:* "`redis.set('rate_limit:IP:endpoint', count, ex=60)` — sets a key with a 60-second TTL. `redis.incr()` is atomic — multiple pods can safely increment the same counter. `redis.get('cache:' + hash(log))` returns a cached analysis. If None, call the LLM and `redis.setex()` the result."
+- *Senior engineer:* "Redis as a rate limit store requires the sliding window algorithm (sorted sets) for correct semantics — the fixed window (INCR + TTL) approach has edge cases at window boundaries where 2x the limit can get through. For AOIS at scale, Redis Cluster handles failover; Sentinel handles single-node HA. The eviction policy matters: `allkeys-lru` (evict least recently used) is correct for a cache; `noeviction` is correct for session state. Never use `noeviction` for a cache — the server OOMs when memory fills."
+
+---
+
+### Trivy
+
+| Layer | |
+|---|---|
+| **Plain English** | A security scanner that checks your Docker image for known vulnerabilities — so you don't accidentally deploy a container with a critical security flaw that attackers could exploit. |
+| **System Role** | Trivy is the shift-left security gate for AOIS. It runs in CI (v28) after every build: `trivy image aois:latest`. Zero HIGH or CRITICAL vulnerabilities is the gate to pass before an image can be pushed. It catches vulnerable base image packages, outdated Python dependencies, and misconfigured Dockerfiles. |
+| **Technical** | An open-source vulnerability scanner for containers, filesystems, and IaC. It scans: OS packages (Alpine apk, Debian apt), language dependencies (pip, npm), and IaC configs (Dockerfile, Terraform). Matches against CVE databases (NVD, GitHub Advisory, OS vendor advisories). Reports by severity: CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN. |
+| **Remove it** | Without Trivy, a deployed AOIS container could have a critical CVE in its base image or a dependency — invisible until an attacker exploits it. The 2023 Log4Shell incident was a `HIGH` CVE in a Java library that every SBOM-unaware organisation shipped unknowingly. Trivy makes CVEs visible before they reach production. |
+
+**Say it at three levels:**
+- *Non-technical:* "Trivy is a security check that scans the container for known weaknesses before it's deployed. Like a metal detector at the airport — nothing dangerous gets through without being flagged."
+- *Junior engineer:* "`trivy image --exit-code 1 --severity HIGH,CRITICAL aois:latest` — exits with code 1 (failing CI) if any HIGH or CRITICAL CVE is found. Fix by updating the base image (`FROM python:3.11-slim` → `FROM python:3.12-slim`), pinning newer dependency versions, or accepting the risk with a justification comment."
+- *Senior engineer:* "Trivy scans at the layer level — it knows which layer introduced the vulnerability. Multi-stage builds reduce the attack surface by leaving build tools out of the runtime image. For a serious production deployment, Trivy runs at build time (shift-left) AND at runtime via `trivy image` on the running registry image (catch new CVEs in already-deployed images). Cosign (v4) signs the image digest after Trivy passes — the signature is evidence that the scan passed."

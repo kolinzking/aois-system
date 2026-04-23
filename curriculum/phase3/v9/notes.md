@@ -814,3 +814,41 @@ resource.customizations.health.keda.sh_ScaledObject: |
 This is optional — `kubectl get scaledobject` gives you the authoritative status. ArgoCD health for custom resources is cosmetic.
 
 **The mastery bar:** You can describe KEDA's architecture (ScaledObject → KEDA → managed HPA → Deployment), explain why CPU cannot produce scale-to-zero while Kafka can, and deploy a ScaledObject through ArgoCD. You understand what changes in v17 and can make that change without notes.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### KEDA (Kubernetes Event-Driven Autoscaling)
+
+| Layer | |
+|---|---|
+| **Plain English** | Automatically increases or decreases the number of running copies of AOIS based on actual workload — scaling up when there are many logs to process, scaling to zero when there's nothing to do. |
+| **System Role** | KEDA is the autoscaling engine for AOIS. In v9 it scales pods based on CPU usage; in v17 it scales based on Kafka consumer lag (how many unprocessed log messages are waiting). Without KEDA, AOIS runs at a fixed replica count — burning money on idle pods overnight and potentially dropping messages during traffic spikes. |
+| **Technical** | A Kubernetes autoscaler that extends the standard Horizontal Pod Autoscaler. Where HPA only scales on CPU and memory, KEDA scales on arbitrary external metrics via `ScaledObject` CRs: Kafka lag, queue depth, Prometheus metrics, Redis list length, HTTP request rate, cron schedule, and 50+ more triggers. KEDA creates and owns a standard HPA under the hood — `kubectl get hpa` shows it. |
+| **Remove it** | Without KEDA: either always run 3+ pods (wasteful at $0/request times), or run 1 pod (drops requests during spikes). The Hetzner CPX21 has 3 vCPU and 4GB RAM — running 3 idle AOIS replicas uses ~1GB RAM for nothing. KEDA ensures pods exist when needed and don't exist when they're not. |
+
+**Say it at three levels:**
+- *Non-technical:* "KEDA is like a restaurant that automatically hires more staff when a queue forms outside. When it's quiet, fewer staff. When it's busy, more staff — automatically, without anyone making a phone call."
+- *Junior engineer:* "`ScaledObject` with `triggers: [{type: cpu, threshold: 60}]` — if average CPU across pods exceeds 60%, KEDA adds more pods up to `maxReplicaCount: 5`. Below 60%, it scales down to `minReplicaCount: 1`. In v17, the trigger changes to Kafka lag: `lagThreshold: 50` — if there are 50+ unprocessed messages, KEDA starts more consumer pods."
+- *Senior engineer:* "KEDA's Kafka scaler computes `lag / lagThreshold` as the desired replica count — intuitive and predictable. The scale-down delay (default 300s) prevents flapping: a single burst doesn't immediately scale down and lose the consumer offset state. For AOIS, the correct pattern is `minReplicaCount: 1` (never fully scale to zero for a critical SRE tool) and `cooldownPeriod: 300`. Scale-to-zero is correct for batch workloads; for an incident alerting system, one warm pod is the correct minimum."
+
+---
+
+### Horizontal Pod Autoscaler (HPA)
+
+| Layer | |
+|---|---|
+| **Plain English** | The Kubernetes built-in mechanism for adding more copies of a pod when it gets busy — KEDA extends this with more trigger types beyond just CPU and memory. |
+| **System Role** | KEDA creates and manages an HPA under the hood. Understanding HPA is understanding what KEDA builds on. In simple cases (CPU-based scaling), the native HPA is sufficient. KEDA is the right choice when the scaling trigger is external (Kafka lag, queue depth) — which is almost always the case for AI workloads. |
+| **Technical** | A Kubernetes controller that scales `Deployment` or `StatefulSet` replica counts based on observed metrics vs targets. Standard metrics: `cpu` and `memory` (from metrics-server). Custom metrics require the Metrics API. The scaling algorithm: `desiredReplicas = ceil(currentReplicas * (currentMetricValue / desiredMetricValue))`. |
+| **Remove it** | Without HPA (or KEDA), replica count is static — set at deploy time, never adjusted. A viral incident that generates 10x normal log volume runs the same single pod until a human notices and manually scales. HPA/KEDA is the difference between an SRE tool that handles incidents and one that falls over during them. |
+
+**Say it at three levels:**
+- *Non-technical:* "The HPA is an automatic dial that turns up the number of running copies of the app when it's under pressure, and turns it back down when it's not."
+- *Junior engineer:* "`kubectl get hpa -n aois` shows the current replica count, current metric value, and target. `keda-hpa-aois` is the HPA KEDA created — it's a standard k8s HPA that KEDA controls. KEDA's ScaledObject is the configuration; the HPA is the mechanism."
+- *Senior engineer:* "The HPA control loop runs every 15 seconds (default `--horizontal-pod-autoscaler-sync-period`). Scale-up is aggressive (fires on the first sample above threshold); scale-down is conservative (requires sustained below-threshold readings for the cooldown period). This asymmetry is intentional — it's better to have one unnecessary pod than to drop requests. For Kafka-triggered scaling, the lag calculation is done by KEDA's external scaler; the HPA only sees the normalised target replica count."

@@ -842,3 +842,41 @@ In Phase 7 (v20), AOIS will have tools like `get_pod_logs(pod_name)` and `descri
 Look at `ANALYZE_TOOL` and write a hypothetical `GET_POD_LOGS_TOOL` definition that would tell Claude how to call a function with a pod name and namespace. You do not need to implement it — just write the tool definition dict. The fact that you can write this from understanding (not memory) means you understand tool use at the conceptual level.
 
 **The mastery bar**: v1 is the foundation of the entire intelligence layer. You should be able to explain to another engineer why tool use guarantees structured output, how prompt caching reduces costs, what the fallback mechanism does, and why this one function swap transforms the entire application. If you can explain all of this clearly, you are ready for v2.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### Claude tool use (structured output)
+
+| Layer | |
+|---|---|
+| **Plain English** | A way to force the AI to always respond in a specific format (JSON with exact fields) instead of free text — so the application can reliably parse and use the response. |
+| **System Role** | Tool use is how AOIS gets structured incident analysis from Claude. Without it, Claude might return "This looks like a P2 incident..." as prose — unparseable by code. With tool use and `tool_choice` forcing, every response is a guaranteed JSON object with `severity`, `confidence`, `summary`, and `suggested_action`. |
+| **Technical** | The Anthropic messages API accepts a `tools` list — each tool has a name, description, and input_schema (JSON Schema). Setting `tool_choice={"type": "tool", "name": "X"}` forces Claude to call that specific tool. The response `content` list contains a `ToolUseBlock` with `input` — a dict matching the schema. |
+| **Remove it** | Without tool use, you rely on prompt engineering to get JSON. Claude sometimes returns it, sometimes adds prose before or after, sometimes formats differently across model versions. Production systems cannot tolerate this unpredictability. Tool use is the contract that makes LLM output as reliable as a function call. |
+
+**Say it at three levels:**
+- *Non-technical:* "Tool use is like giving the AI a specific form to fill out instead of letting it write an essay. The AI must fill in every field — severity, suggested action — in a format the application can read."
+- *Junior engineer:* "I define the JSON Schema I want. Claude is forced to return data matching it exactly. I iterate `response.content`, find the `ToolUseBlock`, and get `.input` — a Python dict. If Claude tries to respond in plain text, `tool_choice` forcing prevents it."
+- *Senior engineer:* "Tool use maps to function calling in OpenAI's API — the same concept, different naming. The JSON Schema in the tool definition is the same schema Pydantic exports via `model_json_schema()` — Instructor (v3) automates this loop. For multi-tool agents (v20), `tool_choice: auto` lets Claude decide which tool to call; for single-function structured output, `tool_choice: tool` is always correct."
+
+---
+
+### OpenAI SDK (fallback tier)
+
+| Layer | |
+|---|---|
+| **Plain English** | A backup AI service that AOIS switches to automatically when the primary AI (Claude) is unavailable — so the system keeps working during outages. |
+| **System Role** | OpenAI is the v1 fallback tier. If the Claude API returns an error, AOIS catches it and calls `gpt-4o-mini` instead. In v2, this manual fallback logic is replaced by LiteLLM's automatic routing — but understanding the raw fallback pattern is what motivates building the routing layer. |
+| **Technical** | `openai.OpenAI()` client. `client.chat.completions.create()` with `model`, `messages`, and `response_format={"type": "json_object"}`. The response is at `response.choices[0].message.content` — a JSON string that requires `json.loads()`. Different shape to the Anthropic response; different parsing code required. |
+| **Remove it** | Without a fallback, an Anthropic API outage means AOIS returns 503s. For an SRE tool that needs to be available during production incidents — exactly the moments when cloud providers have outages — single-provider dependency is unacceptable. |
+
+**Say it at three levels:**
+- *Non-technical:* "The OpenAI fallback is a backup phone line. If the main line to Anthropic is busy or down, AOIS automatically tries OpenAI instead."
+- *Junior engineer:* "Two separate functions: `analyze_with_claude()` and `analyze_with_openai()`. If claude raises an exception, the handler calls openai. The response parsing code is different — OpenAI returns `choices[0].message.content` as a string; Anthropic returns a content list. This is exactly the duplication that motivates LiteLLM in v2."
+- *Senior engineer:* "Multi-provider routing at the SDK layer is brittle — every new provider needs new parsing code, new error handling, new retry logic. The v1 fallback exists to show the problem, not as the solution. v2 replaces both SDK calls with a single LiteLLM call — same interface, any provider. The v1 pattern is still seen in legacy codebases; recognising it and knowing what to replace it with is a real production skill."

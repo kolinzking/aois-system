@@ -999,3 +999,57 @@ def analyze(log, tier="premium", max_retries=3):
 The hints should be precise: `log` is a non-empty string, `tier` is one of a specific set of values, `max_retries` is a positive integer, and the return type is `IncidentAnalysis`. Use `Literal` for `tier`. Now the function signature documents itself.
 
 **The mastery bar**: When you open main.py at any version, every import, every class definition, every type hint, and every pattern should be immediately recognizable. No line of Python in this project should be foreign after completing this version.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### Python virtual environments (venv)
+
+| Layer | |
+|---|---|
+| **Plain English** | An isolated bubble for Python packages so that each project has exactly the dependencies it needs, without different projects stepping on each other. |
+| **System Role** | Every AOIS component — the FastAPI service, Kafka consumer, fine-tuning scripts — runs in a venv. Without isolation, installing one library version for AOIS could break another project on the same machine. |
+| **Technical** | `python -m venv .venv` creates a self-contained Python installation with its own `site-packages`. Activating it (`source .venv/bin/activate`) prepends `.venv/bin` to `PATH`, so `python` and `pip` resolve to the local copies. `requirements.txt` pins the exact dependency graph. |
+| **Remove it** | Without venvs, a `pip install anthropic` upgrades the system Python, potentially breaking other tools. In production containers, the Dockerfile creates an implicit venv via `COPY requirements.txt && pip install` — same isolation principle, baked into the image. |
+
+**Say it at three levels:**
+- *Non-technical:* "A virtual environment is like giving each project its own toolbox. The tools in one project's box don't interfere with another project's tools."
+- *Junior engineer:* "Each venv has its own `pip` and `site-packages`. I activate it once per session. `pip freeze > requirements.txt` captures the exact state so anyone can reproduce it. Without this, 'works on my machine' is guaranteed."
+- *Senior engineer:* "In production, the Docker image is the venv — `pip install --no-cache-dir -r requirements.txt` into the image layers. For reproducibility, pin to exact versions in `requirements.txt`, not `>=`. `pip-compile` generates a locked file from a loose spec. The Dockerfile is the canonical environment; the local venv mirrors it."
+
+---
+
+### Pydantic
+
+| Layer | |
+|---|---|
+| **Plain English** | A library that checks whether data has the right shape before your code uses it — catching errors at the boundary instead of deep inside the system where they're harder to debug. |
+| **System Role** | Pydantic is the data contract layer for AOIS. Every LLM response is validated against a Pydantic model before being returned to the caller. FastAPI uses Pydantic for request/response schemas. Instructor uses Pydantic to guarantee structured LLM output. |
+| **Technical** | A Python library for data validation using type annotations. Define a `BaseModel` subclass with typed fields; instantiation validates and coerces input. `Field()` adds constraints (min/max, regex, description). `model_json_schema()` exports a JSON Schema — the same schema Claude sees when you define a tool. |
+| **Remove it** | Without Pydantic, a malformed LLM response (missing `severity`, wrong type for `confidence`) propagates into the system silently. The caller gets a KeyError deep in application code instead of a clear validation error at the entry point. |
+
+**Say it at three levels:**
+- *Non-technical:* "Pydantic is a gatekeeper. Before any data enters the system, it checks it's the right type and shape. If it isn't, you get a clear error immediately instead of a mysterious crash later."
+- *Junior engineer:* "`class IncidentAnalysis(BaseModel): severity: str; confidence: float = Field(ge=0.0, le=1.0)` — if Claude returns confidence as a string or omits severity, Pydantic raises `ValidationError` immediately. FastAPI uses this to auto-validate request bodies and generate OpenAPI docs."
+- *Senior engineer:* "Pydantic v2 uses Rust for validation — 5–50x faster than v1. The JSON Schema it generates is exactly what Claude receives as a tool definition, which is why Instructor works: it extracts the schema from your model, sends it to Claude, and validates the response against the same schema. One source of truth for structure, validation, and documentation."
+
+---
+
+### python-dotenv
+
+| Layer | |
+|---|---|
+| **Plain English** | Loads secret values (API keys, database passwords) from a `.env` file so you never have to put them directly in your code. |
+| **System Role** | AOIS uses `.env` for every secret — Anthropic API key, OpenAI API key, database URL. `.env` is in `.gitignore` so secrets never reach GitHub. In production (k8s), the Secret resource replaces `.env` — same pattern, different mechanism. |
+| **Technical** | Reads a `.env` file and sets its key-value pairs as environment variables in the current process via `os.environ`. `load_dotenv()` at startup. `os.getenv("ANTHROPIC_API_KEY")` retrieves values. The `.env` file is local-only and never committed. |
+| **Remove it** | Without dotenv, secrets are either hardcoded in the source (a critical vulnerability) or manually set in every terminal session (fragile and error-prone). The `.env` pattern is the baseline for every later secrets mechanism — Vault, k8s Secrets, and AWS Secrets Manager all follow the same "inject at runtime, don't bake into the image" principle. |
+
+**Say it at three levels:**
+- *Non-technical:* "dotenv keeps secrets out of the code. API keys live in a separate file that never gets uploaded anywhere."
+- *Junior engineer:* "`load_dotenv()` reads `.env` into the process environment. `.gitignore` prevents `.env` from being committed. The pattern scales: locally it's a file, in k8s it's a Secret, in AWS it's Secrets Manager — the application code is identical for all three."
+- *Senior engineer:* "The `.env` pattern enforces the 12-factor app principle: config in the environment, not in the code. In production, never mount a `.env` file into a container — use k8s Secrets (v6) or external-secrets-operator with Vault (v27). The value of dotenv is the local development habit it builds, not the mechanism itself."

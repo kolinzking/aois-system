@@ -1067,3 +1067,57 @@ Then: take the file `/etc/os-release` and use `sed` to print only the line conta
 Add a new section to `sysinfo.sh` that shows the 5 largest files in the project directory, formatted as: `SIZE  FILENAME`. Use `du`, `sort`, and `head`. The output should be human-readable sizes.
 
 **The mastery bar**: you are ready for v0.2 when you can run any Linux command in this file, read its output, understand every column, and know which flags to add to change the output. The terminal should feel like a tool, not a puzzle.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels. Read this after completing the exercises — it turns what you did into something you can explain.*
+
+---
+
+### Linux (the OS and shell environment)
+
+| Layer | |
+|---|---|
+| **Plain English** | The operating system underneath every server, container, and cloud VM you will ever manage. If something is broken in production, this is the layer you land on. |
+| **System Role** | Every service in AOIS — k3s, Kafka, FastAPI, Falco — runs as a Linux process. Understanding processes, files, permissions, and networking at this layer means you can diagnose anything above it. |
+| **Technical** | A POSIX-compliant OS kernel managing hardware resources, processes, filesystems, and networking. The shell (bash) is the interface between you and the kernel. |
+| **Remove it** | Without Linux fluency, you cannot read logs, inspect running processes, fix permission errors, or understand why a container behaves differently in prod than locally. You become dependent on tools you cannot debug. |
+
+**Say it at three levels:**
+- *Non-technical:* "Linux is the operating system that runs almost every server in the world. Learning it is like learning to drive before learning to build cars."
+- *Junior engineer:* "Linux is the layer under every container and VM. Knowing it means I can SSH into a broken node, find the crashing process, read its logs, and fix it — without a GUI."
+- *Senior engineer:* "Linux process model, file descriptor limits, cgroup resource isolation, and network namespace separation are what Docker and Kubernetes are built on. If a container OOMKills, I diagnose it with `dmesg` and `/proc`, not `kubectl describe`."
+
+---
+
+### SSH
+
+| Layer | |
+|---|---|
+| **Plain English** | The secure tunnel that lets you control a remote server from your laptop, as if you were sitting in front of it. |
+| **System Role** | Every Hetzner server, k3s node, and AWS instance is accessed via SSH. It is the entry point to every debugging session that happens outside of a cluster. |
+| **Technical** | Secure Shell — an encrypted protocol using asymmetric key pairs (public key on server, private key on client) for authentication and an encrypted channel for all traffic. |
+| **Remove it** | Without SSH, you have no access to a broken node. If a pod is crashing, you may need to SSH into the node itself to check `dmesg`, inspect containerd state, or fix a misconfigured kubelet. |
+
+**Say it at three levels:**
+- *Non-technical:* "SSH is how I log into a remote server securely. It's like having a secret key to a door that only I can open."
+- *Junior engineer:* "SSH uses a key pair — my private key never leaves my machine, the server has my public key. The connection is encrypted end-to-end. I use it for every server operation."
+- *Senior engineer:* "Ed25519 keys over password auth, `StrictHostKeyChecking`, jump hosts for bastion patterns, SSH agent forwarding. In a proper setup the private key is in an agent and rotated periodically — not static on disk with 600 perms."
+
+---
+
+### grep / awk / sed
+
+| Layer | |
+|---|---|
+| **Plain English** | Tools for searching, filtering, and transforming text — the Swiss Army knife of log analysis before you had AI. |
+| **System Role** | Used to parse raw log files, filter kubectl output, extract fields from JSON-ish text, and write the `log_analyzer.sh` that shows why static pattern matching fails for real incidents. |
+| **Technical** | `grep` — regex-based line filter. `awk` — field-oriented text processor with a mini programming language. `sed` — stream editor for in-place substitution. All operate on stdin/stdout and compose via pipes. |
+| **Remove it** | Without these, log analysis requires loading every file into a programming language. They are also the baseline for understanding why v1's AI approach is better — you need to see the regex approach fail before the LLM approach earns its place. |
+
+**Say it at three levels:**
+- *Non-technical:* "These tools search through huge text files in milliseconds. Think of grep as Ctrl+F for the entire system."
+- *Junior engineer:* "`grep -i 'OOMKilled' /var/log/syslog` — instant results. `awk '{print $5}'` extracts the fifth field from every line. `sed 's/ERROR/CRITICAL/'` rewrites in place. Together they replace any quick Python script for text processing."
+- *Senior engineer:* "grep is O(n) line scan; for repeated queries on large files, index with `ripgrep`. awk's field separator and BEGIN/END blocks handle 90% of log transformation tasks. The real value is composability — they pipe into each other without intermediate files."

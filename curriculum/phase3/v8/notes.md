@@ -826,3 +826,41 @@ You deployed a bad config and need to roll back immediately. When do you use `ar
 - Use `git revert` when working in a team. The revert commit is visible to everyone — it documents what happened and when. In regulated environments, the git revert may be required for compliance audit trails.
 
 **The mastery bar**: You understand GitOps as an operational model, not just a tool. You can explain what ArgoCD is doing at the component level, diagnose sync and health status, perform the full GitOps deploy cycle, and recover from failures. When someone on a team says "just kubectl apply it" you can explain exactly why that breaks the GitOps model — and what to do instead.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### ArgoCD
+
+| Layer | |
+|---|---|
+| **Plain English** | A system that watches your git repository and automatically keeps your Kubernetes cluster in sync with whatever is in git — so deploying is just committing code, and the cluster always matches what the repository says. |
+| **System Role** | ArgoCD is the GitOps engine for AOIS. It watches the GitHub repository, renders the Helm chart on every change, and applies the diff to the Hetzner cluster. When you push a new image tag to `values.prod.yaml`, ArgoCD detects the change, renders the new Deployment manifest, and updates the running pods — no `kubectl apply` required. |
+| **Technical** | A declarative GitOps tool for Kubernetes. An `Application` resource defines: source repo (git URL + path + branch), destination cluster, and sync policy. ArgoCD polls git every 3 minutes (or via webhook). On change detection, it computes the diff between the rendered manifests and the live cluster state, and applies the diff. `prune: true` removes resources deleted from git. `selfHeal: true` reverts manual cluster changes. |
+| **Remove it** | Without ArgoCD, every deployment requires: SSH to the server, `git pull`, `helm upgrade`, verify. Manual steps mean human error — wrong values file, wrong namespace, forgotten rollback. ArgoCD eliminates the human from the deployment loop. It also gives you a real-time view of cluster state vs git state — the `OutOfSync` status is your deployment alert. |
+
+**Say it at three levels:**
+- *Non-technical:* "ArgoCD watches my code repository and automatically updates the running application whenever I push changes. Deployment is just saving my work to git."
+- *Junior engineer:* "ArgoCD `Application` CRD points at a git repo + path. ArgoCD polls it. On change: render Helm chart → diff against cluster → `kubectl apply` the diff. `prune: true` deletes k8s resources that are no longer in git. `selfHeal: true` reverts anyone who manually `kubectl apply`s outside of git."
+- *Senior engineer:* "ArgoCD implements the GitOps pattern: git is the single source of truth for desired cluster state. The consequence: `kubectl apply -f` in production is an anti-pattern — it creates drift that `selfHeal` will revert. The correct emergency procedure is still a git commit. ArgoCD's sync status is the deployment status — `Synced + Healthy` means the cluster matches git. Hook the ArgoCD status into alerting: `Degraded` or `OutOfSync` for more than 10 minutes should page the on-call engineer."
+
+---
+
+### GitOps
+
+| Layer | |
+|---|---|
+| **Plain English** | A way of operating infrastructure where git is the only place you make changes — the cluster automatically adjusts to match what's in git, giving you a full audit trail of every change. |
+| **System Role** | GitOps is the operational model that ArgoCD implements for AOIS. It means: to deploy, you commit. To roll back, you revert. To audit who changed what, you check the git log. Every deployment is a git commit with an author, timestamp, and message — the audit trail for free. |
+| **Technical** | An operational framework where: (1) the desired system state is declared in git, (2) changes are made only via git commits (pull requests in teams), (3) an automated operator continuously reconciles actual state to desired state, (4) divergence between actual and desired state triggers alerts. Popularised by Weaveworks in 2017; now the standard for Kubernetes operations. |
+| **Remove it** | Without GitOps, cluster state is managed through a mixture of `kubectl apply`, Helm commands, and manual interventions — no single source of truth, no audit trail, and no way to reproduce the cluster state. "What changed between this working deploy and the broken one?" becomes an unsolvable mystery. GitOps makes that question a one-second `git diff`. |
+
+**Say it at three levels:**
+- *Non-technical:* "GitOps means the cluster always reflects what's in the code repository. Changing the cluster means changing the code — so there's always a record of exactly what changed, when, and by whom."
+- *Junior engineer:* "To deploy: update `values.prod.yaml` with the new image tag, commit, push. ArgoCD detects the change and applies it. To roll back: `git revert HEAD`, push — ArgoCD reverts the cluster. To audit: `git log` — every deployment is a commit. No SSH, no `kubectl apply`, no manual steps."
+- *Senior engineer:* "GitOps works because the reconciliation loop is continuous — not just on push, but continuously polling for drift. This means: manual cluster changes are reverted, outages from config drift are caught within minutes, and the git history is a reliable audit trail for compliance. The tradeoff: GitOps discipline requires that EVERYONE on the team commits the no-manual-kubectl rule. One engineer who 'just quickly fixes it with kubectl' breaks the audit trail. ArgoCD's `selfHeal` enforces this technically."

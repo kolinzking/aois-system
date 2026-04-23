@@ -1143,3 +1143,41 @@ Modify `log_analyzer.sh` to accept a third optional argument: `--json` flag. If 
 This requires: argument parsing with `case` or checking `$3`, conditional output formatting.
 
 **The mastery bar**: you can write a bash script from scratch to automate a real task — validate inputs, process files, use functions with proper exit codes, pipe text through grep/awk/sed. The bash you write in Phase 9 CI pipelines is this, at scale.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### Bash scripting
+
+| Layer | |
+|---|---|
+| **Plain English** | Writing programs using the same commands you type in the terminal — automating repetitive tasks so you only have to do them once. |
+| **System Role** | Bash scripts are the glue of every DevOps workflow. Deployment scripts, CI hooks, log rotation, health checks — before containers and k8s abstractions, this is what made systems operable. In AOIS, `log_analyzer.sh` is the deliberately brittle baseline that makes the case for AI. |
+| **Technical** | An interpreted scripting language that invokes shell built-ins and external programs. Variables, conditionals (`if`/`case`), loops (`for`/`while`), functions, exit codes, pipes, and process substitution. No compiler — the shell executes line by line. |
+| **Remove it** | Without Bash, every repeated operation requires manual intervention. Deployment steps become checklists that humans skip. On-call runbooks become "do this ten things manually." Bash is still in 90% of enterprise CI pipelines — the engineer who cannot read it is blind to half the automation layer. |
+
+**Say it at three levels:**
+- *Non-technical:* "Bash scripts are instructions I write once that the computer follows automatically. Instead of typing the same ten commands every day, the script does it in one command."
+- *Junior engineer:* "A Bash script is a sequence of shell commands with variables, conditions, and loops. Exit codes (0 = success, non-zero = failure) are how scripts communicate status to CI. I use it for anything repetitive or anything that needs to run without me present."
+- *Senior engineer:* "Bash for glue code, not business logic. `set -euo pipefail` at the top of every script — `e` exits on error, `u` treats unset variables as errors, `pipefail` catches failures in pipe chains. Signal handling with `trap` for cleanup. For anything with real branching logic, replace Bash with Python before it becomes unreadable."
+
+---
+
+### Exit codes
+
+| Layer | |
+|---|---|
+| **Plain English** | Every program tells you whether it succeeded or failed with a number when it finishes. Zero means it worked. Anything else means it didn't. |
+| **System Role** | Exit codes are how CI pipelines, health checks, and scripts know whether to continue or stop. A failed `docker build` with exit code 1 stops the CI job. A `kubectl rollout status` that times out with exit code 1 triggers an alert. |
+| **Technical** | A process exit code is an 8-bit integer returned to the parent process (0–255). By convention: 0 = success, 1 = general error, 2 = misuse of shell built-in, 126 = command not executable, 127 = command not found, 128+N = terminated by signal N. |
+| **Remove it** | Without exit code awareness, scripts proceed through failures silently. A failed DB backup followed by a successful notification is the worst kind of bug — you think it worked. This is why `set -e` exists. |
+
+**Say it at three levels:**
+- *Non-technical:* "Like a traffic light — green (0) means go, anything red means stop and check what went wrong."
+- *Junior engineer:* "`$?` holds the last exit code. `if ! command; then` catches failures. In CI, any non-zero exit aborts the pipeline. That's the contract every tool in the system honors."
+- *Senior engineer:* "Exit code semantics matter for orchestrators. `kubectl wait --for=condition=ready` returns 1 on timeout, which stops the pipeline — by design. Trap SIGTERM in long-running scripts so Kubernetes can gracefully terminate them during rollouts."

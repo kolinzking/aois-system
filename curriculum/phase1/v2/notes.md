@@ -651,3 +651,41 @@ Write the tier selection logic as a Python function: `def choose_tier(severity: 
 Without changing any of the analysis logic (the `analyze()` function), make AOIS default to the `standard` tier instead of `premium` by changing one variable. Test that the behavior is identical. Then change it back. This is the power of the abstraction — provider changes at one point, behavior unchanged everywhere.
 
 **The mastery bar**: You understand why routing layers exist, how LiteLLM normalizes provider responses, and can calculate cost implications of routing decisions. The LiteLLM pattern is what makes AOIS enterprise-flexible — the same application can route to Anthropic, OpenAI, Groq, Bedrock, or a local model with zero code changes outside the routing table.
+
+---
+
+## 4-Layer Tool Understanding
+
+*Every tool introduced in this version, understood at four levels.*
+
+---
+
+### LiteLLM
+
+| Layer | |
+|---|---|
+| **Plain English** | A single interface that speaks to every AI provider — Claude, OpenAI, Groq, Bedrock, and dozens more — so you write the API call once and can swap providers by changing a single string. |
+| **System Role** | LiteLLM is the AOIS routing and normalisation layer. It sits between the FastAPI handler and every LLM provider. Instead of separate SDK calls per provider, there is one `litellm.completion()` call. AOIS's four tiers (Claude, GPT-4o-mini, Groq, Ollama) are each a string in `ROUTING_TIERS` — changing the model is changing a config value, not rewriting code. |
+| **Technical** | A Python library that wraps every major LLM provider behind an OpenAI-compatible interface. `litellm.completion(model="claude-sonnet-4-6", messages=[...])` has the same signature as calling the OpenAI SDK directly. Provider-specific auth is handled via environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.). Supports async, streaming, and function calling. |
+| **Remove it** | Remove LiteLLM and AOIS needs a separate SDK, separate response-parsing code, and separate error-handling for every provider. Adding Groq in v2 would require a third SDK. Adding Bedrock in v10 would require a fourth. LiteLLM is what makes a four-tier routing system maintainable by one engineer. |
+
+**Say it at three levels:**
+- *Non-technical:* "LiteLLM is a universal translator for AI services. Instead of learning each AI company's specific language, I use one language and LiteLLM handles the translation."
+- *Junior engineer:* "`litellm.completion(model='groq/llama-3.1-8b-instant', messages=[...])` — same call as for Claude, just a different model string. The response is always `response.choices[0].message.content`. To add a new provider, I add its API key as an env var and update the model string. No new code."
+- *Senior engineer:* "LiteLLM normalises the OpenAI Chat Completions interface across providers. The tradeoff: it adds a dependency and abstracts provider-specific features (Anthropic's prompt caching requires the raw SDK or LiteLLM's `extra_headers` workaround — which is why AOIS uses the native SDK for the premium tier in later versions). LiteLLM is correct for the fast/cheap tiers where provider-specific features don't matter."
+
+---
+
+### Cost-aware routing
+
+| Layer | |
+|---|---|
+| **Plain English** | Automatically choosing the cheapest AI service that is still good enough for the task — so you don't use a $0.015/call model when a $0.000001/call model would do. |
+| **System Role** | AOIS routes based on incident severity: P1/P2 → Claude (best reasoning, higher cost), P3/P4 → Groq (fast, near-zero cost). This is the pattern that makes AI systems economically viable at scale. Without routing, every call goes to the most expensive tier. |
+| **Technical** | A conditional in the `analyze()` function: `model = ROUTING_TIERS.get(tier, ROUTING_TIERS["standard"])`. `ROUTING_TIERS` maps tier names to LiteLLM model strings. The severity from the first LLM call determines which tier subsequent calls use. Cost per call is tracked and logged per request. |
+| **Remove it** | Without routing, all 1000 daily calls go to Claude at $0.015 each = $450/month. With routing (90% of incidents are P3/P4), 900 calls go to Groq at $0.000001 = $0.09, and 100 go to Claude = $1.50. Total: $1.59/month vs $450. Routing is the business model of AI systems. |
+
+**Say it at three levels:**
+- *Non-technical:* "Cost routing is like choosing between a specialist consultant and a general assistant based on how complex the problem is. Simple questions go to the cheaper option; critical decisions go to the best one."
+- *Junior engineer:* "Severity comes from the first analysis call. `ROUTING_TIERS = {'premium': 'claude-sonnet-4-6', 'standard': 'gpt-4o-mini', 'fast': 'groq/llama-3.1-8b-instant', 'local': 'ollama/llama3'}`. Match severity to tier, pass tier to LiteLLM. Log the cost per call."
+- *Senior engineer:* "The routing function is also an SLO enforcement point. P1 incidents must never be downgraded to a cheaper tier — the routing logic should be tested like a policy, not like application code. In v23.5 (agent evals), routing decisions are part of the eval suite. The cost tracking built here becomes the input/call cost attribution model in v20 (per-incident cost)."
