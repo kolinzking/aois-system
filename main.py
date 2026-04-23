@@ -9,6 +9,7 @@ from slowapi.errors import RateLimitExceeded
 import instructor
 import litellm
 import openai
+import anthropic
 import re
 import os
 import time
@@ -177,6 +178,10 @@ class IncidentAnalysis(BaseModel):
 
 
 client = instructor.from_litellm(litellm.completion)
+# Native Anthropic SDK client — used directly for premium tier to guarantee cache_control
+# is not stripped by LiteLLM's message transformation layer
+_anthropic_native = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
+anthropic_instructor = instructor.from_anthropic(_anthropic_native)
 
 groq_client = instructor.from_openai(
     openai.OpenAI(
@@ -365,23 +370,27 @@ def _do_analyze(model: str, tier: str, messages: list, clean_log: str) -> Incide
         result.cost_usd = 0.000001
         return validate_output(result)
 
-    # Anthropic prompt caching — system prompt cached after first call, 90% cheaper on repeats
-    cached_messages = [
-        {
-            "role": "system",
-            "content": [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-        },
-        *[m for m in messages if m["role"] != "system"],
-    ]
-    result, completion = client.chat.completions.create_with_completion(
-        model=model,
-        messages=cached_messages,
-        response_model=IncidentAnalysis,
-        max_retries=2,
+    # Native Anthropic SDK via instructor.from_anthropic — guarantees cache_control
+    # is passed directly to Anthropic without LiteLLM's message transformation.
+    user_text = next(m["content"] for m in messages if m["role"] == "user")
+    result, raw = anthropic_instructor.messages.create_with_completion(
+        model=model.replace("anthropic/", ""),
         max_tokens=1024,
+        system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": user_text}],
+        response_model=IncidentAnalysis,
     )
+    # cache_creation_input_tokens > 0 on first call (cache written), 0 on subsequent.
+    # cache_read_input_tokens > 0 on subsequent calls (cache hit, 90% cheaper).
+    usage = raw.usage
+    cache_created = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+    logger.info("claude_cache", extra={"cache_created": cache_created, "cache_read": cache_read})
+
     result.provider = model
-    result.cost_usd = round(litellm.completion_cost(completion_response=completion), 6)
+    input_cost = (usage.input_tokens - cache_read) * 0.000015 + cache_read * 0.0000015
+    output_cost = usage.output_tokens * 0.000075
+    result.cost_usd = round(input_cost + output_cost, 6)
     return validate_output(result)
 
 
