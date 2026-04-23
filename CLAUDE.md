@@ -682,8 +682,23 @@ The curriculum ends here. This version does not introduce new tools — it force
 - Stop hook: commits at session end
 - Both in `~/.claude/settings.json`
 
+### Retroactive Build Queue
+⚠️ **These versions were added after their position in the sequence was already passed. They must be built before Phase 7 starts.**
+
+**Trigger: v19 completes → Phase 6 closes → build these three in order before touching v20.**
+
+| Version | What | Notes status | Code status |
+|---|---|---|---|
+| `v2.5` | AI Gateway — cost budgets, PII redaction, semantic caching, audit log | ❌ not written | ❌ not built |
+| `v3.5` | RAG — pgvector vs Qdrant, hybrid search, reranking, RAGAS eval | ❌ not written | ❌ not built |
+| `v16.5` | ClickHouse — analytics at scale, materialized views, retention tiers | ❌ not written | ❌ not built |
+
+Build order is fixed: v2.5 → v3.5 → v16.5. Each one gets full notes.md + working code on the cluster before the next begins. Update the table above as each is completed.
+
+---
+
 ### Current Position
-- **Phase 0–5 COMPLETE (v0.1–v15). Phase 6 is next (OpenTelemetry).**
+- **Phase 0–6 in progress (v0.1–v18 COMPLETE). v19 Chaos Engineering is next.**
 - v10/v11 blocked on AWS Bedrock daily quota. v14 closed (Modal GPU cost). v15 complete.
 
 ### What's been built (v1–v12)
