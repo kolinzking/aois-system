@@ -694,9 +694,10 @@ The curriculum ends here. This version does not introduce new tools — it force
 ---
 
 ### Current Position
-- **Phase 7 COMPLETE (v20–v25)**. Phase 8 (v26 React Dashboard) is next.
-- v10/v11 blocked on AWS Bedrock daily quota. v14 closed (Modal GPU cost). v15 complete.
-- Phase 7 gate (OPA + circuit breaker + kill switch) complete in `phase7-gate.md` + `agent_gate/`.
+- **ALL PHASES COMPLETE — v0.1 through v34.5 DONE.** Curriculum complete.
+- v10/v11 blocked on AWS Bedrock daily quota (infrastructure built, live Bedrock call pending quota).
+- v14 closed (Modal GPU cost). v15 complete.
+- Phase 10 (v31–v34.5) complete: multimodal vision, edge AI (Ollama), red-teaming (PyRIT+Garak), computer use (Playwright+Claude), EU AI Act compliance, capstone game day runbook.
 
 ### What's been built (v1–v12)
 - **v1**: FastAPI + Claude (prompt caching) + OpenAI fallback, structured Pydantic output (summary, severity P1–P4, suggested_action, confidence)
@@ -850,6 +851,22 @@ requires explicit validation. Do not skip this step.
 - **v24**: CrewAI crew, AutoGen group, Pydantic AI typed agent, Google ADK pattern — `multi_agent/`
 - **v25**: E2B sandboxed kubectl validation — `sandbox/`
 
+### Phase 8 — COMPLETE
+- **v26**: React+Vite dashboard, WebSocket incident feed, severity heatmap, approve/reject UI — `dashboard/`
+- **v27**: JWT auth (15m access + 7d refresh), RBAC 4-role hierarchy, OpenFGA namespace auth — `auth/`
+
+### Phase 9 — COMPLETE
+- **v28**: GitHub Actions CI (lint→test→evals→Trivy→Cosign→push→ArgoCD sync), Dagger pipeline, OpenFeature 5% canary — `dagger_pipeline.py`, `flags/`
+- **v29**: W&B experiment tracking, per-incident Table logging, A/B eval framework — `evals/run_evals_wandb.py`
+- **v30**: Backstage/Port IDP pattern, Crossplane XRD for self-service tenant provisioning, Pulumi conditional infra, Semantic Kernel plugin — `pulumi/`, `k8s/crossplane/`, `semantic_kernel_plugin.py`
+
+### Phase 10 — COMPLETE
+- **v31**: Claude Vision for Grafana screenshots + architecture diagrams, `/analyze/image` endpoint — `multimodal/vision.py`
+- **v32**: Edge AOIS on Ollama, air-gapped operation, offline queue at `/var/aois/offline_queue.jsonl`, sync_to_central() — `edge/edge_aois.py`
+- **v33**: PyRIT injection tests, Garak vulnerability scan, constitutional AI constraints, red-team CI pipeline — `redteam/`
+- **v34**: Claude Computer Use + Playwright Grafana agent, EU AI Act compliance layer (RiskCategory, AuditEntry, model card) — `computer_use/`, `governance/`
+- **v34.5**: Capstone — AI-specific SLO enforcement, 5 game day scenarios, 4 AI incident playbooks, on-call runbook, portfolio artifact description
+
 ### Current root-level state
 - `/main.py` — v16 implementation (OTel instrumented, Prometheus metrics, GenAI spans)
 - `/Dockerfile` — v4 multi-stage build
@@ -863,15 +880,24 @@ requires explicit validation. Do not skip this step.
 - `/mcp_server/` — MCP server + A2A protocol implementation
 - `/multi_agent/` — CrewAI, AutoGen, Pydantic AI, compare.py
 - `/sandbox/` — E2B executor + kubectl generator
-- `/evals/` — golden_dataset.json (20 entries), run_evals.py, CI workflow
+- `/evals/` — golden_dataset.json (20 entries), run_evals.py, run_evals_wandb.py, CI workflow
 - `/clickhouse/` — schema.sql, views.sql, writer.py
 - `/gateway/` — PII redaction, budget tracking, gateway.py
 - `/rag/` — pgvector store, hybrid search, reranker, aois_rag.py
 - `/kafka/` — producer.py, consumer.py
-- `/k8s/` — Kubernetes manifests (namespace, secret, deployment, service, ingress, clusterissuer)
+- `/multimodal/` — vision.py (Claude Vision, Grafana/architecture analysis)
+- `/edge/` — edge_aois.py (Ollama, offline queue, sync)
+- `/redteam/` — run_pyrit.py, parse_garak.py, constitution.py
+- `/computer_use/` — grafana_agent.py (Claude Computer Use + Playwright)
+- `/governance/` — eu_ai_act.py (compliance layer, audit log, model card)
+- `/dashboard/` — React+Vite frontend, WebSocket incident feed, auth
+- `/auth/` — JWT handler, RBAC, OpenFGA client
+- `/pulumi/` — Pulumi Python stack for conditional AOIS infra
+- `/flags/` — OpenFeature flagd config for model canary rollouts
+- `/k8s/` — Kubernetes manifests + Crossplane XRD
 - `/charts/aois/` — Helm chart (Chart.yaml, values.yaml, values.prod.yaml, values.eks.yaml, templates/)
 - `/argocd/application.yaml` — ArgoCD Application resource (auto-sync, prune, selfHeal)
-- `/curriculum/` — mastery-level notes (Phase 0–7, v0.1–v25)
+- `/curriculum/` — mastery-level notes (Phase 0–10, v0.1–v34.5) — COMPLETE
 - `/README.md` — full table of contents with progress tracking
 
 ### Hetzner cluster
