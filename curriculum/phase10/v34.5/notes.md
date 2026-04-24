@@ -508,3 +508,141 @@ Production traffic is not the golden dataset. Check: is AOIS receiving incident 
 **The mastery bar:** you can walk into any AI infrastructure conversation — engineering, product, security, finance — and answer every question from first principles, with evidence from a system you built and ran.
 
 This is the end of the curriculum. Every version from v0.1 through v34.5 built toward this moment. The system is live. The SLOs are measurable. The incident history is real. The portfolio is complete.
+
+---
+
+## Explaining AOIS at Three Audience Levels
+
+This skill is the capstone of the 4-Layer methodology. Every tool in AOIS has been explained at four layers throughout the curriculum. Now explain the whole system across three audiences.
+
+### Non-technical (product manager, executive, regulator)
+
+"AOIS is an AI system that watches your Kubernetes infrastructure around the clock and tells your on-call engineers what's wrong and what to do about it — before they have to dig through logs manually.
+
+When a service fails, it normally takes 10–30 minutes to diagnose what happened. AOIS cuts that to under 30 seconds for most incidents. It reads the log events, classifies how urgent the problem is (P1 through P4), suggests a remediation step, and — for serious incidents — waits for a human engineer to approve before taking any action.
+
+It works offline too. If your data can't leave your network for compliance reasons, AOIS runs the AI locally. When an incident happens at a remote facility with no internet, AOIS keeps working and syncs the results when connectivity returns.
+
+Every decision AOIS makes is logged with a timestamp, the incident, the proposed action, and whether a human approved it — the same audit trail a regulator would want to see."
+
+### Junior engineer (knows Kubernetes, new to AI systems)
+
+"AOIS is a FastAPI service that sits in your Kubernetes cluster and processes log events through a pipeline:
+
+1. **Ingestion**: log events arrive via Kafka topic `aois-logs` or directly at the `/analyze` REST endpoint
+2. **Routing**: LiteLLM routes to Claude Sonnet for P1/P2 (accuracy priority) or Groq for P3/P4 (cost priority). Ollama handles air-gapped environments
+3. **Classification**: returns structured JSON — severity, summary, suggested_action, confidence — via Instructor/Pydantic validation
+4. **Investigation** (for P1/P2): a LangGraph agent uses Claude tool use to pull pod logs, describe nodes, query metrics — building evidence before proposing an action
+5. **Governance**: constitutional AI blocks destructive actions, agent gate circuit-breaker stops runaway loops, EU AI Act audit log records every decision
+6. **Approval**: human-in-the-loop gate in the React dashboard — one click to approve or reject the proposed remediation
+7. **Observability**: every LLM call traced in Langfuse + OTel spans in Grafana/Tempo, cost per incident in ClickHouse
+
+The whole stack autoscales: KEDA scales AOIS pods based on Kafka consumer lag. ArgoCD keeps the deployment in sync with git. Prometheus alerts when latency or cost SLOs breach."
+
+### Senior engineer (hiring manager, staff engineer peer review)
+
+"AOIS is a production AI SRE system built to operate at the intersection of LLM reliability, agent safety, and infrastructure observability.
+
+The LLM layer uses Claude Sonnet with prompt caching (90% cache hit rate on system prompt → ~$0.0002/call) routed through LiteLLM across four tiers: Sonnet for P1/P2 reasoning, Groq for P3/P4 volume at $0.0000014/call, Ollama for air-gapped environments, and fine-tuned TinyLlama for high-volume specialized classification.
+
+The agent layer uses LangGraph with a 6-node stateful graph (detect → investigate → hypothesize → verify → remediate → report), checkpointed to Postgres via AsyncPostgresSaver. Tool calls are gated by an OPA Rego policy, Redis circuit breaker (10-call window, 5-minute cooldown), and kill switch. Mem0 provides persistent memory across sessions — past incidents are retrieved during investigation.
+
+Reliability: Temporal wraps long-running investigations for durability across pod restarts. DSPy optimizes prompts against the golden dataset eval suite (20 labeled incidents, LLM-as-judge scoring). RAGAS evaluates RAG retrieval quality. PyRIT + Garak red-team every model change in CI.
+
+Observability: OTel GenAI semantic conventions trace every LLM call with model, tier, cost, and cache hit. ClickHouse stores the full incident history for analytical queries. Langfuse surfaces accuracy degradation before it becomes a production incident.
+
+The system runs on Hetzner k3s with ArgoCD GitOps and KEDA autoscaling. EU AI Act compliance layer generates an audit log and model card. Computer Use navigates Grafana autonomously when text log analysis is insufficient."
+
+---
+
+## The Full System Map
+
+Every version in one view. This is the mental model to hold when operating the system:
+
+```
+[Log Sources]
+  Kubernetes pods (stdout/stderr)
+  Falco runtime events
+  Manual API calls
+         ↓
+[Streaming Layer — v17]
+  Kafka topic: aois-logs (via Strimzi on k8s)
+  Kafka topic: aois-security (Falco events)
+         ↓
+[Ingestion + Classification — v1, v2, v3]
+  FastAPI /analyze endpoint
+  LiteLLM routing: P1/P2→Claude, P3/P4→Groq, edge→Ollama
+  Instructor/Pydantic: validated JSON output
+  Prompt caching: 90%+ cache hit on system prompt
+         ↓
+[Investigation Layer — v20, v21, v22, v23]
+  Claude tool use: get_pod_logs, describe_node, get_metrics
+  Mem0: retrieves similar past incidents
+  LangGraph: 6-node stateful graph
+  Temporal: durable execution across pod restarts
+  MCP server: exposes AOIS to Claude.ai, Cursor
+         ↓
+[Safety + Governance — v5, v20, v33, v34]
+  Agent gate: OPA policy + Redis circuit breaker + kill switch
+  Constitutional AI: blocks destructive actions
+  EU AI Act: risk classification + audit log + model card
+  Red-team CI: PyRIT + Garak on every model change
+         ↓
+[Human Interface — v26, v27, v31, v34]
+  React dashboard: real-time WebSocket incident feed
+  Approve/reject remediation (one click)
+  Vision: upload Grafana screenshots for analysis
+  Computer Use: Claude navigates Grafana autonomously
+         ↓
+[Execution — v25]
+  E2B sandbox: kubectl dry-run validation before apply
+  Human approval required for all write actions (P1/P2)
+         ↓
+[Observability — v16, v16.5, v29]
+  OTel: traces in Tempo, metrics in Prometheus/VictoriaMetrics
+  Langfuse: per-call accuracy, cost, latency, cache hit
+  ClickHouse: analytical queries across all incident history
+  W&B: A/B experiments on prompt versions and models
+         ↓
+[Infrastructure — v6–v9, v12, v19]
+  k3s on Hetzner (main cluster)
+  ArgoCD: GitOps, git push = deploy
+  KEDA: Kafka lag autoscaling (1–5 pods)
+  Chaos Mesh: game day failure injection
+  Edge node: Ollama + offline queue
+```
+
+Every line in this map is a version you built. Every component has a 4-Layer understanding entry in its notes. Every decision has a documented rationale in its notes' "Why this over alternatives" section.
+
+---
+
+## 4-Layer Tool Understanding
+
+The capstone has no new tools. Instead, synthesize the three tools that represent the three dimensions of AI SRE that did not exist before you built them.
+
+### AOIS as a System (the whole, synthesized)
+
+| Layer | Question | Answer |
+|---|---|---|
+| **Plain English** | What does this solve? | Mean time to resolution for Kubernetes incidents is 10–30 minutes for a human engineer working alone. AOIS gets from alert to proposed action in under 30 seconds for 90% of incidents. It reads logs, classifies urgency, retrieves similar past incidents, generates a hypothesis, and proposes a specific kubectl command — then waits for human approval before doing anything irreversible. The 10 minutes freed up per incident compounds across a team running at scale. |
+| **System Role** | Where does it sit in infrastructure? | Between the monitoring layer (Prometheus alerts, Falco events, Kafka log stream) and the human operator. AOIS is not a replacement for an on-call engineer — it is the first-responder that does the mechanical diagnosis so the engineer arrives at the incident with a hypothesis already tested, not a blank screen. |
+| **Technical** | What is it precisely? | A FastAPI service with a LiteLLM routing layer, LangGraph stateful agent, Temporal durable workflow, MCP server, React dashboard, and EU AI Act compliance layer. The critical invariants: every LLM call is traced, every agent action is gated, every human decision is audited, every model change is red-teamed. The system is designed to fail gracefully — Ollama as fallback, circuit breakers on agent loops, kill switch for runaway agents. |
+| **Remove it** | What breaks, and how fast? | Remove AOIS → on-call engineers go back to manual log triage. The first symptom is MTTR increasing from 2 minutes (AOIS-assisted) to 15 minutes (manual). The second symptom is alert fatigue — engineers are spending 80% of their incident time on diagnosis that AOIS was handling. Within a month, the team is requesting AOIS back not because it is a nice-to-have but because operating without it now feels like doing surgery without a scalpel. |
+
+### LangGraph (Stateful Agent Graph)
+
+| Layer | Question | Answer |
+|---|---|---|
+| **Plain English** | What does this solve? | A single LLM call is a question-and-answer: you send a log event, you get a severity. But a real incident investigation is 10–15 steps: pull logs, read them, form a hypothesis, check if the hypothesis explains other metrics, verify on the pod, propose a fix. LangGraph is the framework that holds that multi-step investigation together as a stateful graph — each node does one step, the state carries the evidence forward, and the human approval gate sits before the final step. |
+| **System Role** | Where does it sit in AOIS? | The autonomous investigation core. Activated for P1/P2 incidents after initial classification. The 6-node graph (detect → investigate → hypothesize → verify → remediate → report) runs as a Temporal workflow for durability. State is checkpointed to Postgres — an investigation survives pod restarts. |
+| **Technical** | What is it precisely? | A Python library for building stateful LLM applications as directed graphs. Nodes are Python async functions. Edges are conditional (based on state). State is a TypedDict with `Annotated[list, operator.add]` reducers for append-only fields. `interrupt_before=["remediate"]` creates the human-in-the-loop gate. `AsyncPostgresSaver` checkpoints state to Postgres for durability. |
+| **Remove it** | What breaks, and how fast? | Remove LangGraph → AOIS classifies incidents but cannot investigate them. The suggested action is based on the initial log event only — no tool calls, no evidence gathering, no hypothesis verification. The operator receives a severity and a generic suggestion, then must investigate manually. MTTR returns to 10–15 minutes for complex incidents. The autonomous SRE capability collapses to a slightly smarter `grep`. |
+
+### EU AI Act Compliance Layer
+
+| Layer | Question | Answer |
+|---|---|---|
+| **Plain English** | What does this solve? | The EU requires that high-risk AI systems — those that could affect critical infrastructure — have documented controls: an audit trail of every decision, a human oversight gate, a model card describing what the system does. Without this layer, AOIS cannot be legally deployed in the EU, or in any regulated industry that follows similar standards. The compliance layer is the difference between a demo and a deployable product. |
+| **System Role** | Where does it sit in AOIS? | Wraps every AOIS decision. `compliance_check()` validates risk and oversight before action. `log_decision()` writes the immutable audit entry after action. `generate_model_card()` is called at deploy time and updated on every model change. The EU AI Act layer is a cross-cutting concern — it touches every agentic action, every model call result, every human decision. |
+| **Technical** | What is it precisely? | `RiskCategory` and `OversightLevel` enums for classification. `AuditEntry` dataclass written as JSONL to `/var/aois/audit_log.jsonl`. `compliance_check()` calls constitutional AI + risk classification in one pass. `query_audit_log()` for regulatory inspection. No network calls — purely local, fast, deterministic. Audit log retained 36 months per Article 12. Model card in Markdown updated via `generate_model_card()`. |
+| **Remove it** | What breaks, and how fast? | Remove compliance layer → AOIS is legally undeployable in EU environments. No audit trail means no ability to demonstrate human oversight. No model card means no transparency obligation met. The first regulatory inquiry ("show us every autonomous action AOIS took last year") gets the answer "we don't have that." Enterprise sales into regulated industries stop immediately. |

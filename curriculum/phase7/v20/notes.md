@@ -744,6 +744,57 @@ This is the metric that gets an agent approved for production: "each P2 investig
 
 ---
 
+## ▶ STOP — do this now
+
+Verify that Mem0 memory persists across sessions and changes AOIS behavior:
+
+```python
+import asyncio
+from agent.memory import AoisMemory
+
+memory = AoisMemory()
+
+# Session 1: store a past incident resolution
+asyncio.run(memory.store(
+    session_id="session-001",
+    incident="auth-service OOMKilled exit code 137",
+    resolution="Increased memory limit from 512Mi to 1Gi — resolved immediately",
+    severity="P1",
+))
+
+# Session 2 (simulate new session): retrieve memory during investigation
+similar = asyncio.run(memory.retrieve("auth-service memory pressure"))
+print(f"Retrieved {len(similar)} similar past incidents:")
+for m in similar:
+    print(f"  [{m.get('severity','?')}] {m.get('incident','')[:60]}")
+    print(f"    Resolution: {m.get('resolution','')[:80]}")
+```
+
+Expected output:
+```
+Retrieved 1 similar past incidents:
+  [P1] auth-service OOMKilled exit code 137
+    Resolution: Increased memory limit from 512Mi to 1Gi — resolved immediately
+```
+
+Now verify the investigator uses this memory during analysis:
+
+```python
+from agent.investigator import investigate_incident
+
+result = asyncio.run(investigate_incident(
+    incident="auth-service OOMKilled again — same pod, same namespace",
+    session_id="session-002",
+))
+# The hypothesis should reference the past incident and resolution
+print("Hypothesis:", result.get("hypothesis", ""))
+# Expected: mentions previous OOMKill and suggests checking memory limits first
+```
+
+This is the difference between an agent that starts cold every time and one that learns from incident history. Without Mem0, every OOMKill investigation starts from scratch. With Mem0, the second occurrence surfaces the previous resolution immediately.
+
+---
+
 ## Common Mistakes
 
 ### 1. Calling `get_pod_logs` with the full pod name including hash

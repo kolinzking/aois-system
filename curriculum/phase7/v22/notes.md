@@ -510,6 +510,64 @@ Record: how many activities completed before the crash? How long did the resume 
 
 ---
 
+## ▶ STOP — do this now
+
+Query the Temporal workflow history to understand what AOIS actually did during an investigation:
+
+```python
+import asyncio
+from temporalio.client import Client
+
+async def inspect_workflow(workflow_id: str):
+    client = await Client.connect("localhost:7233")
+
+    # Get the workflow handle
+    handle = client.get_workflow_handle(workflow_id)
+
+    # Fetch execution result (if complete)
+    try:
+        result = await handle.result(timeout=5)
+        print("Workflow completed:", result)
+    except Exception as e:
+        print("Workflow not yet complete or failed:", e)
+
+    # Describe the workflow for status
+    desc = await handle.describe()
+    print(f"\nStatus: {desc.status}")
+    print(f"Start time: {desc.start_time}")
+    print(f"Close time: {desc.close_time}")
+    print(f"Execution time: {(desc.close_time - desc.start_time).total_seconds():.1f}s" if desc.close_time else "Still running")
+
+# Run an investigation then inspect it
+from temporal_workflows.worker import run_investigation_workflow
+
+async def main():
+    workflow_id = await run_investigation_workflow(
+        incident="payments-api CrashLoopBackOff — 20 restarts in 10 minutes",
+        session_id="test-inspect-001",
+    )
+    print(f"Workflow started: {workflow_id}")
+    await asyncio.sleep(5)  # let it progress
+    await inspect_workflow(workflow_id)
+
+asyncio.run(main())
+```
+
+Expected output:
+```
+Workflow started: aois-investigation-test-inspect-001
+Status: WorkflowExecutionStatus.RUNNING
+Start time: 2025-01-15 03:42:00+00:00
+Close time: None
+Still running
+```
+
+Also open the Temporal UI at `http://localhost:8080`. Click the workflow. You will see the event history: `WorkflowExecutionStarted` → `ActivityTaskScheduled` (classify) → `ActivityTaskCompleted` → `ActivityTaskScheduled` (investigate) → ... 
+
+This timeline is the durable audit trail. Even if the worker crashes and restarts mid-investigation, this history survives — Temporal replays it from the event log.
+
+---
+
 ## Common Mistakes
 
 ### 1. Using `await asyncio.sleep()` inside a workflow

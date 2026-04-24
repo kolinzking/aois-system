@@ -670,9 +670,93 @@ The `/var/aois/` directory must be created and owned by the AOIS process user. I
 
 ---
 
+## Computer Use vs Tool Use: When to Use Each
+
+This is the most important architectural decision in this version. Computer Use and Tool Use (v20) are both investigative capabilities, but they solve different problems:
+
+| | Tool Use (v20) | Computer Use (v34) |
+|---|---|---|
+| **Access method** | Kubernetes API, Prometheus API, structured data | Web UI — Grafana, k8s dashboard, any browser-rendered page |
+| **Response format** | Structured JSON, clean text | Natural language description of what was seen |
+| **Speed** | 200–500ms per tool call | 3–8 seconds per screenshot loop |
+| **Cost** | Text tokens only (~$0.0002) | Vision tokens + text (~$0.008 per step) |
+| **Reliability** | API returns exact data | Screen content may change, UI may be different |
+| **Best for** | `kubectl get pods`, Prometheus queries, log retrieval | Grafana panels without API, runbook pages, dashboard exploration |
+
+The decision rule: **use tool use when an API exists**. Use Computer Use only when the information needed is in a UI and there is no API alternative.
+
+Example: fetching pod memory usage. You could:
+1. `kubectl top pod auth-service-xxx` via tool use — exact numbers, 200ms, $0.0001
+2. Navigate to the Grafana memory panel via Computer Use — visual interpretation, 8 seconds, $0.02
+
+Use option 1. Computer Use is for when option 1 does not exist.
+
+When Computer Use is the right choice:
+- Grafana dashboards without a Prometheus API route (some managed Grafana instances)
+- Runbook pages in Confluence or Notion
+- Kubernetes dashboard when the API server is firewalled
+- Any UI where the structure changes often and a selector-based approach keeps breaking
+
+---
+
+## The Cost Model for Computer Use
+
+Each investigation step in Computer Use involves:
+- One screenshot → vision tokens (proportional to screen size)
+- One Claude response → text tokens (reasoning + tool call)
+- One action → no API cost, just Playwright
+
+At 1280×800 with Sonnet:
+- Screenshot tokens: ~1,365 input tokens per step
+- Reasoning: ~500 output tokens per step
+- Cost per step: ~$0.006 at Sonnet pricing
+- A 5-step investigation: ~$0.03
+
+Compare to text tool use (v20):
+- Tool call: ~200 input + 100 output tokens per call
+- Cost per call: ~$0.0009
+- A 5-call investigation: ~$0.0045
+
+Computer Use is 6–7× more expensive than text tool use per investigation step. This is why it is reserved for UI-only scenarios — the cost difference only makes sense when there is no alternative.
+
+---
+
+## Querying the Audit Log for Compliance
+
+The audit log is not just for regulators — it is also operational intelligence. Query it to understand AOIS behavior patterns:
+
+```python
+from governance.eu_ai_act import EUAIActCompliance
+
+compliance = EUAIActCompliance()
+
+# How many P1 incidents were human-reviewed last month?
+all_entries = compliance.query_audit_log(severity="P1", limit=1000)
+reviewed = [e for e in all_entries if e.get("human_reviewed")]
+print(f"P1 incidents: {len(all_entries)}, human-reviewed: {len(reviewed)}")
+print(f"Approval rate: {len(reviewed)/len(all_entries):.0%}" if all_entries else "No P1s")
+
+# What was the most common proposed action?
+from collections import Counter
+actions = [e.get("proposed_action", "")[:50] for e in all_entries]
+print("\nTop 5 proposed actions:")
+for action, count in Counter(actions).most_common(5):
+    print(f"  {count:3d}x {action}")
+
+# Were any actions rejected by humans?
+rejected = [e for e in all_entries if e.get("human_decision") == "rejected"]
+print(f"\nRejected actions: {len(rejected)}")
+for e in rejected[:3]:
+    print(f"  [{e['severity']}] {e['proposed_action'][:60]}")
+```
+
+This query answers: "Is the human oversight gate actually being used, or are engineers rubber-stamping everything?" If approval rate is 100% with zero rejections over 100 P1 incidents, it suggests the oversight gate is being bypassed or engineers are not reading the proposed actions. Both are compliance risks under the EU AI Act.
+
+---
+
 ## Connection to Later Phases
 
-### To v34.5 (Capstone): Computer Use is used in the game day to navigate Grafana without taking a manual screenshot — the operator describes what to look for, AOIS navigates and reports. The compliance layer audit log is the evidence trail for the portfolio artifact.
+### To v34.5 (Capstone): Computer Use is used in the game day to navigate Grafana without taking a manual screenshot — the operator describes what to look for, AOIS navigates and reports. The compliance layer audit log is the evidence trail for the portfolio artifact. The cost model for Computer Use vs tool use feeds directly into the capstone cost model question.
 
 ---
 

@@ -654,6 +654,59 @@ If `human_approved=false`: the investigation ran but remediation was not approve
 
 ---
 
+## ▶ STOP — do this now
+
+Trace the state evolution through each graph node for a single investigation:
+
+```python
+import asyncio
+from langgraph_agent.graph import build_graph
+from langgraph_agent.state import InvestigationState
+
+async def trace_state_evolution(incident: str):
+    """Run the graph and print state after each node."""
+    graph = build_graph()
+    config = {"configurable": {"thread_id": "trace-001"}}
+
+    # Stream events from each node
+    async for event in graph.astream(
+        {"incident": incident, "session_id": "trace-001", "human_approved": False},
+        config=config,
+        stream_mode="values",
+    ):
+        # event is the full state after each node completes
+        severity = event.get("severity", "—")
+        evidence_count = len(event.get("evidence", []))
+        tool_calls = len(event.get("tool_calls", []))
+        hypothesis = event.get("hypothesis", "")[:60]
+        cost = event.get("cost_usd", 0)
+        print(f"  severity={severity} | evidence={evidence_count} | tools={tool_calls} | cost=${cost:.4f}")
+        if hypothesis:
+            print(f"    hypothesis: {hypothesis}")
+
+incident = "auth-service OOMKilled exit code 137 — third occurrence this week"
+print(f"Tracing: {incident}\n")
+asyncio.run(trace_state_evolution(incident))
+```
+
+Expected output — watch the state build up as each node adds to it:
+```
+Tracing: auth-service OOMKilled exit code 137 — third occurrence this week
+
+  severity=P1 | evidence=0 | tools=0 | cost=$0.0002
+  severity=P1 | evidence=3 | tools=3 | cost=$0.0018
+    hypothesis: auth-service memory limit 512Mi exceeded — likely leak in...
+  severity=P1 | evidence=3 | tools=3 | cost=$0.0022
+    hypothesis: auth-service allocating cache objects not released — GC pressure
+  severity=P1 | evidence=4 | tools=4 | cost=$0.0028
+```
+
+Each line is one node completing. The `evidence` count increases as `investigate_node` adds kubectl output. The `cost_usd` accumulates across nodes. The `hypothesis` refines as more evidence comes in.
+
+This trace is the mental model for LangGraph: not a single LLM call, but a state machine where each step adds to shared context and costs accumulate predictably.
+
+---
+
 ## Common Mistakes
 
 ### 1. State accumulation not using `Annotated[list, operator.add]`

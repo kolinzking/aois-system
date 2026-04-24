@@ -629,11 +629,97 @@ If every attack returns P1 correctly, your system prompt is doing its job. Verif
 
 ---
 
+## OWASP LLM Top 10: Mapping Attacks to AOIS Mitigations
+
+The OWASP LLM Top 10 (2025) defines the canonical vulnerability categories for LLM applications. Every AOIS deployment must be assessed against them. Here is how each maps to AOIS:
+
+| OWASP LLM | Risk | AOIS Attack Vector | AOIS Mitigation |
+|---|---|---|---|
+| **LLM01: Prompt Injection** | Attacker manipulates LLM via crafted input | Log line contains embedded instructions | Hardened system prompt + input sanitization + PyRIT CI gate |
+| **LLM02: Insecure Output Handling** | LLM output executed without validation | AOIS suggests a destructive kubectl command | Constitutional AI + agent gate blocklist + E2B sandbox dry-run |
+| **LLM03: Training Data Poisoning** | Training data manipulated to bias model | N/A — AOIS uses pre-trained models | Use pinned model versions; monitor accuracy SLO for drift |
+| **LLM04: Model DoS** | Flooding LLM with expensive requests | High-volume Kafka events trigger rate-limit burn | Rate limiting (slowapi) + KEDA autoscale cap + cost SLO alert |
+| **LLM05: Supply Chain Vulnerabilities** | Compromised model or dependency | Malicious Ollama model or pip package | Cosign image signing + Trivy in CI + pin model versions |
+| **LLM06: Sensitive Info Disclosure** | LLM reveals secrets in response | Log contains API key; AOIS echoes it | System prompt: "never repeat log contents verbatim" + output scanning |
+| **LLM07: Insecure Plugin Design** | Unsafe tool use by LLM agent | AOIS agent calls `kubectl delete` | OPA policy gate enforced before every tool call |
+| **LLM08: Excessive Agency** | Agent acts beyond its mandate | AOIS autonomously remediates P1 without approval | `interrupt_before=["remediate"]` in LangGraph + kill switch |
+| **LLM09: Overreliance** | Human trusts LLM output without verification | Engineer applies suggested command without checking | UI shows confidence score; P1/P2 approval gates require engineer to read the proposed action |
+| **LLM10: Model Theft** | Prompts extracted to replicate system | Attacker extracts AOIS system prompt via injection | System prompt hardened against self-disclosure; red-team CI catches leakage |
+
+Memorize this table. In any AI security conversation — with an auditor, a CISO, or a customer's security team — you can map AOIS's architecture to every OWASP LLM risk by name.
+
+---
+
+## Measuring Red-Team Coverage
+
+Running red-team tests is not enough. You need to know what percentage of the known attack surface you are actually testing. Track this as a coverage metric:
+
+```python
+# redteam/coverage_report.py
+"""Generate a red-team coverage report against the OWASP LLM Top 10."""
+
+OWASP_LLM_TOP_10 = {
+    "LLM01": "Prompt Injection",
+    "LLM02": "Insecure Output Handling",
+    "LLM03": "Training Data Poisoning",
+    "LLM04": "Model Denial of Service",
+    "LLM05": "Supply Chain Vulnerabilities",
+    "LLM06": "Sensitive Information Disclosure",
+    "LLM07": "Insecure Plugin Design",
+    "LLM08": "Excessive Agency",
+    "LLM09": "Overreliance",
+    "LLM10": "Model Theft",
+}
+
+AOIS_MITIGATIONS = {
+    "LLM01": {"pyrit": True, "garak_probe": "promptinject", "notes": "7 injection attack vectors in run_pyrit.py"},
+    "LLM02": {"pyrit": True, "garak_probe": None, "notes": "Constitutional AI blocks destructive actions"},
+    "LLM03": {"pyrit": False, "garak_probe": None, "notes": "N/A — pre-trained models; accuracy SLO detects drift"},
+    "LLM04": {"pyrit": False, "garak_probe": None, "notes": "Rate limiting via slowapi, KEDA caps pods"},
+    "LLM05": {"pyrit": False, "garak_probe": None, "notes": "Trivy + Cosign in CI; pinned versions"},
+    "LLM06": {"pyrit": True, "garak_probe": "leakage", "notes": "System prompt leakage attack in run_pyrit.py"},
+    "LLM07": {"pyrit": False, "garak_probe": None, "notes": "OPA policy gate enforced pre-tool-call"},
+    "LLM08": {"pyrit": False, "garak_probe": None, "notes": "interrupt_before remediate + kill switch"},
+    "LLM09": {"pyrit": False, "garak_probe": None, "notes": "UI shows confidence; P1/P2 require approval read"},
+    "LLM10": {"pyrit": True, "garak_probe": "leakage", "notes": "System prompt leakage detection"},
+}
+
+
+def generate_coverage_report() -> str:
+    lines = ["# AOIS Red-Team Coverage vs OWASP LLM Top 10\n"]
+    automated = 0
+    total = len(OWASP_LLM_TOP_10)
+
+    for code, name in OWASP_LLM_TOP_10.items():
+        mitigation = AOIS_MITIGATIONS[code]
+        has_pyrit = mitigation["pyrit"]
+        has_garak = mitigation["garak_probe"] is not None
+        automated_test = has_pyrit or has_garak
+        if automated_test:
+            automated += 1
+
+        status = "✅ automated" if automated_test else "📋 manual/architectural"
+        lines.append(f"**{code} — {name}**: {status}")
+        lines.append(f"  {mitigation['notes']}")
+        if mitigation["garak_probe"]:
+            lines.append(f"  Garak probe: `--probes {mitigation['garak_probe']}`")
+        lines.append("")
+
+    lines.append(f"**Coverage**: {automated}/{total} risks have automated tests ({automated/total:.0%})")
+    return "\n".join(lines)
+
+
+if __name__ == "__main__":
+    print(generate_coverage_report())
+```
+
+---
+
 ## Connection to Later Phases
 
-### To v34 (Computer Use + Governance): the constitution defined here becomes the governance layer's policy. EU AI Act compliance requires documented human oversight gates — the `requires_human_approval` field maps directly to that audit trail.
+### To v34 (Computer Use + Governance): the constitution defined here becomes the governance layer's policy. EU AI Act compliance requires documented human oversight gates — the `requires_human_approval` field maps directly to that audit trail. The OWASP LLM mapping in this version becomes part of the EU AI Act risk classification documentation.
 
-### To v34.5 (Capstone): the red-team CI pipeline runs on game day as a validation step. Before the game day starts, confirm zero Garak failures. If the model was changed between v33 and game day, re-run the full suite.
+### To v34.5 (Capstone): the red-team CI pipeline runs on game day as a validation step. Before the game day starts, confirm zero Garak failures for critical probes. If the model was changed between v33 and game day, re-run the full suite. The OWASP LLM Top 10 mapping is the answer to the game day debrief question: "what is AOIS's security posture?"
 
 ---
 
