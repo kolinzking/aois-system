@@ -1,0 +1,22 @@
+---
+# Experiment 4: 30% packet loss on all AOIS pod traffic.
+# Tests: does AOIS retry LLM calls on network errors? Does the consumer
+# handle transient Kafka disconnects? What does the error rate look like in OTel?
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: aois-packet-loss
+  namespace: chaos-mesh
+spec:
+  action: loss
+  mode: all
+  selector:
+    namespaces:
+      - aois
+    labelSelectors:
+      app: aois
+  loss:
+    loss: "30"
+    correlation: "25"
+  direction: to
+  duration: "5m"

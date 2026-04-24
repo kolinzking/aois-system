@@ -1,0 +1,21 @@
+---
+# Experiment 5: CPU stress — 2 workers consuming 80% CPU on AOIS pod.
+# Tests: does latency degrade under compute pressure? Does KEDA scale out?
+# Does the pod hit its CPU limit (1000m) and get throttled?
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: aois-cpu-stress
+  namespace: chaos-mesh
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - aois
+    labelSelectors:
+      app: aois
+  stressors:
+    cpu:
+      workers: 2
+      load: 80
+  duration: "5m"
