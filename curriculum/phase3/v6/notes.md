@@ -702,6 +702,249 @@ replicaset.apps/aois-6c76df6fd7   1         1         1       5m
 
 ---
 
+## Part 10 — SPIFFE/SPIRE: Workload Identity (April 2026 Retrofit)
+
+*This section was added after the initial v6 build. The original deployment used a static
+`k8s/secret.yaml` with long-lived API keys stored as base64-encoded values in a Kubernetes
+Secret. Any principal with `kubectl get secret` access could decode them in seconds. SPIFFE/SPIRE
+closes this gap by giving each workload a cryptographic identity that other services can verify —
+no static credentials required for service-to-service communication.*
+
+### The problem with static k8s Secrets
+
+```bash
+kubectl get secret aois-secrets -n aois -o jsonpath='{.data.ANTHROPIC_API_KEY}' | base64 -d
+# Any kubectl user with get/list permission on Secrets in the aois namespace
+# receives the raw API key. In a shared cluster this is unacceptable.
+```
+
+A Kubernetes Secret is base64, not encrypted. The secret is as secure as the RBAC that protects
+it — and RBAC is routinely over-permissioned in practice. Long-lived API keys also cannot be
+audited per-workload: if the key leaks, you cannot tell which service used it.
+
+SPIFFE/SPIRE replaces "who are you?" with cryptographic proof. Each pod receives a short-lived
+X.509 certificate (SVID) that is automatically renewed. Services verify each other's identity
+using the trust bundle rather than matching a shared secret.
+
+### What SPIFFE and SPIRE are
+
+**SPIFFE** (Secure Production Identity Framework For Everyone) is an open standard for workload
+identity. The key concept is the SPIFFE ID — a URI that uniquely identifies a workload:
+`spiffe://aois.local/ns/aois/sa/aois`. This is AOIS's cryptographic identity in the cluster.
+
+**SPIRE** is the production implementation of SPIFFE. It runs as:
+- **SPIRE Server**: issues SVIDs (X.509 certificates) to attested workloads. One per cluster.
+- **SPIRE Agent**: runs on every node (DaemonSet). Attests workloads on its node and delivers
+  SVIDs via the SPIFFE Workload API socket.
+
+The key distinction from static secrets: SVIDs expire in hours (TTL: 3600s in AOIS's config),
+are automatically rotated, and are tied to the specific workload's identity selectors — not a
+shared credential anyone can copy.
+
+### Node attestation on k3s (the critical decision)
+
+Before agents can issue SVIDs, they must prove their own identity to the SPIRE server — this is
+node attestation.
+
+Cloud-specific attestors (`aws_iid`, `gcp_iit`) use cloud metadata APIs that do not exist on
+a self-managed Hetzner VPS. The correct attestor for k3s is **`k8s_psat`** (Projected Service
+Account Tokens):
+
+1. The agent pod mounts a projected service account token with audience `spire-server`
+2. On startup, the agent presents this token to the SPIRE server
+3. The server validates it via the Kubernetes TokenReview API
+4. If valid, the server issues the agent a node SVID
+
+This works on any Kubernetes distribution, including k3s, because it only requires the
+standard Kubernetes TokenReview API.
+
+### Workload attestation on k3s (the k3s-specific fix)
+
+Once the agent has a node identity, it attests individual workloads (pods) using the k8s
+workload attestor. The default behavior queries the kubelet API for pod metadata. This fails
+on k3s because:
+
+- The kubelet read-only port (10255) is **disabled** on k3s by default
+- The authenticated kubelet port (10250) requires client certificate auth that the SPIRE agent
+  cannot provide
+
+**Fix**: `use_new_container_locator = true` in the workload attestor config.
+
+The new container locator reads `/proc/<pid>/cgroup` (available because the DaemonSet runs with
+`hostPID: true`) to extract the container ID, then queries the **k8s API server** (not the
+kubelet) for pod metadata. Since the SPIRE agent already has a service account with `pods:get`
+permission, no additional auth is needed.
+
+```
+Workload connects to agent socket
+↓
+Agent reads /proc/<pid>/cgroup → container ID: cri-containerd-27be5c...
+↓
+Agent queries k8s API: GET /api/v1/pods?fieldSelector=spec.nodeName=ubuntu-16gb
+↓
+Finds pod containing container ID → namespace=aois, serviceaccount=default
+↓
+Selectors match entry: k8s:ns:aois + k8s:sa:default
+↓
+SPIRE server issues SVID: spiffe://aois.local/ns/aois/sa/aois
+```
+
+### Deploying SPIRE to the Hetzner cluster
+
+All manifests live in `k8s/spire/`. Deploy in this order:
+
+```bash
+# 1. Namespace and RBAC
+kubectl apply -f k8s/spire/namespace.yaml
+kubectl apply -f k8s/spire/server-account.yaml
+kubectl apply -f k8s/spire/agent-account.yaml
+
+# 2. Server config and StatefulSet
+kubectl apply -f k8s/spire/server-configmap.yaml
+kubectl apply -f k8s/spire/server-statefulset.yaml
+
+# 3. Wait for server to be ready
+kubectl wait --for=condition=ready pod/spire-server-0 -n spire --timeout=60s
+# Expected: pod/spire-server-0 condition met
+
+# 4. Bootstrap the trust bundle (two-step: server starts, then bundle is extracted)
+kubectl exec -n spire spire-server-0 -- \
+  /opt/spire/bin/spire-server bundle show -format pem | \
+  kubectl create configmap spire-bundle -n spire \
+    --from-file=bundle.crt=/dev/stdin \
+    --dry-run=client -o yaml | kubectl apply -f -
+# Expected: configmap/spire-bundle configured
+
+# 5. Deploy agent (reads bundle from configmap for bootstrap)
+kubectl apply -f k8s/spire/agent-configmap.yaml
+kubectl apply -f k8s/spire/agent-daemonset.yaml
+kubectl wait --for=condition=ready pod -l app=spire-agent -n spire --timeout=90s
+# Expected: pod/spire-agent-xxxxx condition met
+```
+
+Verify both are running:
+```bash
+kubectl get pods -n spire
+# Expected:
+# NAME             READY   STATUS    RESTARTS   AGE
+# spire-agent-k5jbk   1/1     Running   0          2m
+# spire-server-0      1/1     Running   0          5m
+```
+
+Verify node attestation succeeded:
+```bash
+kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server agent list
+# Expected:
+# Found 1 attested agent:
+# SPIFFE ID         : spiffe://aois.local/spire/agent/k8s_psat/aois-cluster/<pod-uid>
+# Attestation type  : k8s_psat
+# Expiration time   : 2026-04-24 23:46:58 +0000 UTC
+# Can re-attest     : true
+```
+
+### Registering the AOIS workload
+
+A workload registration entry tells SPIRE: "any pod matching these selectors should receive
+this SPIFFE ID, attested by this agent."
+
+```bash
+# Get the agent's SPIFFE ID first
+AGENT_ID=$(kubectl exec -n spire spire-server-0 -- \
+  /opt/spire/bin/spire-server agent list 2>/dev/null | \
+  grep 'SPIFFE ID' | awk '{print $NF}')
+
+kubectl exec -n spire spire-server-0 -- \
+  /opt/spire/bin/spire-server entry create \
+  -spiffeID spiffe://aois.local/ns/aois/sa/aois \
+  -parentID $AGENT_ID \
+  -selector k8s:ns:aois \
+  -selector k8s:sa:default \
+  -ttl 3600
+# Expected:
+# Entry ID         : 2319e545-7fcc-4f00-ae13-6423c218f851
+# SPIFFE ID        : spiffe://aois.local/ns/aois/sa/aois
+# Parent ID        : spiffe://aois.local/spire/agent/k8s_psat/aois-cluster/<pod-uid>
+# Selector         : k8s:ns:aois
+# Selector         : k8s:sa:default
+```
+
+Selectors:
+- `k8s:ns:aois` — pod must be in the `aois` namespace
+- `k8s:sa:default` — pod must use the `default` service account
+
+Any pod in `aois` namespace with the default SA receives `spiffe://aois.local/ns/aois/sa/aois`.
+This is how Kubernetes RBAC maps to SPIFFE identity.
+
+### Delivering the SVID to AOIS pods
+
+The SPIRE agent exposes the SPIFFE Workload API at `/run/spire/sockets/agent.sock` on the host.
+AOIS pods access it via a `hostPath` volume mount:
+
+```yaml
+# k8s/deployment.yaml (SPIRE socket mount added in this retrofit)
+volumeMounts:
+- name: spire-agent-socket
+  mountPath: /var/run/secrets/workload-api
+  readOnly: true
+volumes:
+- name: spire-agent-socket
+  hostPath:
+    path: /run/spire/sockets
+    type: Directory
+```
+
+### Verify SVID issuance
+
+```bash
+# Run a test pod in the aois namespace with the socket mounted
+kubectl run spire-test \
+  --image=ghcr.io/spiffe/spire-agent:1.10.0 \
+  --restart=Never \
+  --namespace=aois \
+  --overrides='{
+    "spec": {
+      "containers": [{"name":"spire-test","image":"ghcr.io/spiffe/spire-agent:1.10.0",
+        "command":["/opt/spire/bin/spire-agent","api","fetch","x509",
+                   "-socketPath","/var/run/secrets/workload-api/agent.sock"],
+        "volumeMounts":[{"name":"sock","mountPath":"/var/run/secrets/workload-api"}]}],
+      "volumes":[{"name":"sock","hostPath":{"path":"/run/spire/sockets","type":"Directory"}}]
+    }
+  }'
+
+kubectl logs spire-test -n aois
+# Expected:
+# Received 1 svid after 1.391163969s
+#
+# SPIFFE ID:       spiffe://aois.local/ns/aois/sa/aois
+# SVID Valid After: 2026-04-24 22:56:07 +0000 UTC
+# SVID Valid Until: 2026-04-24 23:56:17 +0000 UTC
+# CA #1 Valid After: 2026-04-24 22:44:50 +0000 UTC
+# CA #1 Valid Until: 2026-04-25 22:45:00 +0000 UTC
+
+kubectl delete pod spire-test -n aois
+```
+
+This is the workload identity gap from the April 2026 audit, closed.
+
+### What SPIFFE/SPIRE does not yet replace
+
+SPIFFE/SPIRE provides service-to-service identity. The static API keys for external services
+(Anthropic, OpenAI) remain in `aois-secrets`. The path to replacing them is:
+
+```
+AOIS pod → SPIRE SVID (X.509) → Vault JWT auth → dynamic API key lease
+```
+
+HashiCorp Vault (covered in v5) accepts SPIFFE SVIDs as authentication tokens via its JWT
+auth method. Once Vault is deployed, AOIS can fetch short-lived API credentials at startup
+rather than reading from a static Secret. This is the production pattern for external API keys
+in organizations running SPIRE.
+
+For the current Hetzner setup, the live cluster uses the manually applied static Secret. The
+external key rotation path is a future improvement when Vault is added to the cluster.
+
+---
+
 ## Common Mistakes
 
 **Forgetting `-n aois` — commands run in the wrong namespace** *(recognition)*
@@ -1128,3 +1371,14 @@ Verify your understanding: what would break if you deleted the Service? (Traefik
 - *Non-technical:* "cert-manager automatically gets and renews the security certificate that makes the padlock appear in the browser. It works in the background — the certificate never expires because cert-manager renews it automatically."
 - *Junior engineer:* "Apply a `ClusterIssuer` pointing at Let's Encrypt. Add an annotation to the Ingress: `cert-manager.io/cluster-issuer: letsencrypt-prod`. cert-manager sees the annotation, requests a cert for the Ingress hostname, completes the HTTP-01 challenge, and stores the cert as a Secret. Traefik reads the Secret for TLS termination."
 - *Senior engineer:* "cert-manager's reconciliation loop monitors cert expiry and renews at 2/3 of the certificate lifetime (60 days for a 90-day Let's Encrypt cert). DNS-01 challenges are required for wildcard certs and for clusters without public HTTP access. The cert Secret is a regular k8s Secret — in a multi-cluster setup, use external-secrets-operator to replicate it. Rate limits on Let's Encrypt staging vs prod matter during testing: always use the staging issuer until the pipeline works, then switch to prod."
+
+---
+
+### SPIFFE/SPIRE (Workload Identity)
+
+| Layer | Question | Answer |
+|-------|----------|--------|
+| **Plain English** | What problem does this solve? | "Every pod in the cluster currently proves who it is with a static password (the API key Secret). SPIFFE/SPIRE gives each pod a short-lived cryptographic certificate instead — like an employee badge that expires daily and is automatically renewed, rather than a permanent password." |
+| **System Role** | Where does it sit in AOIS? | SPIRE Server and Agent run in the `spire` namespace. The SPIRE Agent runs as a DaemonSet on every node, exposing the SPIFFE Workload API socket at `/run/spire/sockets/agent.sock`. AOIS pods mount this socket and can request an X.509 SVID at any time — the identity that other services use to verify AOIS is legitimate. |
+| **Technical** | What is it, precisely? | SPIFFE is a standard for workload identity. A SPIFFE ID is a URI (`spiffe://aois.local/ns/aois/sa/aois`) that uniquely identifies a workload. SPIRE implements the standard: the server issues X.509 SVIDs (short-lived certificates), the agent attests workloads by matching them to registered entries (selectors: k8s namespace + service account), and delivers SVIDs via a Unix socket. On k3s, node attestation uses `k8s_psat` (Projected Service Account Tokens) and workload attestation uses the new container locator (`use_new_container_locator = true`) which reads cgroups and queries the k8s API — because k3s disables the kubelet read-only port that the default workload attestor requires. |
+| **Remove it** | What breaks, and how fast? | Remove SPIRE and AOIS pods no longer receive SVIDs. Service-to-service mTLS (using SVID certificates for mutual auth) fails immediately. The path to Vault-backed dynamic secrets (SPIRE SVID → Vault JWT auth → API key) is also blocked. The static `aois-secrets` Secret remains functional — workload identity is not yet the sole auth mechanism. But the security posture reverts to long-lived credentials that cannot be audited per-workload. |
