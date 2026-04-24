@@ -902,6 +902,7 @@ requires explicit validation. Do not skip this step.
 
 ### Hetzner cluster
 - Server: 46.225.235.51 (root access, k3s running)
+- **Hostname**: `ubuntu-16gb` (renamed from `aois` on 2026-04-24)
 - **Upgraded 2026-04-23**: 8 vCPU / 16GB RAM / 150GB disk (was 4GB RAM — old OOM kills no longer possible)
 - Live URL: https://aois.46.225.235.51.nip.io
 - Image: ghcr.io/kolinzking/aois:v6 (v9 has no app code changes — same image)
