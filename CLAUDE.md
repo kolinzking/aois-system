@@ -683,23 +683,20 @@ The curriculum ends here. This version does not introduce new tools — it force
 - Both in `~/.claude/settings.json`
 
 ### Retroactive Build Queue
-⚠️ **These versions were added after their position in the sequence was already passed. They must be built before Phase 7 starts.**
-
-**Trigger: v19 completes → Phase 6 closes → build these three in order before touching v20.**
+✅ **All three retroactive versions COMPLETE.**
 
 | Version | What | Notes status | Code status |
 |---|---|---|---|
-| `v2.5` | AI Gateway — cost budgets, PII redaction, semantic caching, audit log | ❌ not written | ❌ not built |
-| `v3.5` | RAG — pgvector vs Qdrant, hybrid search, reranking, RAGAS eval | ❌ not written | ❌ not built |
-| `v16.5` | ClickHouse — analytics at scale, materialized views, retention tiers | ❌ not written | ❌ not built |
-
-Build order is fixed: v2.5 → v3.5 → v16.5. Each one gets full notes.md + working code on the cluster before the next begins. Update the table above as each is completed.
+| `v2.5` | AI Gateway — cost budgets, PII redaction, semantic caching, audit log | ✅ written | ✅ built |
+| `v3.5` | RAG — pgvector vs Qdrant, hybrid search, reranking, RAGAS eval | ✅ written | ✅ built |
+| `v16.5` | ClickHouse — analytics at scale, materialized views, retention tiers | ✅ written | ✅ built |
 
 ---
 
 ### Current Position
-- **Phase 0–6 in progress (v0.1–v18 COMPLETE). v19 Chaos Engineering is next.**
+- **Phase 7 COMPLETE (v20–v25)**. Phase 8 (v26 React Dashboard) is next.
 - v10/v11 blocked on AWS Bedrock daily quota. v14 closed (Modal GPU cost). v15 complete.
+- Phase 7 gate (OPA + circuit breaker + kill switch) complete in `phase7-gate.md` + `agent_gate/`.
 
 ### What's been built (v1–v12)
 - **v1**: FastAPI + Claude (prompt caching) + OpenAI fallback, structured Pydantic output (summary, severity P1–P4, suggested_action, confidence)
@@ -836,11 +833,22 @@ requires explicit validation. Do not skip this step.
 - Pipeline validated end-to-end: `kubectl exec` → Falco fires → Sidekick publishes → `Kafka - Publish OK`
 - Cilium: full fresh-cluster recipe documented in notes (not deployed live — CNI swap requires k3s rebuild)
 
-### What v19 builds next (Phase 6 closes)
-- Chaos Mesh: kill random pods, inject latency, corrupt network packets
-- Does AOIS detect and alert on the chaos it's subjected to?
-- Game day: 1 hour of chaos, measure MTTR with and without AOIS
-- SLO definition: 99.5% of P1 alerts analyzed within 30 seconds
+### v19 — COMPLETE
+- Chaos Mesh installed on k3s (containerd socket path: `/run/k3s/containerd/containerd.sock`)
+- 5 chaos experiments: pod-kill, network-delay, Kafka-kill, packet-loss, CPU-stress
+- 3 SLOs defined with Prometheus expressions (p99 latency <30s, heartbeat, error rate <5%)
+- 60-minute game day runbook, docs/gameday-v19.md template
+
+### Phase 7 — COMPLETE (session 2026-04-23 + continuation)
+- **Phase 7 gate**: OPA Rego policy, Redis circuit breaker, kill switch — `agent_gate/`
+- **v20**: Claude tool use + Mem0 memory + per-incident cost attribution — `agent/`
+- **v21**: MCP server + A2A protocol — `mcp_server/`
+- **v21.5**: MCP security — OAuth, sandboxing, OTel tracing per tool call
+- **v22**: Temporal durable workflow — `temporal_workflows/`
+- **v23**: LangGraph 6-node SRE loop — `langgraph_agent/`
+- **v23.5**: Agent eval suite — 20-entry golden dataset, LLM-as-judge, CI gate — `evals/`
+- **v24**: CrewAI crew, AutoGen group, Pydantic AI typed agent, Google ADK pattern — `multi_agent/`
+- **v25**: E2B sandboxed kubectl validation — `sandbox/`
 
 ### Current root-level state
 - `/main.py` — v16 implementation (OTel instrumented, Prometheus metrics, GenAI spans)
@@ -848,14 +856,22 @@ requires explicit validation. Do not skip this step.
 - `/docker-compose.yml` — v16: AOIS + Redis + Postgres + OTel Collector + Prometheus + Grafana + Loki + Tempo
 - `/otel/` — OTel Collector config, Prometheus scrape config, Loki config, Tempo config, Grafana provisioning
 - `/requirements.txt` — consolidated dependencies (OTel SDK added)
-- `/test.py` — tier routing + cost comparison test suite
-- `/test_vllm.py` — v14 benchmark: vllm vs premium on 4 log samples
-- `/test_nim.py` — v13 benchmark (pending NGC key)
-- `/vllm_modal/serve.py` — Modal deployment: Mistral-7B-Instruct on A10G, OpenAI-compatible API
+- `/agent/` — tool implementations (k8s.py, rag_tool.py, memory.py, investigator.py, definitions.py)
+- `/agent_gate/` — OPA policy, circuit breaker, kill switch, @gated_tool decorator
+- `/langgraph_agent/` — LangGraph SRE graph (state, nodes, graph, dapr_events)
+- `/temporal_workflows/` — Temporal investigation workflow + activities + worker
+- `/mcp_server/` — MCP server + A2A protocol implementation
+- `/multi_agent/` — CrewAI, AutoGen, Pydantic AI, compare.py
+- `/sandbox/` — E2B executor + kubectl generator
+- `/evals/` — golden_dataset.json (20 entries), run_evals.py, CI workflow
+- `/clickhouse/` — schema.sql, views.sql, writer.py
+- `/gateway/` — PII redaction, budget tracking, gateway.py
+- `/rag/` — pgvector store, hybrid search, reranker, aois_rag.py
+- `/kafka/` — producer.py, consumer.py
 - `/k8s/` — Kubernetes manifests (namespace, secret, deployment, service, ingress, clusterissuer)
 - `/charts/aois/` — Helm chart (Chart.yaml, values.yaml, values.prod.yaml, values.eks.yaml, templates/)
 - `/argocd/application.yaml` — ArgoCD Application resource (auto-sync, prune, selfHeal)
-- `/curriculum/` — mastery-level notes (Phase 0–5, v0.1–v14)
+- `/curriculum/` — mastery-level notes (Phase 0–7, v0.1–v25)
 - `/README.md` — full table of contents with progress tracking
 
 ### Hetzner cluster
