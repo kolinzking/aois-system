@@ -16,6 +16,8 @@ import time
 
 load_dotenv()
 
+from spend_guard import BudgetExceeded, check_spend_and_block, record_spend, spend_summary
+
 # ---------------------------------------------------------------------------
 # OpenTelemetry setup — must happen before FastAPI and LiteLLM are used
 # ---------------------------------------------------------------------------
@@ -282,9 +284,28 @@ def validate_output(analysis: IncidentAnalysis) -> IncidentAnalysis:
     return analysis
 
 
+# Estimated cost per tier — used by spend guard pre-check (worst case, no cache)
+_TIER_COST_ESTIMATE = {
+    "premium":    0.020,   # Sonnet: ~1300 input + 200 output tokens, no cache hit
+    "standard":   0.002,   # GPT-4o-mini
+    "fast":       0.000002,  # Groq: negligible
+    "nim":        0.000010,
+    "vllm":       0.000030,
+    "enterprise": 0.001,
+    "local":      0.0,
+}
+
+
 def analyze(log: str, tier: str) -> IncidentAnalysis:
     model = ROUTING_TIERS.get(tier, ROUTING_TIERS[DEFAULT_TIER])
     clean_log = sanitize_log(log)
+
+    # --- Spend guard: check before making the call ---
+    estimated = _TIER_COST_ESTIMATE.get(tier, 0.020)
+    try:
+        check_spend_and_block(estimated)
+    except BudgetExceeded as e:
+        raise HTTPException(status_code=429, detail=f"Budget cap reached: {e}")
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -305,6 +326,9 @@ def analyze(log: str, tier: str) -> IncidentAnalysis:
         t0 = time.perf_counter()
         result = _do_analyze(model, tier, messages, clean_log)
         duration_s = time.perf_counter() - t0
+
+        # --- Spend guard: record actual cost after the call ---
+        record_spend(result.cost_usd, model, tier)
 
         # Annotate span with result
         span.set_attribute("gen_ai.response.model", result.provider)
@@ -422,6 +446,12 @@ async def limit_payload_size(request: Request, call_next):
 @app.get("/health")
 def health():
     return {"status": "ok", "tiers": list(ROUTING_TIERS.keys())}
+
+
+@app.get("/spend")
+def get_spend():
+    """Real-time spend status — daily and session totals vs caps."""
+    return spend_summary()
 
 
 @app.post("/analyze", response_model=IncidentAnalysis)
