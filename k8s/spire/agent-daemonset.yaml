@@ -28,6 +28,13 @@ spec:
           ports:
             - name: health
               containerPort: 8080
+          env:
+            # Required by the new container locator workload attestor:
+            # queries the k8s API for pods on this specific node.
+            - name: MY_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           volumeMounts:
             - name: spire-config
               mountPath: /run/spire/config

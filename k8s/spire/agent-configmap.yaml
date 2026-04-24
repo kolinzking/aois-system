@@ -34,9 +34,16 @@ data:
       # namespace, and pod labels by querying the kubelet API.
       # skip_kubelet_verification = true is required on k3s: the kubelet uses a
       # self-signed certificate that the attestor cannot verify otherwise.
+      # k8s workload attestor.
+      # k3s disables the kubelet read-only port (10255) and its authenticated
+      # port (10250) uses client certificate auth that the attestor cannot satisfy.
+      # use_new_container_locator = true: reads /proc/<pid>/cgroup to find the
+      # container ID, then queries the k8s API server (not the kubelet) for pod
+      # metadata. Requires hostPID: true on the agent DaemonSet (already set).
       WorkloadAttestor "k8s" {
         plugin_data {
           skip_kubelet_verification = true
+          use_new_container_locator = true
         }
       }
     }
