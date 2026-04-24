@@ -403,6 +403,82 @@ This is what end-to-end observability looks like: one request, full visibility.
 
 ---
 
+## Part 7: VictoriaMetrics — When Prometheus Runs Out
+
+The v16 AOIS stack generates roughly 50 active time series — well within Prometheus's comfort zone. The problem comes later: Phase 7 adds autonomous agents running 10–15 LLM calls per incident, Phase 9 adds CI pipelines generating telemetry, and production traffic grows. A busy AOIS deployment can generate 10,000+ active series. At that point, Prometheus starts to struggle.
+
+**What happens when Prometheus hits its limit:**
+- Memory usage spikes during high-cardinality queries
+- Long-range queries (7-day cost trends) become slow or time out
+- Scrape intervals must be increased to reduce ingestion pressure
+- Retention is limited to 15 days by default without federation complexity
+
+VictoriaMetrics is a drop-in Prometheus replacement that solves all four. "Drop-in" is literal:
+
+```yaml
+# docker-compose.yml — replace the prometheus service
+# Before:
+prometheus:
+  image: prom/prometheus:v2.53.0
+  volumes:
+    - ./otel/prometheus.yml:/etc/prometheus/prometheus.yml
+
+# After:
+victoriametrics:
+  image: victoriametrics/victoria-metrics:v1.100.0
+  command:
+    - -storageDataPath=/storage
+    - -retentionPeriod=90d
+    - -httpListenAddr=:8428
+  ports:
+    - "8428:8428"
+  volumes:
+    - vm_data:/storage
+```
+
+Then update the Grafana datasource URL from `http://prometheus:9090` to `http://victoriametrics:8428`. Every PromQL query in your dashboards works unchanged — VictoriaMetrics implements the full PromQL specification plus MetricsQL extensions.
+
+**Why it handles more scale than Prometheus:**
+
+| Characteristic | Prometheus | VictoriaMetrics |
+|---|---|---|
+| Ingestion throughput | ~200k samples/sec (single node) | ~2M samples/sec (single node) |
+| Compression | LZ4, ~8 bytes/sample | ZSTD, ~1–2 bytes/sample |
+| High-cardinality handling | OOM risk above ~10M series | Handles 100M+ series gracefully |
+| Long-range query performance | Degrades past 7-day windows | Fast on 90-day windows |
+| Default retention | 15 days | Configurable, `--retentionPeriod=1y` |
+
+**When to stay on Prometheus:** development scale with few series, exact Prometheus recording rule evaluation semantics required, deeply integrated Alertmanager.
+
+**When to switch:** Prometheus exceeds 4GB RAM, retention beyond 30 days required, agent loops generating thousands of LLM spans per hour.
+
+**Migration with historical data preserved:**
+
+```bash
+# Step 1: export Prometheus data (while Prometheus is running)
+docker run --rm -v prometheus_data:/prometheus \
+  prom/prometheus:v2.53.0 \
+  promtool tsdb dump /prometheus > prometheus-dump.txt
+
+# Step 2: start VictoriaMetrics (after updating docker-compose.yml)
+docker compose up -d victoriametrics
+
+# Step 3: import via vmctl
+docker run --rm \
+  -v $(pwd)/prometheus-dump.txt:/data/dump.txt \
+  victoriametrics/vmctl:v1.100.0 \
+  prometheus --prom-snapshot=/data/dump.txt \
+  --vm-addr=http://localhost:8428
+
+# Step 4: update Grafana datasource URL from :9090 to :8428
+```
+
+For development environments: just swap the docker-compose service and start fresh — dev metric history is rarely worth preserving.
+
+VictoriaMetrics also ships `vmauth` (authentication proxy), `vminsert`/`vmselect` (cluster mode), and `vmagent` (Prometheus-compatible scraper that pushes instead of being pulled). For AOIS scale, single binary is sufficient — but knowing the cluster components exist means you have a clear path when AOIS grows to multi-cluster or multi-region.
+
+---
+
 ## Common Mistakes
 
 ### 1. Loki crashes with `mkdir /tmp/loki/rules: permission denied`
@@ -475,6 +551,21 @@ exporters:
       insecure: true   # required for non-TLS Tempo
 ```
 
+### 6. VictoriaMetrics stops ingesting with `max active series` error
+
+**Symptom:** VictoriaMetrics logs `the number of active time series exceeds...` and new metrics stop appearing in Grafana.
+
+**Cause:** A label with unbounded values (incident IDs, request IDs) was used as a Prometheus label, creating a new time series per unique value. VictoriaMetrics enforces a default cardinality limit.
+
+**Fix:** Identify which label is unbounded:
+
+```bash
+curl -s http://localhost:8428/api/v1/status/tsdb \
+  | python3 -c "import sys,json; r=json.load(sys.stdin); [print(e['name'], e['value']) for e in r['data']['topMetricsBySeriesCountPerLabelName'][:10]]"
+```
+
+Remove the unbounded label from the metric definition. Incident IDs, trace IDs, and request IDs belong in structured log lines (Loki) or span attributes (Tempo) — not as Prometheus label values. This applies equally to Prometheus: cardinality is a universal constraint, not a VictoriaMetrics-specific one.
+
 ### 5. `BatchSpanProcessor` never flushes during short tests
 
 **Symptom:** spans are emitted in code but never appear in Tempo after short test runs.
@@ -533,6 +624,32 @@ for t in r['data']['activeTargets']:
 
 Expected: `aois-app up` and `aois-otel up`. If `aois-app` shows "connection refused", AOIS is not reachable at `aois:8000` — check Docker network or if the container is healthy.
 
+### OTel Collector config silently drops a pipeline
+
+**Symptom:** AOIS emits spans with no errors, but Tempo shows no traces. `docker compose logs otelcol` shows the Collector started successfully but no trace export activity.
+
+**Cause:** A YAML indentation error in the Collector config silently disables a pipeline. The Collector validates and starts, but the `traces` pipeline is absent from the running config.
+
+**Fix:** Validate the config explicitly before starting:
+
+```bash
+docker run --rm \
+  -v $(pwd)/otel/otelcol-config.yaml:/etc/otel/config.yaml \
+  otel/opentelemetry-collector-contrib:0.100.0 \
+  validate --config /etc/otel/config.yaml
+# Expected: 2024/... Validation result: Valid configuration
+```
+
+Also inspect the running Collector's debug endpoint to confirm all pipelines loaded:
+
+```bash
+curl -s http://localhost:55679/debug/pipelinez | grep -A5 "traces"
+# Expected: traces pipeline listed with receiver=otlp and exporter=otlp/tempo
+# If the traces section is absent, the pipeline did not load
+```
+
+The most common cause: mixing 2-space and 4-space indentation in the `service.pipelines` section. YAML is indentation-sensitive; the Collector parser silently skips malformed sections rather than failing at startup.
+
 ---
 
 ## Connection to Later Phases
@@ -542,6 +659,8 @@ Expected: `aois-app up` and `aois-otel up`. If `aois-app` shows "connection refu
 **v19 (Chaos Engineering)**: Chaos Mesh injects failures. The OTel traces from the chaos period become the evidence of blast radius. "How long did p99 latency stay above 5s after we killed worker-3?" — this query is only answerable because v16 exists.
 
 **v20 (Tool use + memory)**: agentic workflows span 10–15 LLM calls per incident. Per-incident cost attribution (flagged in the April 2026 audit) requires threading an `incident_id` attribute through all spans in the agent loop. The tracing infrastructure from v16 is the foundation that makes this possible.
+
+**v16.5 (ClickHouse: Analytics at Scale)**: the OTel stack from v16 answers operational questions — "is AOIS healthy right now?" ClickHouse answers analytical questions — "which incident type has cost the most this month?" Prometheus cannot scan 100 million rows in milliseconds; ClickHouse can. The two coexist: Prometheus for real-time alerting, ClickHouse for analytics and long-term audit. Every analysis event flowing through the OTel Collector is also written to ClickHouse for indefinite retention and columnar queries.
 
 **v29 (Weights & Biases)**: the `aois_llm_cost_usd_total` counter and `aois_llm_duration_ms` histogram produce the baseline metrics for every model. W&B tracks how these change across model versions. The eval results from v15 + the live metrics from v16 are the two inputs to W&B experiment tracking.
 
@@ -568,6 +687,10 @@ You have completed v16 when you can do all of the following:
 8. **State what changes in v17** when Kafka is added — specifically, which part of the OTel pipeline changes and what new metrics appear.
 
 9. **Describe the April 2026 audit finding** about per-incident cost attribution and what it requires technically.
+
+10. **State the migration procedure from Prometheus to VictoriaMetrics** in three commands. At what point in the AOIS build roadmap (which phase, which observable symptom) would you decide to switch?
+
+11. **Explain why v16 uses three separate backends** (Tempo, Prometheus, Loki) instead of a single unified system. What does each answer that the others cannot — in one sentence per backend?
 
 **The mastery bar:** given a production AI system with no observability and a cost spiral ("we're spending $400/day on LLM calls but don't know why"), you can instrument it from scratch, stand up the OTel Collector + Prometheus + Grafana stack, and within one day answer: which model, which endpoint, which traffic pattern is responsible.
 
@@ -628,3 +751,51 @@ You have completed v16 when you can do all of the following:
 - *Non-technical:* "Grafana turns numbers into pictures. Prometheus stores the data. Grafana makes it into graphs you can actually look at during an incident and understand immediately."
 - *Junior engineer:* "Grafana datasource provisioning: YAML in `/etc/grafana/provisioning/datasources/` with `type: prometheus`, `url: http://prometheus:9090`. Dashboards provisioned from JSON in `/etc/grafana/provisioning/dashboards/`. A panel pointing at AOIS cost: PromQL `rate(aois_llm_cost_usd_total[5m])` gives cost per second, multiply by 3600 for hourly rate."
 - *Senior engineer:* "Grafana's value in a multi-signal setup (metrics + logs + traces) is unified correlation. Click a spike in the cost panel → jump to Loki logs at that timestamp → click a trace ID in the log → Tempo shows the full request trace including which LLM call was slow. This full-stack correlation is what separates a monitoring setup from an observability setup. Provisioning-as-code is non-negotiable for reproducibility — the first thing lost in a 'we just click around in Grafana' setup is the ability to recreate the environment after a cluster rebuild."
+
+---
+
+### Tempo
+
+| Layer | |
+|---|---|
+| **Plain English** | A distributed tracing backend that stores the complete timeline of every request — every service it touched, every function it called, how long each step took — so you can pinpoint exactly where time was lost in a specific request. |
+| **System Role** | Tempo receives traces from the OTel Collector via OTLP gRPC and stores them. When a Grafana Loki log entry contains a trace ID, clicking it opens the full span tree in Tempo. This links "what did the log say?" to "what did the system actually do?" Every LLM call span (`gen_ai.chat groq/llama-3.1-8b-instant`) is visible in the trace tree with its exact duration and GenAI attributes. |
+| **Technical** | Tempo stores traces as blocks in object storage (local filesystem in dev, S3 in production). It does not index span attributes — trace lookup is by trace ID or by TraceQL query (e.g., `{ .aois.tier = "premium" && duration > 5s }`). The `metrics_generator` component can synthesise RED metrics (Request/Error/Duration) from traces, producing Prometheus-compatible metrics without app-level instrumentation. |
+| **Remove it** | Without Tempo: Prometheus tells you P99 latency spiked at 14:32. Loki shows which log lines appeared during that window. But you cannot answer "which specific LLM call was slow" — you need the span tree. The histogram shows the aggregate; the trace shows one example. Both are required to debug a latency incident. |
+
+**Say it at three levels:**
+- *Non-technical:* "If Prometheus is the camera that shows average traffic patterns, Tempo is the replay button for a single request. You pick one and watch every step it went through, with timestamps."
+- *Junior engineer:* "Query in Grafana: Explore → Tempo → TraceQL: `{ .aois.tier = \"premium\" && duration > 5s }`. This finds all premium-tier AOIS requests over 5 seconds. Each trace shows: HTTP span → gen_ai.chat span → cache check span. The gen_ai span attributes (`gen_ai.request.model`, `aois.cost_usd`) are visible in the span detail panel."
+- *Senior engineer:* "Tempo's no-attribute-index design is the right tradeoff at AOIS scale. Jaeger with Elasticsearch indexes every attribute — powerful but expensive. Tempo stores traces in object storage with only trace ID and a few tags indexed. At high volume the Tempo metrics_generator becomes valuable: it synthesises a service graph (AOIS → Claude API → Groq → Kafka) from trace data without requiring Prometheus instrumentation on external services. In production, Tempo runs behind a query-frontend for parallelised queries on large trace volumes."
+
+---
+
+### Loki
+
+| Layer | |
+|---|---|
+| **Plain English** | A log aggregation system built by Grafana Labs to work the way Prometheus works for metrics — but for logs. Instead of indexing every word in every log line (like Elasticsearch), it indexes only labels (service name, severity, tier) and compresses the actual log text — dramatically cheaper at the cost of full-text search speed. |
+| **System Role** | Loki receives structured JSON logs from the OTel Collector and stores them with labels derived from OTel resource attributes (`job=aois`, `tier=fast`, `severity=P1`). The Grafana AOIS dashboard queries Loki to show the live log stream. Log entries that include a trace ID are linked to Tempo — one click from a log line to the full request trace. |
+| **Technical** | Log ingestion via the Loki push API at `/loki/api/v1/push`. Logs are chunked per label-set and compressed with GZIP. LogQL has two parts: the stream selector `{job="aois"}` uses the index (fast); the filter `|= "OOMKilled"` scans compressed chunks (slower). The OTel Collector Loki exporter maps OTel attributes to Loki labels — low-cardinality fields only. Never use `trace_id` as a label: one stream per trace ID would exhaust Loki's index memory. |
+| **Remove it** | Without Loki: logs exist only in container stdout. `kubectl logs pod-xyz` shows the current pod's last N lines. Historical logs (3-day-old P1 incidents), cross-pod queries (all AOIS replicas), and structured field filtering (`severity="P1" and cost > 0.01`) are impossible. Debugging a production incident from Tuesday requires accessing each pod's filesystem — not viable when pods come and go. |
+
+**Say it at three levels:**
+- *Non-technical:* "Loki is a searchable archive for log messages. Instead of 'where is the log file for Tuesday's incident?', you type 'show me all P1 incidents from Tuesday' and Loki finds them across every container."
+- *Junior engineer:* "LogQL: `{job=\"aois-app\"} | json | severity=\"P1\" | cost_usd > 0.01`. Labels in `{}` use the index — always start there. After `| json`, all structured fields become filterable. Pipeline stages: `| json` (parse), `| severity=\"P1\"` (filter), `| line_format \"{{.model}} {{.severity}} {{.cost_usd}}\"` (reshape output for the panel)."
+- *Senior engineer:* "Loki's label cardinality is the critical operational constraint. Labels must be low-cardinality — AOIS uses `job`, `tier` (fast/premium/local), `severity` (P1–P4). Adding `request_id` as a label creates a stream per request (millions of streams), exhausting Loki's in-memory index. Trace IDs belong in the log body where they are queryable via `|= \"trace_id\"` but not indexed. In production, Loki runs in distributed mode (ingester, querier, compactor separated) on object storage. Single-binary dev mode scales to ~50GB/day ingestion before performance degrades."
+
+---
+
+### VictoriaMetrics
+
+| Layer | |
+|---|---|
+| **Plain English** | A faster, more storage-efficient drop-in replacement for Prometheus — designed for environments where Prometheus would run out of memory or disk, while keeping full backwards compatibility with PromQL queries and Grafana dashboards. |
+| **System Role** | VictoriaMetrics is the migration path when AOIS telemetry grows beyond what Prometheus handles comfortably. In Phase 7, autonomous agents generate 10–15 LLM spans per incident. At production volume, this can exceed Prometheus's comfortable cardinality range. Switching requires changing one service in `docker-compose.yml` and one URL in Grafana — every dashboard, alert rule, and PromQL query works unchanged. |
+| **Technical** | VictoriaMetrics replaces Prometheus's TSDB storage engine with a custom columnar engine using ZSTD compression (5–10× better ratio than Prometheus's LZ4) and lock-free ingestion designed for high-concurrency writes. It implements the Prometheus HTTP API and accepts `remote_write` — existing scrapers, Alertmanager, and Grafana datasources require no reconfiguration. `--retentionPeriod=90d` extends retention to 90 days. Cluster mode adds `vminsert`/`vmselect` for horizontal scaling. |
+| **Remove it** | Without VictoriaMetrics as an option: when Prometheus runs out of memory on a busy AOIS deployment, the paths are Prometheus federation (complex), Thanos (complex), or Cortex (complex). VictoriaMetrics is the single-binary answer that covers 90% of scale problems without adding distributed system complexity. Removing it from your toolkit means reaching for much heavier solutions the first time Prometheus struggles. |
+
+**Say it at three levels:**
+- *Non-technical:* "VictoriaMetrics is a faster car with the same road rules. Your dashboards don't know the difference — it works with all the same tools. You switch when your current car starts struggling with the load."
+- *Junior engineer:* "Migration: (1) change `image: prom/prometheus` to `image: victoriametrics/victoria-metrics:v1.100.0`, (2) replace Prometheus flags with `--storageDataPath=/storage --retentionPeriod=90d --httpListenAddr=:8428`, (3) update Grafana datasource URL from `:9090` to `:8428`. Your `prometheus.yml` scrape config is reused unchanged — VictoriaMetrics reads it natively via the Prometheus-compatible API."
+- *Senior engineer:* "VictoriaMetrics supports both pull (Prometheus-compatible scraping) and push (via remote_write). This matters for agent workflows with short-lived pods: a pod that exits before the 15s scrape fires loses its final metrics. With remote_write to VictoriaMetrics, metrics are pushed at each update. The cardinality limiter is the key production feature: VictoriaMetrics can reject series above a threshold, preventing a runaway agent from creating millions of time series and exhausting storage. This is the safety valve that Prometheus does not have."

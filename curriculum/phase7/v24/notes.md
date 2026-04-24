@@ -584,6 +584,66 @@ The actual ADK deployment uses `google-adk` Python package and `adk deploy` to V
 
 ---
 
+## OpenAI Agents SDK: Handoffs and Guardrails
+
+The OpenAI Agents SDK (released 2025) is OpenAI's production agent framework — and you will encounter it in every enterprise codebase you work in. Not because it is architecturally superior to LangGraph or Pydantic AI, but because OpenAI has the largest developer ecosystem and enterprises adopt what their largest model vendor supports.
+
+Three primitives that define its architecture:
+
+**Handoffs** — an agent can transfer control to a more specialised agent mid-conversation, passing the full context:
+
+```python
+from agents import Agent, handoff
+
+senior_agent = Agent(
+    name="SeniorSRE",
+    instructions="You handle P1/P2 incidents. Investigate thoroughly, propose remediation with rollback steps.",
+)
+
+triage_agent = Agent(
+    name="Triage",
+    instructions="Classify incident severity. For P1/P2, hand off to senior_agent immediately.",
+    tools=[handoff(senior_agent, tool_description="Escalate critical incidents to senior SRE")]
+)
+```
+
+The difference from CrewAI's sequential output-passing: a handoff transfers the full conversation context, not just the last output. The senior agent sees the complete incident history.
+
+**Guardrails** — input and output validation that runs as a separate LLM call before the response is returned. This is structurally different from v5's output blocklist (which is a regex scan). A guardrail is a separate agent that reviews the proposed action:
+
+```python
+from agents import Agent, output_guardrail, GuardrailFunctionOutput
+from pydantic import BaseModel
+
+class SafetyCheck(BaseModel):
+    is_safe: bool
+    reason: str
+
+@output_guardrail
+async def aois_safety_guardrail(ctx, agent, output):
+    check = await Runner.run(safety_checker_agent, f"Is this action safe? {output}", context=ctx.context)
+    return GuardrailFunctionOutput(
+        output_info=check.final_output,
+        tripwire_triggered=not check.final_output.is_safe
+    )
+
+aois_agent = Agent(
+    name="AOIS",
+    instructions="Analyze incidents and propose remediation.",
+    output_guardrails=[aois_safety_guardrail],
+)
+```
+
+**Built-in tracing** — every agent invocation, handoff, and tool call is structured and traceable without additional OTel instrumentation. The SDK emits to OpenAI's platform dashboard by default, configurable to any trace backend.
+
+### The Architectural Point
+
+LangGraph expresses control flow as explicit edges in a state graph. AutoGen expresses it as a conversation. OpenAI Agents SDK expresses it as handoffs — an agent decides to transfer based on its system prompt instructions. Same pattern, different mechanism.
+
+When you encounter OpenAI Agents SDK in an enterprise codebase, you will recognise: the triage-then-handoff structure is the same as LangGraph's detect→investigate nodes, the guardrails are the same concern as v5's output blocklist but applied at the agent boundary rather than as a regex filter.
+
+---
+
 ## Framework Selection Guide
 
 | Use case | Best framework |
@@ -594,6 +654,7 @@ The actual ADK deployment uses `google-adk` Python package and `adk deploy` to V
 | Vertex AI deployment or Google Workspace integration | Google ADK |
 | Multi-step investigation with state persistence | LangGraph (v23) |
 | Durable execution across crashes | Temporal (v22) |
+| Handoff-based routing with output guardrails (OpenAI ecosystem) | OpenAI Agents SDK |
 
 The rule: reach for the simplest thing that works. A flat loop (v20) beats all of these for a well-defined, single-stage task. LangGraph is right when you need explicit state machine stages. CrewAI is right when you need role-based sequential delegation. AutoGen is right when you need iterative challenge and refinement. Pydantic AI is right when you need type safety at the agent boundary.
 
@@ -751,3 +812,12 @@ W&B logs each framework's latency, cost, and eval score as separate experiment r
 | **System Role** | Where does it sit in AOIS? | The preferred framework for any agent whose output feeds a typed system (database write, E2B executor, downstream API call). The `IncidentAnalysis` model is validated before it reaches any downstream consumer. In v25, the E2B sandbox receives a guaranteed `str` action, not a potentially-missing dict key. |
 | **Technical** | What is it, precisely? | A Python agent framework from the Pydantic team. Agents are typed: `Agent[DepsType, ResultType]`. The LLM is called, output is parsed against the `result_type` Pydantic model, and retried if validation fails. Dependencies are injected via `deps_type` — the agent receives them at call time, not via global state. |
 | **Remove it** | What breaks, and how fast? | Remove Pydantic AI → agent output is a raw string. Downstream code uses `.get("severity", "P3")` on a JSON parse that may fail. `confidence` is a string that cannot be compared numerically. Tests mock string outputs instead of typed objects. Production: a malformed LLM response silently sets severity to None and the incident is never escalated. |
+
+### OpenAI Agents SDK
+
+| Layer | Question | Answer |
+|---|---|---|
+| **Plain English** | What problem does this solve? | Building agents by hand requires routing logic, tool call handling, output validation, and handoff mechanics — all wired in custom Python. The OpenAI Agents SDK provides these as primitives: agents with instructions, tools, handoffs to other agents, and output guardrails that validate before the response leaves the agent boundary. |
+| **System Role** | Where does it sit in AOIS? | An alternative multi-agent implementation pattern — the one you will encounter most often in enterprise codebases. The AOIS triage agent classifies severity; a handoff routes P1/P2 to a senior investigation agent with deeper context. Output guardrails apply the same safety checks as v5's output blocklist, but as a separate verification agent rather than a regex filter — structurally harder to bypass. |
+| **Technical** | What is it, precisely? | A Python SDK with `Agent` (instructions + tools + handoffs), `Runner.run()` (executes the agent loop), and `@output_guardrail` (pre/post validation that runs as a separate LLM call). Agents can be composed: a triage agent's handoff target is another `Agent` object, and the full conversation context transfers with it. Built-in tracing emits structured events for every invocation, handoff, and tool call — configurable to any trace backend. Works with any model via `Agent(model="claude-haiku-4-5-20251001")`. |
+| **Remove it** | What breaks, and how fast? | Remove it → return to manual tool call routing (v20 pattern), manual output validation (v5 blocklist), and no structured handoff mechanism. For AOIS deployed in an organisation already using OpenAI tooling, removing it means reimplementing the same patterns with a different framework — the cost is migration effort and lost interoperability with OpenAI-native tooling the rest of the team depends on. |

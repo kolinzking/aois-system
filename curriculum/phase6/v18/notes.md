@@ -516,6 +516,105 @@ Write a CiliumNetworkPolicy for AOIS based on the template above and save it to 
 
 ---
 
+## Tetragon: Process-Level eBPF Tracing
+
+Falco watches for rule violations — you define what is suspicious and Falco alerts when it matches. Tetragon is different: it traces everything, continuously, without requiring rules. Every process start, every network connection, every file access — structured JSON, with full process lineage showing the complete chain of who spawned whom.
+
+Tetragon is a Cilium sub-project. It uses eBPF kprobes to hook into kernel syscalls and emit events to userspace. The distinction from Falco:
+
+| Capability | Falco | Tetragon |
+|---|---|---|
+| Real-time rule-based alerting | ✓ | Optional (TracingPolicy CRD) |
+| Full process lineage (parent chain) | Partial | Full — every event |
+| Binary hash of every executed process | No | Yes (`process.binary.hash`) |
+| Network flow with process identity | No | Yes |
+| Post-incident forensic timeline | Limited | Complete |
+| Fanout to Kafka / Slack | Via Sidekick | Via log pipeline |
+
+Use Falco for real-time alerting on known-bad patterns. Use Tetragon for forensic investigation after an alert fires — Tetragon tells you everything that happened, not just what matched a rule.
+
+### Installing Tetragon on k3s
+
+```bash
+helm repo add cilium https://helm.cilium.io
+helm repo update
+
+helm install tetragon cilium/tetragon \
+  --namespace kube-system \
+  --kubeconfig /etc/rancher/k3s/k3s.yaml \
+  --set tetragon.btf=/sys/kernel/btf/vmlinux
+```
+
+The `btf` flag points to the BTF file that k3s exposes on kernel 6.8 — same reason modern eBPF works for Falco without kernel headers.
+
+Verify:
+```bash
+sudo kubectl get pods -n kube-system \
+  --kubeconfig /etc/rancher/k3s/k3s.yaml | grep tetragon
+# tetragon-xxxxx   1/1   Running   0
+```
+
+### Reading Tetragon Events
+
+```bash
+sudo kubectl exec -n kube-system \
+  --kubeconfig /etc/rancher/k3s/k3s.yaml \
+  -c tetragon \
+  $(sudo kubectl get pods -n kube-system \
+    -l app.kubernetes.io/name=tetragon \
+    --kubeconfig /etc/rancher/k3s/k3s.yaml \
+    -o jsonpath='{.items[0].metadata.name}') \
+  -- tetra getevents -o compact
+```
+
+Expected output (compact mode uses emoji prefixes):
+```
+🚀 process aois/aois-pod-xxx /usr/local/bin/python3
+🔌 connect aois/aois-pod-xxx tcp 10.42.0.15:54321 -> 35.185.44.232:443
+📖 read    aois/aois-pod-xxx /var/run/secrets/kubernetes.io/serviceaccount/token
+```
+
+The emoji prefix: 🚀 = process start, 🔌 = network connect, 📖 = file read, ✏️ = file write, 🟥 = process killed. Every event includes full process lineage — trace from a network connection back to the exact subprocess that made it.
+
+### TracingPolicy: Targeted Observation
+
+Tetragon's `TracingPolicy` CRD defines which syscalls to trace, scoped to specific namespaces or container images:
+
+```yaml
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: aois-file-writes
+spec:
+  kprobes:
+  - call: "sys_write"
+    syscall: true
+    selectors:
+    - matchNamespaces:
+      - namespace:
+          operator: In
+          values: ["aois"]
+```
+
+This traces every `write()` syscall from the `aois` namespace — complete coverage without rules, useful for post-incident forensics. Scoping to a namespace keeps CPU overhead minimal: Tetragon only processes events from matching pods.
+
+### The Full-Stack Security Picture
+
+Running Falco and Tetragon together on AOIS gives complementary coverage:
+
+```
+Event: kubectl exec into AOIS pod → shell spawned
+  ↓
+Falco fires: "Shell spawned in AOIS container" → Sidekick → aois-security Kafka → AOIS analyzes
+  ↓
+Tetragon records: process tree (who spawned sh), every command sh ran, every file it read,
+                  every network connection it made — timestamped, continuous, forensic
+```
+
+Falco tells you "something happened, here is the rule that matched." Tetragon tells you everything that happened, including things that matched no rule. In a security investigation, you start with the Falco alert and use Tetragon to reconstruct the full story.
+
+---
+
 ## Common Mistakes
 
 **Falco pod stuck at 1/2 READY**
@@ -549,6 +648,29 @@ Or: raise your rule's priority.
 
 **Shell rule fires on every `kubectl exec`**
 This is not a bug. `kubectl exec` spawns a shell. In production, `kubectl exec` into a production pod IS a security event worth knowing about. The alert is correct.
+
+**Tetragon events not appearing for a specific namespace**
+
+Symptom: `tetra getevents --namespace aois` returns no output even though AOIS pods are running and receiving traffic.
+
+Cause: The `--namespace` filter matches the Kubernetes namespace label on the pod, not the network namespace. Verify the filter is correct by checking what namespace the pod reports:
+
+```bash
+sudo kubectl get pod -n aois \
+  --kubeconfig /etc/rancher/k3s/k3s.yaml \
+  -o jsonpath='{.items[0].metadata.namespace}'
+# Expected: aois
+```
+
+If the namespace is correct but events still don't appear, remove the namespace filter and use `jq` to filter manually — this confirms whether Tetragon is producing events at all:
+
+```bash
+kubectl exec -n kube-system -c tetragon <pod> -- \
+  tetra getevents -o json \
+  | jq 'select(.process.pod.namespace == "aois")'
+```
+
+If this returns events, the `--namespace` flag syntax changed between versions. Check `tetra getevents --help` for the current flag name.
 
 ---
 
@@ -662,3 +784,35 @@ Or use a macro to exclude known-good containers from a rule condition.
 - *Non-technical:* "eBPF is a safe way to put a recording device inside the Linux kernel. Previous approaches were like wiring directly into the engine — dangerous and fragile. eBPF is like installing a sensor that the engine itself validates before allowing."
 - *Junior engineer:* "You don't write eBPF programs directly in this curriculum — Falco and Cilium handle that. What you need to understand: when Falco says 'eBPF driver', it means a kernel-level program is intercepting syscalls and sending events to Falco userspace via a ring buffer. `bpftool prog list` shows loaded eBPF programs on the node. `sudo kubectl exec -it falco-XXX -- bpftool prog list` shows Falco's programs. The kernel version requirement: Linux 5.8+ for BTF-based eBPF (no kernel headers), which is why the Hetzner k3s setup works cleanly on kernel 6.8."
 - *Senior engineer:* "eBPF's verifier is the safety guarantee — it's a formal proof that the program terminates and doesn't corrupt kernel memory. This is why eBPF programs can be loaded into production kernels that would never accept a foreign kernel module. The performance characteristic: eBPF maps use copy-on-write and lock-free ring buffers for kernel→userspace communication — much lower overhead than the alternative (netlink sockets, /proc polling). The ecosystem trajectory: eBPF is becoming the universal instrumentation layer. Cilium replaces kube-proxy, iptables, and CNI with eBPF programs. Tetragon extends Falco's syscall visibility with process tree tracking. Every new observability or security tool built in 2024+ is built on eBPF."
+
+---
+
+### Cilium
+
+| Layer | |
+|---|---|
+| **Plain English** | A Kubernetes networking plugin that uses eBPF to replace the traditional Linux networking stack — giving you faster packet routing, security policy down to the HTTP path level, and real-time network flow visibility, all without a service mesh. |
+| **System Role** | Cilium would replace Flannel as the CNI on the Hetzner k3s cluster. It handles all pod-to-pod routing, exposes network flows via Hubble (who is talking to whom, with latency), and enforces `CiliumNetworkPolicy` restricting AOIS to only its legitimate endpoints (Anthropic API, Kafka, Postgres, Redis). It is not installed on the live cluster — CNI replacement requires a k3s restart — but the fresh-cluster recipe in these notes covers the exact steps for the next rebuild. |
+| **Technical** | Cilium replaces kube-proxy by maintaining an eBPF hash map of service-to-pod mappings in kernel memory. A packet destined for a ClusterIP does one hash lookup instead of traversing iptables chains — measurably faster at 1000+ services. `CiliumNetworkPolicy` extends standard k8s NetworkPolicy to L7: `toPorts[].rules.http.path` allows per-HTTP-path policy. Hubble records every network flow as a structured event accessible via `hubble observe`. |
+| **Remove it** | Without Cilium: network policy is iptables-based (L3/L4 only, no FQDN or HTTP-path matching). If AOIS is compromised, it can freely connect to any external endpoint — standard NetworkPolicy has no way to say "allow `api.anthropic.com` but not `attacker.io`." Cilium is what makes "AOIS can talk to Anthropic's API but nothing else unexpected" enforceable at the kernel level. |
+
+**Say it at three levels:**
+- *Non-technical:* "Cilium is the traffic cop inside Kubernetes. It controls which services can talk to which others, and it uses a newer, faster method (eBPF) instead of the traditional iptables approach."
+- *Junior engineer:* "Fresh k3s with Cilium: `curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC='--flannel-backend=none --disable-kube-proxy' sh -`, then `cilium install --set kubeProxyReplacement=true --set k8sServiceHost=<NODE_IP>`. Verify: `cilium status --wait`. Network visibility: `cilium hubble enable && hubble observe --namespace aois` — shows every pod connection with source, destination, and HTTP path."
+- *Senior engineer:* "Cilium's CNI migration risk is why the live cluster uses Flannel: CNI replacement requires draining all pods and restarting k3s with `--flannel-backend=none`. A 2–3 minute network blackout is unavoidable — Kafka and Strimzi lose networking during this window. In production this is a maintenance window operation. The payoff: Hubble L7 flows show HTTP method, path, and response code for every pod connection, with no application instrumentation required. For v34 EU AI Act compliance audit requirements, that network telemetry is what regulators expect to see."
+
+---
+
+### Tetragon
+
+| Layer | |
+|---|---|
+| **Plain English** | A security observability tool that records a continuous timeline of everything happening inside every container — which processes ran, what files they accessed, what network connections they made — so that after an incident you can reconstruct the complete picture at the kernel level, not just what the application chose to log. |
+| **System Role** | Tetragon runs alongside Falco on the k3s cluster. Falco fires real-time alerts when rules match (shell spawned, /etc write). Tetragon records the forensic timeline: if a Falco alert fires for "shell in AOIS container," Tetragon's record shows which binary executed, what it read and wrote, which network connections it made, and the full process lineage from the shell back to the kubectl exec or compromised subprocess that started it. Falco tells you something happened. Tetragon tells you everything that happened. |
+| **Technical** | Tetragon uses eBPF kprobes to intercept kernel syscalls — `sys_execve`, `sys_read`, `sys_write`, `sys_connect`. Events are emitted as structured JSON with `process.binary.path`, `process.pid`, `process.parent_exec_id`, and `node_name`. The `TracingPolicy` CRD scopes observation to specific namespaces, binary paths, or syscalls, keeping CPU overhead minimal. Process lineage is the key forensic feature: every event includes the full parent chain (pid → ppid → ... → PID 1). |
+| **Remove it** | Without Tetragon: post-incident forensics relies on application logs (only what the app decided to log), Falco alerts (only what matched a rule), and container stdout. A sophisticated attacker who knows the Falco rules can avoid triggering them. Tetragon has no rules to avoid — it records everything. The question "what did this process actually do after the shell was spawned?" is only answerable from Tetragon's event stream. Without it, the investigation stops at the Falco alert and cannot go deeper. |
+
+**Say it at three levels:**
+- *Non-technical:* "Falco is the burglar alarm — it goes off when something suspicious matches a rule. Tetragon is the CCTV recording everything continuously, so you can review the full footage after the alarm goes off."
+- *Junior engineer:* "Read events live: `kubectl exec -n kube-system -c tetragon <pod> -- tetra getevents -o compact`. Compact mode uses emoji: 🚀 process, 🔌 network, 📖 file read, ✏️ file write. Filter to AOIS namespace: `tetra getevents --namespace aois`. For structured JSON (scriptable): remove `-o compact` and pipe to `jq .process.binary.path` to extract which binary ran."
+- *Senior engineer:* "Tetragon's eBPF ring buffer design is what makes always-on recording viable. Traditional auditd on a busy host becomes a performance problem — too many events, too much overhead. eBPF ring buffers are lock-free and sized to absorb bursts without blocking the kernel. The TracingPolicy CRD is the operational tuning knob: scoping to one namespace and a handful of syscalls adds negligible overhead. In a v34 EU AI Act compliance context, Tetragon's event stream is the audit log that proves what the AI agent did at the OS level — not just what it reported doing. That distinction matters to auditors."
