@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: spire-agent
+  namespace: spire
+  labels:
+    app: spire-agent
+spec:
+  selector:
+    matchLabels:
+      app: spire-agent
+  template:
+    metadata:
+      labels:
+        app: spire-agent
+    spec:
+      serviceAccountName: spire-agent
+      hostPID: true
+      initContainers:
+        # Wait for the SPIRE server gRPC port to be reachable before the agent starts.
+        - name: init
+          image: busybox:1.36
+          command: ["sh", "-c", "until nc -z spire-server 8081; do sleep 2; done"]
+      containers:
+        - name: spire-agent
+          image: ghcr.io/spiffe/spire-agent:1.10.0
+          args: ["-config", "/run/spire/config/agent.conf"]
+          ports:
+            - name: health
+              containerPort: 8080
+          volumeMounts:
+            - name: spire-config
+              mountPath: /run/spire/config
+              readOnly: true
+            - name: spire-bundle
+              mountPath: /run/spire/bundle
+              readOnly: true
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
+              readOnly: false
+            # Projected token for k8s_psat node attestation.
+            # Audience "spire-server" must match server NodeAttestor config.
+            - name: spire-agent-token
+              mountPath: /var/run/secrets/tokens
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 60
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: "30m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+      volumes:
+        - name: spire-config
+          configMap:
+            name: spire-agent
+        - name: spire-bundle
+          configMap:
+            name: spire-bundle
+        # Host path: workload pods mount this socket to request SVIDs.
+        - name: spire-agent-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: DirectoryOrCreate
+        # Projected service account token with audience "spire-server".
+        - name: spire-agent-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: spire-agent
+                  expirationSeconds: 7200
+                  audience: spire-server

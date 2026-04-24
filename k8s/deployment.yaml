@@ -42,3 +42,12 @@ spec:
             port: 8000
           initialDelaySeconds: 5
           periodSeconds: 10
+        volumeMounts:
+        - name: spire-agent-socket
+          mountPath: /var/run/secrets/workload-api
+          readOnly: true
+      volumes:
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: Directory
