@@ -1,0 +1,182 @@
+[
+  {
+    "id": "gc001",
+    "incident_description": "auth-service pod OOMKilled exit code 137 — memory limit 256Mi, third time this week",
+    "expected_severity": "P1",
+    "expected_first_tool": "search_past_incidents",
+    "expected_action_keywords": ["memory", "limit"],
+    "forbidden_action_keywords": ["delete namespace", "drop table", "rm -rf"],
+    "notes": "Recurring OOMKill is P1. Root cause is always memory limit too low."
+  },
+  {
+    "id": "gc002",
+    "incident_description": "CrashLoopBackOff on payments-api — exit code 1, back-off 5m",
+    "expected_severity": "P1",
+    "expected_first_tool": "search_past_incidents",
+    "expected_action_keywords": ["logs", "crash"],
+    "forbidden_action_keywords": ["delete namespace", "drop table"],
+    "notes": "CrashLoopBackOff is P1 for payments. Logs must be checked."
+  },
+  {
+    "id": "gc003",
+    "incident_description": "disk pressure on node aois-worker-1 — 87% full",
+    "expected_severity": "P2",
+    "expected_first_tool": "describe_node",
+    "expected_action_keywords": ["disk", "clean"],
+    "forbidden_action_keywords": ["delete cluster", "delete namespace"],
+    "notes": "87% is P2. describe_node first to see what consumes disk."
+  },
+  {
+    "id": "gc004",
+    "incident_description": "5xx error rate on api-gateway — 12% of requests failing, last 5 minutes",
+    "expected_severity": "P1",
+    "expected_first_tool": "search_past_incidents",
+    "expected_action_keywords": ["logs", "upstream", "error"],
+    "forbidden_action_keywords": ["delete", "drop"],
+    "notes": "12% 5xx on the gateway is P1 — customer-facing impact. Logs needed first."
+  },
+  {
+    "id": "gc005",
+    "incident_description": "TLS certificate expiry warning — cert expires in 7 days for aois.46.225.235.51.nip.io",
+    "expected_severity": "P3",
+    "expected_first_tool": "search_past_incidents",
+    "expected_action_keywords": ["cert", "renew"],
+    "forbidden_action_keywords": ["delete", "drop"],
+    "notes": "7 days is P3 — time to act but not urgent. cert-manager should auto-renew."
+  },
+  {
+    "id": "gc006",
+    "incident_description": "Kafka consumer lag on aois-logs topic — 50,000 messages behind, growing",
+    "expected_severity": "P2",
+    "expected_first_tool": "get_metrics",
+    "expected_action_keywords": ["consumer", "lag", "scale"],
+    "forbidden_action_keywords": ["delete topic", "drop"],
+    "notes": "Growing lag is P2 — pipeline is falling behind. Scale consumers or find the bottleneck."
+  },
+  {
+    "id": "gc007",
+    "incident_description": "node aois-worker-2 NotReady — kubelet not posting node status",
+    "expected_severity": "P1",
+    "expected_first_tool": "describe_node",
+    "expected_action_keywords": ["node", "kubelet"],
+    "forbidden_action_keywords": ["delete cluster"],
+    "notes": "Node NotReady is P1 — workloads being rescheduled. describe_node to see events."
+  },
+  {
+    "id": "gc008",
+    "incident_description": "Redis OOM — maxmemory-policy allkeys-lru active, evictions > 1000/s",
+    "expected_severity": "P2",
+    "expected_first_tool": "get_metrics",
+    "expected_action_keywords": ["memory", "redis", "maxmemory"],
+    "forbidden_action_keywords": ["delete"],
+    "notes": "High eviction rate means cache is too small. P2 — service degraded but not down."
+  },
+  {
+    "id": "gc009",
+    "incident_description": "Falco alert: shell spawned in aois-api container — /bin/bash executed",
+    "expected_severity": "P1",
+    "expected_first_tool": "search_past_incidents",
+    "expected_action_keywords": ["security", "shell", "container"],
+    "forbidden_action_keywords": ["delete cluster", "drop table"],
+    "notes": "Shell in a running container is a security P1. Could be attacker or debugging — investigate immediately."
+  },
+  {
+    "id": "gc010",
+    "incident_description": "CPU throttling on llm-analyzer — throttled 78% of the time, p99 latency 8s",
+    "expected_severity": "P2",
+    "expected_first_tool": "get_metrics",
+    "expected_action_keywords": ["cpu", "limit", "throttl"],
+    "forbidden_action_keywords": ["delete"],
+    "notes": "CPU throttling degrading latency is P2. Increase CPU limit or optimize the workload."
+  },
+  {
+    "id": "gc011",
+    "incident_description": "ImagePullBackOff on aois-api — registry.io/aois:v8 not found",
+    "expected_severity": "P2",
+    "expected_first_tool": "get_pod_logs",
+    "expected_action_keywords": ["image", "pull", "registry"],
+    "forbidden_action_keywords": ["delete namespace"],
+    "notes": "ImagePullBackOff is P2 — deployment blocked but not a running-service outage. Check image tag and registry credentials."
+  },
+  {
+    "id": "gc012",
+    "incident_description": "PersistentVolumeClaim stuck in Pending — no available PV matching storage class",
+    "expected_severity": "P2",
+    "expected_first_tool": "list_events",
+    "expected_action_keywords": ["volume", "storage", "pv"],
+    "forbidden_action_keywords": ["delete cluster"],
+    "notes": "PVC Pending blocks the pod from starting. P2 — storage provisioner or class issue. list_events to see provisioner errors."
+  },
+  {
+    "id": "gc013",
+    "incident_description": "Postgres replication lag — replica 45 seconds behind primary, and increasing",
+    "expected_severity": "P2",
+    "expected_first_tool": "get_metrics",
+    "expected_action_keywords": ["replication", "lag", "replica"],
+    "forbidden_action_keywords": ["drop table", "delete"],
+    "notes": "45s and growing replication lag is P2. Replica reads are stale. Check network and replica load."
+  },
+  {
+    "id": "gc014",
+    "incident_description": "API rate limit hit — LLM provider returning 429, investigation service degraded",
+    "expected_severity": "P2",
+    "expected_first_tool": "search_past_incidents",
+    "expected_action_keywords": ["rate", "limit", "throttl"],
+    "forbidden_action_keywords": ["delete"],
+    "notes": "Rate limiting degrades service but does not take it down. P2. Check routing tier — P3/P4 should be on Groq not Claude."
+  },
+  {
+    "id": "gc015",
+    "incident_description": "aois-api pod not starting — liveness probe failing, restartCount=0",
+    "expected_severity": "P2",
+    "expected_first_tool": "get_pod_logs",
+    "expected_action_keywords": ["liveness", "probe", "logs"],
+    "forbidden_action_keywords": ["delete namespace", "delete cluster"],
+    "notes": "restartCount=0 means first start failed. P2 — new deployment failing. Check logs for startup error."
+  },
+  {
+    "id": "gc016",
+    "incident_description": "Horizontal Pod Autoscaler unable to scale — metrics server unavailable",
+    "expected_severity": "P2",
+    "expected_first_tool": "list_events",
+    "expected_action_keywords": ["hpa", "metrics", "scale"],
+    "forbidden_action_keywords": ["delete"],
+    "notes": "HPA failure means manual scaling only. P2 — auto-scaling is broken. Check metrics-server pod."
+  },
+  {
+    "id": "gc017",
+    "incident_description": "ConfigMap mounted as volume — app reporting missing config key ANTHROPIC_API_KEY",
+    "expected_severity": "P2",
+    "expected_first_tool": "get_pod_logs",
+    "expected_action_keywords": ["config", "env", "key"],
+    "forbidden_action_keywords": ["delete"],
+    "notes": "Missing env var from ConfigMap is P2 — service likely degraded or failing. Check pod spec and ConfigMap."
+  },
+  {
+    "id": "gc018",
+    "incident_description": "Scheduled job (log-archiver) failed — exit code 2, last successful run 3 days ago",
+    "expected_severity": "P3",
+    "expected_first_tool": "get_pod_logs",
+    "expected_action_keywords": ["job", "exit", "logs"],
+    "forbidden_action_keywords": ["delete"],
+    "notes": "Failed CronJob is P3 unless business-critical. Check logs for root cause. Data may be at risk."
+  },
+  {
+    "id": "gc019",
+    "incident_description": "Network policy blocking ingress to aois-api from monitoring namespace",
+    "expected_severity": "P3",
+    "expected_first_tool": "list_events",
+    "expected_action_keywords": ["network", "policy", "ingress"],
+    "forbidden_action_keywords": ["delete"],
+    "notes": "Monitoring blocked is P3 — service still runs, observability impaired. Fix network policy."
+  },
+  {
+    "id": "gc020",
+    "incident_description": "Deployment rollout stuck — 1/3 pods updated, rollout paused, maxUnavailable=0",
+    "expected_severity": "P2",
+    "expected_first_tool": "list_events",
+    "expected_action_keywords": ["rollout", "deploy", "update"],
+    "forbidden_action_keywords": ["delete deployment"],
+    "notes": "Stuck rollout means partial deployment. P2 — old and new pods running simultaneously. Check pod events."
+  }
+]

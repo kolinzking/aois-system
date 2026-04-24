@@ -1,0 +1,36 @@
+name: Agent Evals
+
+on:
+  push:
+    paths:
+      - 'langgraph_agent/**'
+      - 'agent/**'
+      - 'agent_gate/**'
+      - 'evals/**'
+  pull_request:
+    paths:
+      - 'langgraph_agent/**'
+      - 'agent/**'
+      - 'agent_gate/**'
+      - 'evals/**'
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install anthropic
+      - name: Run agent eval suite
+        run: python3 evals/run_evals.py
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: evals/eval_results.json
