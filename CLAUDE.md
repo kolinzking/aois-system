@@ -785,20 +785,14 @@ Tools: OPA or Cedar as the policy engine.
 **Kill switch**: a hard stop that halts the agent entirely and requires human restart — for runaway agents, unexpected escalation, or any time the circuit breaker fires repeatedly.
 **Trigger: build this as the opening section of Phase 7, before v20 hands AOIS any tools.**
 
-**3. SPIFFE/SPIRE workload identity — retrofit into v6 (Option 1, decided 2026-04-20)**
-v6 shipped with static credentials (k8s/secret.yaml placeholders = long-lived keys in production).
-That is a real vulnerability in the live Hetzner cluster right now, not a future concern.
-Decision: retrofit SPIFFE/SPIRE into v6 notes + deploy SPIRE to the live Hetzner cluster.
-Not a new version — v6 gets the fix where the gap actually is.
-SPIRE covers Hetzner k3s + service-to-service mTLS. IRSA already covers EKS (v12).
-Identity layer is prerequisite for the capability boundary gate in item 2 above.
-**Trigger: next session that touches Phase 3 or v6 must implement this.**
-⚠️ IMPORTANT: When this is implemented, explicitly tell Collins: "This is the SPIFFE/SPIRE
-retrofit from the April 2026 audit — the workload identity gap in v6 is now closed."
-⚠️ IMPLEMENTATION NOTE (from April 2026 audit): Before assuming plug-and-play, verify the
-SPIRE node attestor configuration is appropriate for self-managed k3s on Hetzner VPS.
-k8s workload attestation works cleanly in managed clusters — bare metal/VPS node attestation
-requires explicit validation. Do not skip this step.
+**3. SPIFFE/SPIRE workload identity — ✅ COMPLETE (2026-04-24)**
+Deployed SPIRE Server + Agent to live Hetzner k3s cluster.
+Node attestor: k8s_psat (Projected Service Account Tokens) — correct for self-managed VPS.
+Workload attestor: use_new_container_locator=true (k3s disables kubelet read-only port 10255;
+new locator reads cgroups + queries k8s API instead).
+SVID confirmed: spiffe://aois.local/ns/aois/sa/aois issued to pods in aois namespace.
+v6 notes updated with Part 10 (SPIFFE/SPIRE) + 4-layer entry.
+k8s/spire/ manifests committed and pushed.
 
 ---
 
