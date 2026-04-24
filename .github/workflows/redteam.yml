@@ -1,0 +1,62 @@
+name: Red-team gate
+
+on:
+  pull_request:
+    paths:
+      - "main.py"
+      - "requirements.txt"
+      - "redteam/**"
+      - "curriculum/phase10/v33/**"
+
+jobs:
+  redteam:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyrit garak
+
+      - name: Start AOIS
+        run: |
+          python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 &
+          echo "Waiting for AOIS to start..."
+          for i in $(seq 1 15); do
+            curl -sf http://localhost:8000/health && break || sleep 2
+          done
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          REDIS_URL: ""
+
+      - name: PyRIT injection tests
+        run: python3 redteam/run_pyrit.py
+        env:
+          AOIS_BASE_URL: http://localhost:8000
+
+      - name: Garak probe scan
+        run: |
+          python3 -m garak \
+            --model_type rest \
+            --model_name http://localhost:8000/analyze \
+            --probes promptinject \
+            --report_prefix redteam/ci_report \
+            --parallel_requests 1 || true
+
+      - name: Parse Garak results
+        run: python3 redteam/parse_garak.py --fail-on-critical --report-dir redteam
+
+      - name: Upload Garak report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: garak-report
+          path: redteam/ci_report*
+          retention-days: 30
