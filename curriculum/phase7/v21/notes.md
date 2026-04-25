@@ -685,6 +685,175 @@ redis-cli KEYS "aois:cb:*" | xargs redis-cli DEL
 
 ---
 
+## Part 3 — AG-UI: The Agent ↔ Frontend Protocol
+
+MCP connects tools to AI. A2A connects agents to agents. There is a third gap: how does an agent's real-time state reach a user's browser?
+
+Without a standard: you write custom WebSocket code, poll an endpoint, or bolt on server-sent events manually. Every frontend team rolls their own. AG-UI (published by CopilotKit, May 2025) is the third protocol in the triad — the standard for pushing agent state to frontends in real time.
+
+### The Problem Without AG-UI
+
+AOIS investigates an incident. The investigation takes 45 seconds. During those 45 seconds:
+- Which tools has AOIS called?
+- What has it found so far?
+- Is it stuck, or still working?
+
+Without AG-UI, the v26 React dashboard has two bad options: poll `/status` every second (wastes network, feels janky) or wait for the final result (the UI appears frozen). Neither gives you the live streaming experience modern AI products require.
+
+The backend knows everything in real-time. The frontend is blind until done. AG-UI closes that gap.
+
+### How AG-UI Works
+
+AG-UI is an event-based, bidirectional protocol built on Server-Sent Events (SSE). The agent emits structured events as it works; the frontend consumes and renders them as they arrive.
+
+**Core event types:**
+
+| Event | When it fires | What the UI shows |
+|---|---|---|
+| `RunStarted` | Investigation begins | Spinner appears, status = "Investigating..." |
+| `TextMessageStart` / `Chunk` / `End` | Agent narrates its reasoning | Streaming text appears word by word |
+| `ToolCallStart` | Tool invocation begins | "Fetching pod logs..." card appears |
+| `ToolCallEnd` | Tool returns result | Result shown inline, tool card resolves |
+| `StateSnapshot` | Agent state checkpoint | Full state serialized — useful for resuming |
+| `StateDelta` | Incremental state change | Patch applied to frontend state |
+| `RunFinished` | Investigation complete | Final severity + recommended action displayed |
+| `RunError` | Agent failed | Error card shown, human escalation offered |
+
+The frontend subscribes to the SSE stream once. Events arrive as they happen. No polling. No batching. The user sees the investigation unfold in real time.
+
+### Wiring AG-UI to AOIS
+
+AG-UI is framework-agnostic — it is a stream of JSON events over HTTP. AOIS emits them from a new SSE endpoint; the v26 dashboard subscribes.
+
+```python
+# mcp_server/agui.py
+import asyncio
+import json
+from datetime import datetime, UTC
+from typing import AsyncGenerator
+
+async def agui_event_stream(
+    log_entry: str,
+    investigation_fn,
+) -> AsyncGenerator[str, None]:
+    """Emit AG-UI protocol events as AOIS investigates."""
+
+    run_id = f"run-{int(datetime.now(UTC).timestamp())}"
+
+    yield _event("RunStarted", {"run_id": run_id, "log": log_entry})
+
+    yield _event("TextMessageStart", {"role": "assistant", "id": f"msg-{run_id}"})
+    yield _event("TextMessageChunk", {"delta": "Investigating incident: "})
+    yield _event("TextMessageChunk", {"delta": log_entry[:80]})
+    yield _event("TextMessageEnd", {})
+
+    yield _event("ToolCallStart", {
+        "tool_call_id": "tc-1",
+        "tool_name": "get_pod_logs",
+        "tool_input": json.dumps({"namespace": "aois"}),
+    })
+
+    result = await investigation_fn(log_entry)
+
+    yield _event("ToolCallEnd", {
+        "tool_call_id": "tc-1",
+        "tool_output": json.dumps(result.get("tool_evidence", ""))[:200],
+    })
+
+    yield _event("StateSnapshot", {"state": result})
+    yield _event("RunFinished", {"run_id": run_id, "status": "completed"})
+
+
+def _event(event_type: str, data: dict) -> str:
+    payload = {"type": event_type, **data}
+    return f"data: {json.dumps(payload)}\n\n"
+```
+
+Add an SSE endpoint to FastAPI:
+
+```python
+# In main.py
+from fastapi.responses import StreamingResponse
+from mcp_server.agui import agui_event_stream
+
+@app.get("/investigate/stream")
+async def investigate_stream(log: str):
+    from agent.investigator import run_investigation
+    return StreamingResponse(
+        agui_event_stream(log, run_investigation),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+```
+
+### ▶ STOP — do this now
+
+Curl the streaming endpoint and watch AG-UI events arrive in real time as AOIS works:
+
+```bash
+curl -N "http://localhost:8000/investigate/stream?log=auth+service+OOMKilled+exit+code+137"
+```
+
+Expected output (events stream over ~5–10 seconds):
+
+```
+data: {"type": "RunStarted", "run_id": "run-1745500000", "log": "auth service OOMKilled..."}
+
+data: {"type": "TextMessageStart", "role": "assistant", "id": "msg-run-1745500000"}
+
+data: {"type": "TextMessageChunk", "delta": "Investigating incident: "}
+
+data: {"type": "TextMessageChunk", "delta": "auth service OOMKilled exit code 137"}
+
+data: {"type": "TextMessageEnd"}
+
+data: {"type": "ToolCallStart", "tool_call_id": "tc-1", "tool_name": "get_pod_logs", ...}
+
+data: {"type": "ToolCallEnd", "tool_call_id": "tc-1", "tool_output": "...log evidence..."}
+
+data: {"type": "StateSnapshot", "state": {"severity": "P2", "summary": "...", ...}}
+
+data: {"type": "RunFinished", "run_id": "run-1745500000", "status": "completed"}
+```
+
+Each `data:` line is a standard SSE frame. The connection stays open between events. The v26 React dashboard subscribes to this stream with `EventSource` and renders each event as it arrives — no polling, no waiting for completion.
+
+### How This Connects to v26
+
+In v26, the React dashboard uses WebSockets to receive final results. With AG-UI:
+
+- Replace the final-result handler with an `EventSource` subscription to `/investigate/stream`
+- Each `ToolCallStart` renders a "Fetching pod logs..." card in real time
+- Each `TextMessageChunk` renders streaming text — same word-by-word pattern as ChatGPT
+- `RunFinished` closes the spinner and shows the severity card
+
+The Vercel AI SDK (used in v26) has built-in React hooks for consuming AG-UI-compatible streams:
+
+```typescript
+// v26 dashboard — AG-UI subscription becomes three lines
+const source = new EventSource(`/investigate/stream?log=${encodeURIComponent(log)}`);
+source.onmessage = (e) => dispatch(JSON.parse(e.data));
+source.onerror = () => source.close();
+```
+
+You are learning the event protocol now so the v26 integration is mechanical, not creative.
+
+### The Agentic Triad — Complete
+
+All three protocols are now in AOIS:
+
+| Protocol | Connects | Transport | AOIS role |
+|---|---|---|---|
+| **MCP** | Agent ↔ Tool | JSON-RPC 2.0 over stdio/SSE | AOIS = MCP server |
+| **A2A** | Agent ↔ Agent | REST/JSON + SSE polling | AOIS = A2A server |
+| **AG-UI** | Agent ↔ Frontend | SSE event stream | AOIS = AG-UI emitter |
+
+Remove any one: AOIS tools are invisible to AI clients (no MCP), AOIS is isolated from multi-vendor pipelines (no A2A), or the dashboard only shows completed results (no AG-UI). All three together is what makes AOIS a production-grade interoperable platform.
+
+AWS Bedrock AgentCore supports AG-UI natively — when AOIS runs as a managed Bedrock agent, the same event stream protocol works unchanged, with AWS handling the SSE infrastructure. This connection is covered in v10.
+
+---
+
 ## Connection to Later Phases
 
 ### To v21.5 (MCP Security)
@@ -692,6 +861,9 @@ The MCP server in v21 has no authentication — any local process can call it. v
 
 ### To v24 (Multi-Agent Frameworks)
 In v24, AutoGen agents, CrewAI agents, and Google ADK agents all delegate to AOIS via A2A. The A2A endpoint built in v21 is what makes AOIS a participant in multi-framework agent pipelines. Without A2A, AOIS is isolated within the Anthropic ecosystem.
+
+### To v26 (React Dashboard)
+The AG-UI `/investigate/stream` endpoint built here is what the v26 React dashboard subscribes to. v26 wires an `EventSource` to this stream — the dashboard renders `ToolCallStart` as tool-call cards, `TextMessageChunk` as streaming text, and `RunFinished` as the severity card. The protocol is the same; only the rendering layer is new.
 
 ### To v30 (Internal Developer Platform)
 The AOIS Agent Card (`/.well-known/agent.json`) becomes the service catalog entry in the IDP. Other teams discover AOIS capabilities by reading the card — the same way they discover APIs via OpenAPI specs.
