@@ -1116,20 +1116,20 @@ for log in test_logs:
 
 ```bash
 python3 test_tinyllama_triton.py
-# Expected (A10G GPU):
-# severity=P2  confidence=0.85  latency=420ms
+# Expected (RTX 3090 or RTX 4090):
+# severity=P2  confidence=0.85  latency=380-450ms
 #   Memory limit exceeded causing OOM kill
-# severity=P2  confidence=0.80  latency=395ms
+# severity=P2  confidence=0.80  latency=360-420ms
 #   Container restart loop due to application crash
-# severity=P3  confidence=0.75  latency=410ms
+# severity=P3  confidence=0.75  latency=380-440ms
 #   Node disk pressure critical
 ```
 
-Same model as v15, ~400ms on A10G via Triton Python backend. vLLM on the same hardware runs
-the same model at ~300ms. The 30% gap is the Triton Python backend's overhead: it does not use
-PagedAttention or continuous batching. vLLM is the right choice for pure LLM serving. Triton is
-the right choice when you need to serve this model alongside embedders, rerankers, and other
-model types on the same GPU.
+Same model as v15, ~400ms on RTX 3090 via Triton Python backend. SGLang on the same hardware
+runs the same model at ~250–350ms for warm requests (RadixAttention kicks in after the first).
+The gap is the Triton Python backend's overhead: it does not use PagedAttention or RadixAttention.
+SGLang/vLLM is the right choice for pure LLM serving. Triton is the right choice when you need
+to serve this model alongside embedders, rerankers, and other model types on the same GPU.
 
 ### ▶ STOP — do this now
 
