@@ -921,7 +921,11 @@ Understand the difference: schema validation catches missing params before your 
 
 7. Explain to a senior engineer: the A2A task store is in-memory (dict). List three production failure modes this creates. What is the minimum viable fix for each?
 
-**The mastery bar:** AOIS is callable from Claude.ai, Cursor, and any A2A-compatible agent — without any code changes to the calling system. The same gate, the same circuit breaker, the same tools — exposed through two different interoperability standards.
+8. Start the AG-UI stream endpoint. Run `curl -N "http://localhost:8000/investigate/stream?log=disk+pressure+on+node01"`. Confirm you receive `RunStarted`, at least one `ToolCallStart`/`ToolCallEnd` pair, a `StateSnapshot` containing severity and summary, and `RunFinished` — in that order.
+
+9. Explain the agentic triad to a junior engineer: what problem each protocol solves, which direction data flows in each, and why removing any one leaves a gap. No notes.
+
+**The mastery bar:** AOIS is callable from Claude.ai, Cursor, and any A2A-compatible agent — and pushes real-time investigation state to frontends — without any code changes to the calling system. The same gate, the same circuit breaker, the same tools — exposed through three interoperability standards.
 
 ---
 
