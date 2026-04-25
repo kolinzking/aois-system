@@ -227,24 +227,13 @@ vLLM deployment attempted extensively. GPU cold starts consumed $7.71 of Modal c
 
 **If resuming Modal later:** `modal deploy vllm_modal/serve.py` + `python3 test_vllm.py`. Budget at least $5 clean credits.
 
-### Pending Curriculum Additions (April 2026 Audit)
-Two gaps identified from external curriculum audit — not yet in any version, must be added at the right phase:
+### Curriculum Additions (April 2026 Audit) — ALL COMPLETE
 
-**1. Per-incident cost attribution — add at v20**
-AOIS currently tracks cost per API call (v2 LiteLLM). Not enough for agentic workflows.
-When AOIS gets tools in v20, a single incident investigation will span 10-15 LLM calls.
-Need an `incident_id` threading through every call from detection to resolution.
-Goal metric: "investigating this OOMKilled cost $0.04 across 12 LLM calls."
-Without this, agents never get approved for production — cost spiral kills them.
-**Trigger: add this as the first task when starting v20.**
+**1. Per-incident cost attribution — ✅ COMPLETE (Phase 7 / v20)**
+`incident_id` threading through every LLM call implemented in `agent/investigator.py`. Goal metric achieved: per-investigation cost tracked across all tool calls.
 
-**2. Agent capability boundary + circuit breaker + kill switch — add before v20, as Phase 7 gate**
-v5 has an output blocklist (reactive — blocks a bad recommendation after the LLM returns it). That is not governance.
-Before AOIS gets any tools (kubectl, metrics, logs), define what it is structurally prevented from doing regardless of LLM output — enforced at invocation layer, auditable.
-Tools: OPA or Cedar as the policy engine.
-**Circuit breaker**: if AOIS makes more than N tool calls in one investigation, or cost exceeds a threshold, or tool call sequence looks anomalous — halt the agent mid-execution before it does more. This is different from the output blocklist (which only fires at response time).
-**Kill switch**: a hard stop that halts the agent entirely and requires human restart — for runaway agents, unexpected escalation, or any time the circuit breaker fires repeatedly.
-**Trigger: build this as the opening section of Phase 7, before v20 hands AOIS any tools.**
+**2. Agent capability boundary + circuit breaker + kill switch — ✅ COMPLETE (Phase 7 gate)**
+OPA Rego policy, Redis circuit breaker, kill switch implemented in `agent_gate/`. `@gated_tool` decorator enforces boundaries at invocation layer before v20 tools run.
 
 **3. SPIFFE/SPIRE workload identity — ✅ COMPLETE (2026-04-24)**
 Deployed SPIRE Server + Agent to live Hetzner k3s cluster.
