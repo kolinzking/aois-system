@@ -984,7 +984,12 @@ Even if you just run `pyrit --help` and read the available attack strategies, yo
 Add a new security control: a blocklist on the INPUT side that rejects log payloads containing known command injection patterns (backticks, `$()`, `&&`, `|` followed by shell commands). This is different from prompt injection — this is preventing command injection from being passed into any shell commands AOIS might execute later (Phase 7).
 The control should: detect the pattern, log a warning with the sanitized input, and either strip the dangerous characters or reject the request with 400.
 
-**The mastery bar**: You think about AOIS's attack surface instinctively. When a new feature is added in Phase 7 (autonomous tool use), you immediately ask: "what happens if a log line contains instructions that manipulate the tool call?" That question is what separates engineers who build secure AI systems from those who build demos.
+**7. Agent Governance Toolkit — pre-build threat model**
+Write the `docs/governance-design.md` file from the STOP exercise above. Complete all six threat categories: goal hijacking, tool misuse, identity abuse, memory poisoning, cascading failures, rogue agents. For each: state the attack surface for AOIS, identify the current defense (or gap), and name the version that will close it.
+
+This document is not theoretical — it becomes the acceptance criteria for v20, v21, and v23. If an agent feature in those versions does not satisfy a defense named here, the version is not done.
+
+**The mastery bar**: You think about AOIS's attack surface instinctively — across both OWASP LLM Top 10 (input/output layer) and OWASP Agentic AI Top 10 (agent action layer). When a new feature is added in Phase 7 (autonomous tool use), you immediately ask: "what happens if a log line contains instructions that manipulate the tool call, poison the memory, or hijack the agent's goal?" You have already designed the governance architecture before the agent exists.
 
 ---
 
