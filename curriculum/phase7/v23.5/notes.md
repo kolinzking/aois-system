@@ -770,7 +770,11 @@ The golden dataset grows to 50 incidents by capstone time. Agent SLOs are enforc
 
 8. Explain the agent SLO triad (severity accuracy, hallucination rate, safety rate) to a product manager who needs to approve the agent for production. What does each SLO protect the business against?
 
-**The mastery bar:** you can run the eval suite, interpret the results, identify which incident types are misclassified, fix the agent prompt, and rerun — producing a measurable improvement in severity accuracy — before any agent change ships to production.
+9. Set up AgentOps and run one full investigation. Find the session in the AgentOps dashboard. Record: total session cost, number of LLM calls, which tool was called most, where the most time was spent.
+
+10. Explain the difference between Langfuse and AgentOps to a senior engineer who asks why you need both. What does each catch that the other misses?
+
+**The mastery bar:** you can run the eval suite, interpret the results, identify which incident types are misclassified, fix the agent prompt, and rerun — producing a measurable improvement in severity accuracy — before any agent change ships to production. You can also trace a full agent session in AgentOps and identify the exact LLM call, tool invocation, and cost that contributed to a wrong answer.
 
 ---
 
@@ -784,6 +788,97 @@ The golden dataset grows to 50 incidents by capstone time. Agent SLOs are enforc
 | **System Role** | Where does it sit in AOIS? | Between the agent (langgraph_agent/) and production. The eval suite runs in CI on every agent change. It reads the golden dataset, runs the agent's classify logic, and exits non-zero if SLOs are not met. No agent change ships without passing evals. |
 | **Technical** | What is it, precisely? | A Python test harness that: (1) loads a JSON golden dataset of labeled incidents, (2) calls the agent's detect/classify logic for each, (3) compares actual severity to expected severity, (4) optionally calls an LLM judge to score output quality, (5) aggregates metrics and checks SLOs. Exits 0 if all SLOs pass, exits 1 if any fail. |
 | **Remove it** | What breaks, and how fast? | Remove evals → agent quality is unmeasured. A prompt change that improves P1 detection by 10% but breaks P3 detection ships undetected. Over time, as the model is updated and prompts drift, the agent silently degrades. You find out when an on-call engineer overrides AOIS recommendations three times in one week. |
+
+## AgentOps: Agent-Level Observability
+
+Langfuse (v3) traces individual LLM calls — model, tokens, cost, latency, per call. That is necessary but not sufficient for agents.
+
+An agent investigation spans 10-15 LLM calls, multiple tool invocations, and several seconds to minutes. Langfuse shows you the tree of calls. It does not show you: which agent session succeeded vs failed, cost per full investigation, which tool sequence leads to wrong answers, or how agent performance changes over time across sessions.
+
+AgentOps is the missing layer. It wraps entire agent sessions — from first trigger to final response — and gives you session-level analytics.
+
+**Install:**
+```bash
+pip install agentops
+```
+
+**Integrate with the AOIS LangGraph agent:**
+```python
+# langgraph_agent/graph.py — add at the top
+import agentops
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+agentops.init(
+    api_key=os.getenv("AGENTOPS_API_KEY"),
+    default_tags=["aois", "langgraph", "sre-agent"]
+)
+
+# Wrap the investigation entry point
+def run_investigation(log_entry: str) -> dict:
+    session = agentops.start_session(tags=["investigation"])
+    try:
+        result = graph.invoke({"log_entry": log_entry})
+        session.end_session("Success")
+        return result
+    except Exception as e:
+        session.end_session("Fail", end_state_reason=str(e))
+        raise
+```
+
+**What AgentOps shows that Langfuse doesn't:**
+
+| Metric | Langfuse | AgentOps |
+|--------|----------|----------|
+| Per-LLM-call latency | ✓ | ✓ |
+| Per-LLM-call cost | ✓ | ✓ |
+| Per-session total cost | ✗ | ✓ |
+| Session success/failure rate | ✗ | ✓ |
+| Tool call sequence per session | ✗ | ✓ |
+| Agent replay (re-run from any step) | ✗ | ✓ |
+| Session tagging and filtering | Limited | ✓ |
+| Time between agent steps | ✗ | ✓ |
+
+**The production insight:** once AOIS is running 50+ investigations per day, you need session-level analysis. "P1 investigations cost 3x more than P3" is an AgentOps finding, not a Langfuse finding. "The agent always makes 2 extra tool calls before escalating" is visible in AgentOps session replay, invisible in Langfuse call trees.
+
+**Get your AgentOps API key:** app.agentops.ai → API Keys
+
+**Add to `.env`:**
+```
+AGENTOPS_API_KEY=
+```
+
+**▶ STOP — do this now**
+
+Sign up at app.agentops.ai, add your API key to `.env`, add the three lines of AgentOps init to `langgraph_agent/graph.py`, and run one investigation. Open the AgentOps dashboard and find the session. Answer:
+1. How many LLM calls did the investigation use?
+2. What was the total session cost?
+3. Did the session succeed or fail?
+
+```bash
+python3 -c "
+from dotenv import load_dotenv
+load_dotenv()
+from langgraph_agent.graph import run_investigation
+result = run_investigation('pod/auth-service OOMKilled exit code 137 — 3 restarts in 5 minutes')
+print('Severity:', result.get('severity'))
+print('Check AgentOps dashboard for session details')
+"
+```
+
+---
+
+### AgentOps
+
+| Layer | Question | Answer |
+|---|---|---|
+| **Plain English** | What problem does this solve? | Langfuse tells you what each LLM call cost. AgentOps tells you what each investigation cost — from the user's request to the final answer, across every LLM call and tool invocation in between. |
+| **System Role** | Where does it sit in AOIS? | Wrapped around the LangGraph `graph.invoke()` call. Every investigation becomes a named session with a success/failure outcome, cost total, and full replay capability. It sits one layer above Langfuse in the observability stack. |
+| **Technical** | What is it, precisely? | An agent observability platform that instruments agent frameworks (LangGraph, CrewAI, AutoGen, LlamaIndex agents) via a thin SDK wrapper. Each session captures: start/end time, all LLM calls (forwarded from Langfuse-equivalent tracing), tool calls with inputs/outputs, total token count, total cost, and outcome tag. Sessions are queryable and filterable in a web dashboard. |
+| **Remove it** | What breaks, and how fast? | Remove AgentOps → individual LLM calls are still traced in Langfuse. What you lose is session-level visibility: you cannot answer "which investigation types are most expensive?", "what is our agent success rate this week?", or "show me all failed investigations that involved the get_pod_logs tool." Debugging production agent failures requires manually stitching together Langfuse call trees by hand. |
+
+---
 
 ### LLM-as-Judge
 

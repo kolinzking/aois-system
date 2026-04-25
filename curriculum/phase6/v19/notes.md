@@ -983,7 +983,11 @@ Complete all nine before marking v19 done.
 
 9. Complete the full game day runbook. Write and commit your incident report to `docs/gameday-v19.md`. The report must include the experiment timeline, MTTR for each failure, SLO pass/fail for each, and at least one action item from a SLO violation (or document explicitly that all SLOs passed and explain why you trust that result).
 
-**The mastery bar:** you can stand in front of a team, run a live chaos experiment on the AOIS cluster, narrate what is happening in the metrics in real time, and write the incident report from the results — without referring to these notes. Chaos engineering is a practice, not a concept.
+9. Run the k6 load test at 50 RPS for 60 seconds. Record p99 latency and error rate. Does AOIS stay within SLO under sustained load? If p99 exceeds 30s, identify whether the bottleneck is the LLM API, the Kafka pipeline, or the FastAPI layer.
+
+10. Run k6 at 100 RPS. At what request rate does AOIS first violate an SLO? Document the finding — this is your capacity ceiling.
+
+**The mastery bar:** you can stand in front of a team, run a live chaos experiment on the AOIS cluster, narrate what is happening in the metrics in real time, and write the incident report from the results — without referring to these notes. You can also prove AOIS handles production load with a k6 chart showing p99 latency staying within SLO. Chaos engineering is a practice, not a concept.
 
 ---
 
@@ -1008,6 +1012,148 @@ Complete all nine before marking v19 done.
 | **System Role** | Where does it sit in AOIS? | SLOs are defined as Prometheus alert rules and Grafana panels. They observe the metrics emitted by AOIS (OTel instrumentation from v16) and fire alerts when thresholds are crossed. They are not inside the application — they are a measurement layer around it. |
 | **Technical** | What is it, precisely? | A Service Level Objective is a target value for a Service Level Indicator (SLI). An SLI is a metric: p99 latency, error rate, availability. The SLO is the threshold: p99 < 30s, error rate < 5%. Prometheus alert rules enforce SLOs continuously against real traffic. An SLA (Service Level Agreement) is what you commit to externally, usually weaker than the internal SLO. |
 | **Remove it** | What breaks, and how fast? | Remove SLO definitions → chaos experiments have no objective criteria for pass/fail. You are left with subjective judgements ("seemed okay"). Gradual degradation goes undetected because there is no baseline to compare against. In production, this means latency creep and silent error rate increases ship unremarked until a user complains. |
+
+---
+
+## k6: Load Testing — Prove AOIS Handles Production Traffic
+
+Chaos Mesh proves the system recovers from failure. k6 proves the system handles load before failure occurs. Both are required for SRE credibility. "AOIS handles 1000 req/s" is a claim. A k6 chart is the proof.
+
+**Install:**
+```bash
+# On Ubuntu/Debian
+sudo gpg -k
+sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+  --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+  | sudo tee /etc/apt/sources.list.d/k6.list
+sudo apt-get update && sudo apt-get install k6
+k6 version
+# k6 v0.52.x (go1.22.x, linux/amd64)
+```
+
+**Write the AOIS load test script:**
+```javascript
+// k6/aois_load_test.js
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+import { Rate, Trend } from 'k6/metrics';
+
+const errorRate = new Rate('errors');
+const p99Latency = new Trend('p99_latency', true);
+
+export const options = {
+  stages: [
+    { duration: '30s', target: 10 },   // ramp up to 10 RPS
+    { duration: '60s', target: 50 },   // sustain 50 RPS
+    { duration: '30s', target: 100 },  // stress test at 100 RPS
+    { duration: '30s', target: 0 },    // ramp down
+  ],
+  thresholds: {
+    http_req_duration: ['p(99)<30000'],  // SLO: p99 < 30s
+    errors: ['rate<0.05'],              // SLO: error rate < 5%
+  },
+};
+
+const LOGS = [
+  '{"log": "pod/auth-service OOMKilled exit code 137"}',
+  '{"log": "CrashLoopBackOff: back-off 5m0s restarting failed container"}',
+  '{"log": "disk pressure eviction threshold exceeded on node aois-worker-1"}',
+  '{"log": "5xx error rate 12% on /api/v1/users for last 5 minutes"}',
+  '{"log": "TLS certificate expires in 3 days for aois.example.com"}',
+];
+
+export default function () {
+  const payload = LOGS[Math.floor(Math.random() * LOGS.length)];
+  const res = http.post('http://localhost:8000/analyze', payload, {
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  const success = check(res, {
+    'status is 200': (r) => r.status === 200,
+    'has severity field': (r) => JSON.parse(r.body).severity !== undefined,
+    'latency under 30s': (r) => r.timings.duration < 30000,
+  });
+
+  errorRate.add(!success);
+  p99Latency.add(res.timings.duration);
+  sleep(0.1);
+}
+```
+
+**Run it:**
+```bash
+k6 run k6/aois_load_test.js
+
+# Expected output (AOIS within SLO):
+#           /\      |‾‾| /‾‾/   /‾‾/
+#      /\  /  \     |  |/  /   /  /
+#     /  \/    \    |     (   /   ‾‾\
+#    /          \   |  |\  \ |  (‾)  |
+#   / __________ \  |__| \__\ \_____/ .io
+#
+#   execution: local
+#      script: k6/aois_load_test.js
+#      output: -
+#
+#   scenarios: (100.00%) 1 scenario, 100 max VUs
+#
+# ✓ status is 200
+# ✓ has severity field
+# ✓ latency under 30s
+#
+# checks.........................: 100.00% ✓ 3420 ✗ 0
+# data_received..................: 1.2 MB 8.2 kB/s
+# http_req_duration..............: avg=892ms min=210ms med=750ms max=28400ms p(90)=2100ms p(95)=4800ms p(99)=11200ms
+# http_req_failed................: 0.00%  ✓ 0 ✗ 1140
+# iterations.....................: 1140   7.6/s
+#
+# ✓ p99 < 30s: p(99)=11200ms < 30000ms — SLO PASS
+# ✓ error rate < 5%: 0.00% — SLO PASS
+```
+
+**What to look for:**
+
+- **p99 latency** — must stay under 30s under load. If it spikes at 100 RPS, AOIS is hitting LLM rate limits or internal queue saturation
+- **Error rate** — must stay under 5%. Errors at load usually mean connection pool exhaustion (Redis/Postgres) or LLM API timeouts
+- **The ramp shape** — p99 should stay flat as RPS increases until it suddenly spikes. That spike point is your capacity ceiling
+
+**Common failure: LLM rate limiting under load**
+
+When running 50+ concurrent requests, LiteLLM starts hitting Groq or Anthropic rate limits. The error will look like:
+
+```
+WARN  | litellm.router | Rate limit exceeded. Retrying in 2s...
+# p99 latency climbs to 15-20s as requests queue behind the retry
+```
+
+Fix: implement LiteLLM's built-in `RPM` (requests per minute) limit at the router level so requests are rejected fast rather than queued indefinitely:
+```python
+# In main.py LiteLLM router config
+model_list = [
+    {"model_name": "groq-fast", "litellm_params": {"model": "groq/llama-3.1-8b-instant", "rpm": 30}}
+]
+```
+
+**▶ STOP — do this now**
+
+Run the k6 load test at 50 RPS (modify the script to sustain 50 for 60 seconds). Open Grafana while k6 runs. Watch the `aois_llm_duration_ms` histogram in real time. Does p99 stay below 30s? Record:
+- Max RPS achieved within SLO
+- p99 latency at peak
+- Whether any SLO threshold fired
+
+This is your AOIS performance baseline. Every future infrastructure change should be benchmarked against it.
+
+---
+
+### k6
+
+| Layer | Question | Answer |
+|---|---|---|
+| **Plain English** | What problem does this solve? | "The system works" is not enough — you need to know it works under the load it will actually receive. k6 sends realistic traffic at controlled rates so you find the breaking point before users do. |
+| **System Role** | Where does it sit in AOIS? | Outside the system, generating HTTP load against the `/analyze` endpoint. k6 measures response time, error rate, and throughput from the client perspective — the same perspective your users have. It integrates with Grafana to overlay load metrics on top of internal AOIS metrics. |
+| **Technical** | What is it, precisely? | A load testing tool written in Go with JavaScript test scripts. Tests define virtual users (VUs) and stages (ramp up, sustain, ramp down). Built-in metrics: `http_req_duration` (latency), `http_req_failed` (error rate), `iterations` (throughput). Thresholds define pass/fail criteria — k6 exits non-zero if any threshold is breached, making it CI-compatible. |
+| **Remove it** | What breaks, and how fast? | Remove k6 → performance regressions ship to production silently. A change that reduces p99 latency from 8s to 28s (still within the 30s SLO, but dangerously close) is invisible without load testing. The first time you discover the capacity ceiling is when real users hit it. |
 
 ---
 

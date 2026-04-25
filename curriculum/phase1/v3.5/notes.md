@@ -877,6 +877,184 @@ If 0, re-run the indexing step. If the count is correct but results are empty, t
 
 ---
 
+## LlamaIndex: The Production RAG Standard
+
+You have built RAG from scratch — embeddings, pgvector, hybrid search, reranker. That is the right way to *understand* RAG. Now learn the tool that production codebases use to *build* it.
+
+LlamaIndex is a framework that handles the full RAG pipeline — document loading, chunking, embedding, indexing, retrieval, reranking — with a consistent API across every vector store and every embedding model. When you join an AI engineering team, their codebase will use LlamaIndex or LangChain, not a custom pipeline.
+
+**Install:**
+```bash
+pip install llama-index llama-index-vector-stores-postgres llama-index-embeddings-openai
+```
+
+**The same AOIS RAG pipeline, built with LlamaIndex:**
+```python
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext
+from llama_index.vector_stores.postgres import PGVectorStore
+from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.core import Settings
+import sqlalchemy
+
+# Configure embedding model globally
+Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-small")
+
+# Connect to pgvector
+engine = sqlalchemy.create_engine(os.getenv("DATABASE_URL"))
+vector_store = PGVectorStore.from_params(
+    database="aois",
+    host="localhost",
+    port=5432,
+    table_name="llamaindex_incidents",
+    embed_dim=1536,
+)
+
+# Build index from incident documents
+storage_context = StorageContext.from_defaults(vector_store=vector_store)
+documents = SimpleDirectoryReader("incidents/").load_data()
+index = VectorStoreIndex.from_documents(documents, storage_context=storage_context)
+
+# Query — this is the full retrieve + rerank + generate pipeline in one call
+query_engine = index.as_query_engine(similarity_top_k=5)
+response = query_engine.query("auth service OOMKilled exit code 137")
+print(response)
+# AOIS past incident INC-001 (2024-03-12): auth-service OOMKilled due to
+# connection pool leak. Resolution: increased memory limit to 512Mi and
+# patched connection pool max to 50.
+```
+
+**LlamaIndex vs custom pipeline — when each wins:**
+
+| Concern | Custom pipeline | LlamaIndex |
+|---------|----------------|------------|
+| Understanding | Forced — you see every step | Hidden in abstractions |
+| Speed to build | Slow | Fast |
+| Flexibility | Total control | Plugin architecture |
+| Enterprise codebase | You build it | You read it |
+| Multi-source ingestion | Write each loader | 100+ built-in loaders |
+| Switching vector stores | Rewrite queries | Change one class |
+
+**The critical insight:** LlamaIndex and custom RAG are not alternatives — they represent different phases. You built custom to understand. You use LlamaIndex in production because it solves ingestion (PDFs, Notion, Slack, databases — all via the same `load_data()` interface) and store-switching (swap pgvector for Qdrant by changing one class) at a cost you would otherwise pay in weeks of engineering work.
+
+**AOIS integration — expose LlamaIndex as a query engine alongside the existing custom RAG:**
+```python
+# agent/tools/rag_tool.py — add LlamaIndex as a second retrieval path
+def retrieve_with_llamaindex(query: str, top_k: int = 5) -> list[dict]:
+    """LlamaIndex-powered retrieval — same data, different engine."""
+    query_engine = _get_llamaindex_engine()
+    response = query_engine.query(query)
+    return [
+        {"text": node.text, "score": node.score}
+        for node in response.source_nodes
+    ]
+```
+
+**▶ STOP — do this now**
+
+Install LlamaIndex, index the same 10 synthetic incidents from earlier in this version using `VectorStoreIndex`, and run a query for "memory limit exceeded". Compare the top result to what your custom `retrieve_context()` returns for the same query. Are they the same incident? If not, explain why — is it chunking, embedding model, or similarity threshold?
+
+```bash
+pip install llama-index llama-index-vector-stores-postgres
+python3 -c "
+from llama_index.core import VectorStoreIndex, Document
+from llama_index.core import Settings
+# Use default local embedding for this test
+docs = [Document(text='INC-001 auth-service OOMKilled memory limit 256Mi')]
+idx = VectorStoreIndex.from_documents(docs)
+engine = idx.as_query_engine()
+print(engine.query('auth service memory limit exceeded'))
+"
+```
+
+Expected: a response grounded in the indexed document, not a generic LLM answer.
+
+---
+
+## Long Context vs RAG: The 2026 Architectural Decision
+
+This is the most important architectural question in AI engineering right now and it is not addressed in most curricula.
+
+**The question:** Claude has a 200,000-token context window. Gemini has 1,000,000. If you can fit your entire knowledge base into the context window — why do you need RAG at all?
+
+**The honest answer:** sometimes you don't. Understanding when is the difference between overengineering and underengineering.
+
+**The decision framework:**
+
+```
+Knowledge base size → fits in context window?
+    YES → Cost acceptable?
+        YES → Is latency acceptable?
+            YES → use long context (simpler, no retrieval errors)
+            NO  → use RAG (retrieve only what's needed)
+        NO  → use RAG (cost control)
+    NO  → use RAG (no choice)
+```
+
+**Concrete numbers (April 2026):**
+
+| Scenario | Tokens | Approach | Why |
+|----------|--------|----------|-----|
+| 50 past incidents | ~25,000 | Long context | Fits, $0.004/call, fast |
+| 500 past incidents | ~250,000 | Long context or RAG | At boundary — measure cost |
+| 5,000 past incidents | ~2,500,000 | RAG | Exceeds context, must retrieve |
+| 50,000 past incidents | ~25,000,000 | RAG | No choice |
+
+**What long context wins at:**
+- No retrieval errors (you cannot miss a relevant incident if everything is included)
+- No embedding model drift (no semantic mismatch between query and indexed content)
+- Simpler architecture (no vector store, no chunking decisions)
+- Better for reasoning across all documents simultaneously ("which three incidents have the same root cause?")
+
+**What RAG wins at:**
+- Cost at scale (retrieve 5 incidents instead of sending 50,000)
+- Latency (smaller prompt = faster response)
+- Fresh data (vector store updates without re-prompting)
+- Privacy (don't send your entire knowledge base to an API for every query)
+
+**The AOIS-specific answer:**
+
+For AOIS at current scale (hundreds of incidents), long context is viable and simpler. The reason AOIS uses RAG is not because it must — it is because v3.5 teaches the RAG pattern which matters at scale. At 10,000+ incidents, RAG becomes necessary. At 100 incidents, long context is the right call.
+
+**Hybrid pattern (production standard for 2026):**
+
+```python
+def retrieve_for_aois(query: str, incident_store: list[dict]) -> str:
+    """
+    Route to long context or RAG based on store size.
+    Threshold is cost-driven: 100k tokens = ~$0.08 with Claude Haiku.
+    """
+    estimated_tokens = len(incident_store) * 500  # ~500 tokens per incident
+    
+    if estimated_tokens < 50_000:
+        # Long context: stuff everything in, no retrieval errors
+        context = "\n".join(i["text"] for i in incident_store)
+        return f"All past incidents:\n{context}"
+    else:
+        # RAG: retrieve top-k most relevant
+        return retrieve_context(query, top_k=5)
+```
+
+**▶ STOP — do this now**
+
+Run the cost calculation for your AOIS incident store. Check how many incidents are currently indexed:
+```python
+import psycopg2, os
+from dotenv import load_dotenv
+load_dotenv()
+conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+cur = conn.cursor()
+cur.execute("SELECT COUNT(*) FROM incidents")
+count = cur.fetchone()[0]
+print(f"Incidents in store: {count}")
+print(f"Estimated tokens: {count * 500:,}")
+print(f"Estimated cost per query (Claude Haiku, $0.80/1M input): ${count * 500 * 0.00000080:.4f}")
+print(f"RAG threshold: {'long context viable' if count < 100 else 'RAG recommended'}")
+```
+
+At what incident count does long context become more expensive than RAG for AOIS? Write the number down — that is your architectural inflection point.
+
+---
+
 ## Connection to Later Phases
 
 ### To v2.5 (AI Gateway)
@@ -913,7 +1091,11 @@ Embedding drift is an AI-specific SLO in the capstone. RAG quality degrades sile
 
 9. Explain to a senior engineer the tradeoff between `min_similarity` threshold and false positives in retrieval. At what threshold does a retrieved incident stop being useful? How would you measure this in production?
 
-**The mastery bar:** you can build a complete RAG pipeline from scratch — embed, index, retrieve, rerank, evaluate — and explain every decision (embedding model choice, chunking strategy, HNSW vs IVFFlat, reranking necessity) at all three audience levels.
+9. Build the same RAG pipeline using LlamaIndex. Run both your custom `retrieve_context()` and the LlamaIndex query engine on the same query. Where do results differ, and why?
+
+10. For your current AOIS incident count: should you use RAG or long context? Show the cost calculation. At what incident count does your answer change?
+
+**The mastery bar:** you can build a complete RAG pipeline from scratch — embed, index, retrieve, rerank, evaluate — and explain every decision (embedding model choice, chunking strategy, HNSW vs IVFFlat, reranking necessity) at all three audience levels. You can also explain when RAG is the wrong choice and long context is better, with numbers to back the decision.
 
 ---
 
@@ -945,3 +1127,12 @@ Embedding drift is an AI-specific SLO in the capstone. RAG quality degrades sile
 | **System Role** | Where does it sit in AOIS? | As an alternative vector store to pgvector, running as a separate Docker container. Same interface — `index_incident_qdrant()` / `search_qdrant()` — different backend. Choose Qdrant when AOIS processes more than ~500k incidents. |
 | **Technical** | What is it, precisely? | A purpose-built vector database using HNSW for indexing, written in Rust for performance. Supports payload filtering applied during the ANN search (not post-filter), named vectors, and sparse-dense hybrid search natively. REST and gRPC APIs. |
 | **Remove it** | What breaks, and how fast? | Remove Qdrant → fall back to pgvector. At small scale: no impact. At large scale: query latency increases from ~40ms to ~500ms+. Above 10M vectors, pgvector becomes unusable for real-time retrieval. |
+
+### LlamaIndex
+
+| Layer | Question | Answer |
+|---|---|---|
+| **Plain English** | What problem does this solve? | Building a RAG pipeline from scratch requires writing loaders, chunkers, embedding calls, index management, and retrieval logic. LlamaIndex solves all of that — you describe what you want to index and query, and it handles the plumbing. |
+| **System Role** | Where does it sit in AOIS? | As an alternative retrieval engine alongside the custom pipeline. Both index the same incidents table. LlamaIndex is used when you need rapid ingestion from new sources (Slack, PDFs, runbooks) without writing custom loaders. |
+| **Technical** | What is it, precisely? | A framework with three layers: data connectors (100+ loaders for files, databases, APIs), indexing (VectorStoreIndex, SummaryIndex, KnowledgeGraphIndex), and querying (query engines, chat engines, agents). Uses the same underlying vector stores (pgvector, Qdrant, Pinecone) but abstracts the query interface into a uniform API. |
+| **Remove it** | What breaks, and how fast? | Remove LlamaIndex → custom retrieval pipeline still works. The loss is velocity: adding a new data source (runbooks, Confluence pages, Slack history) now requires writing a custom loader and parser. LlamaIndex reduces that from a day's work to one line: `SimpleDirectoryReader("runbooks/").load_data()`. |
