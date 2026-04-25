@@ -1455,8 +1455,8 @@ Complete these tasks in sequence. Each depends on the previous.
    for three AOIS test logs.
 
 7. **Compare Triton Python backend vs Groq API**: run the same three logs through both, record
-   latency and cost. State clearly: at what call volume per day does Triton on a Modal A10G
-   become cheaper than Groq? Show your arithmetic.
+   latency and cost. State clearly: at what call volume per day does Triton on a Vast.ai RTX 3090
+   ($0.13/hr) become cheaper than Groq ($0.000001/call)? Show your arithmetic.
 
 8. **Add the Triton tier to AOIS** using the `call_triton()` adapter pattern. Route P3/P4 to
    Triton when `USE_LOCAL_INFERENCE=true`. Test with a real log input.
