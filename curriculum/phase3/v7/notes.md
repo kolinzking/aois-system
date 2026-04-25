@@ -849,6 +849,49 @@ The chart you built in v7 is production infrastructure. It will carry AOIS forwa
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write a Helm `values.yaml` with image repository, tag, replica count, resource requests/limits, and ingress host as configurable values. Write the corresponding Deployment template that uses them with correct `{{ .Values.x }}` syntax. 20 minutes.
+
+```bash
+helm template aois ./charts/aois -f values.yaml | grep -A3 "image:"
+# Must show the image from values, not hardcoded
+helm template aois ./charts/aois -f values.yaml | grep "memory"
+# Must show values from values.yaml
+```
+
+---
+
+## Failure Injection
+
+Introduce a template indentation error and read the helm error:
+
+```yaml
+# Wrong indentation in deployment.yaml template
+      containers:
+      - name: aois
+        image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+      resources:         # ← wrong indent level
+          limits:
+```
+
+```bash
+helm template aois ./charts/aois
+# Error: ...
+```
+
+Read the full error message. Helm template errors are notoriously cryptic — learn to parse them. Then fix it and verify with `--dry-run`.
+
+---
+
+## Osmosis Check
+
+1. Your Helm chart has `replicas: {{ .Values.replicaCount }}`. In production (`values.prod.yaml`) this is 3. ArgoCD syncs from git. If you manually run `kubectl scale deployment aois --replicas=1`, what happens on the next ArgoCD sync? (v8 preview — reason from what you know about declarative vs imperative)
+2. `helm upgrade` fails because the new image fails its readiness probe. Does Helm automatically roll back? What command triggers a manual rollback? (v6 deployment patterns)
+
+---
+
 ## Mastery Checkpoint
 
 **1. Explain Helm's three core problems solved**

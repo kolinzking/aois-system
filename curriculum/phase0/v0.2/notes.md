@@ -1109,6 +1109,53 @@ v1 replaces `analyze_with_regex()` with `analyze_with_claude()`. The infrastruct
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. Write `log_analyzer.sh` from memory — it must accept a log file path as argument, count lines containing ERROR, WARNING, and INFO, and print a summary. Time yourself. 20 minutes.
+
+```bash
+echo -e "ERROR: disk full
+WARNING: high cpu
+INFO: started
+ERROR: oom" > test.log
+./log_analyzer.sh test.log
+# Expected:
+# ERROR:   2
+# WARNING: 1
+# INFO:    1
+```
+
+---
+
+## Failure Injection
+
+Introduce this off-by-one deliberately:
+
+```bash
+for i in 1 2 3; do
+  echo "Processing $i"
+done
+echo "Last value was: $i"   # prints 3 — is that always safe?
+```
+
+Now change the loop to use a file list. Does `$i` still hold the last value after the loop? Test it. Then break the argument handling:
+
+```bash
+./log_analyzer.sh   # no argument passed
+```
+
+Does your script fail gracefully or produce a confusing error? Fix it so it prints a usage message and exits 1.
+
+---
+
+## Osmosis Check
+
+1. Your `log_analyzer.sh` needs to also show the timestamp of the first ERROR in the file. Which v0.1 tool gives you that in one command?
+2. The script works locally but fails when run by cron at 3am. Name two environment-related causes from what you learned in v0.1.
+
+---
+
 ## Mastery Checkpoint
 
 Do not move to v0.3 until every one of these works and you understand why.

@@ -784,6 +784,43 @@ For a learning project, cold starts of 2–4s are acceptable. In production, pro
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the Lambda handler — it must parse the API Gateway event, extract the log string, call the Bedrock analysis, and return a properly formatted API Gateway response with CORS headers. 20 minutes.
+
+```json
+// Test event
+{"body": "{"log": "pod OOMKilled exit code 137", "tier": "enterprise"}"}
+
+// Expected response
+{"statusCode": 200, "headers": {"Content-Type": "application/json"}, "body": "..."}
+```
+
+---
+
+## Failure Injection
+
+Deploy with a missing IAM permission and read the error:
+
+```bash
+# Remove BedrockFullAccess from the Lambda role, then invoke:
+aws lambda invoke --function-name aois-analyzer   --payload '{"body":"{"log":"test"}"}' response.json
+cat response.json
+# {"errorMessage": "AccessDeniedException: ..."}
+```
+
+Read the full IAM error. Learn to distinguish: `AccessDeniedException` (you have no permission), `ResourceNotFoundException` (the resource does not exist), and `ValidationException` (your request is malformed). These three cover 80% of AWS debugging.
+
+---
+
+## Osmosis Check
+
+1. Lambda has a 15-minute maximum execution timeout. AOIS P1 analysis with Bedrock can take 25 seconds. Is this a problem? At what point does Lambda timeout become a concern for AOIS workloads?
+2. API Gateway adds ~10ms of latency to every Lambda invocation. Your Hetzner FastAPI adds ~2ms. Under what traffic pattern does Lambda become more expensive than Hetzner k3s — use the cost model from `cost_comparison.py` to reason through it. (v0.8 arithmetic + v6 k3s context)
+
+---
+
 ## Mastery Checkpoint
 
 **1. Explain cold start to someone who has never heard of it**

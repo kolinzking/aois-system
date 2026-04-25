@@ -1409,6 +1409,56 @@ docker ps --format 'table {{.Names}}\t{{.Ports}}' | grep aois-pg
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the AOIS incidents schema — table with id, timestamp, log_text, severity, suggested_action, confidence, resolution columns, correct types, primary key, HNSW-ready vector column placeholder. Then write a query that returns the three most recent P1 incidents with their resolutions. 20 minutes.
+
+```sql
+\d incidents
+-- Expected: all columns visible with correct types
+
+SELECT id, log_text, suggested_action FROM incidents
+WHERE severity = 'P1' ORDER BY created_at DESC LIMIT 3;
+-- Expected: query executes, returns rows or empty set
+```
+
+---
+
+## Failure Injection
+
+Run `EXPLAIN ANALYZE` on a query without an index, then add the index and run it again:
+
+```sql
+-- Before index:
+EXPLAIN ANALYZE SELECT * FROM incidents WHERE severity = 'P1';
+-- Look for: Seq Scan, actual time
+
+CREATE INDEX idx_incidents_severity ON incidents(severity);
+
+-- After index:
+EXPLAIN ANALYZE SELECT * FROM incidents WHERE severity = 'P1';
+-- Look for: Index Scan, actual time reduction
+```
+
+Then introduce a transaction failure:
+
+```sql
+BEGIN;
+UPDATE incidents SET severity = 'P0' WHERE id = 1;
+-- Do NOT commit. Open a second connection and try to read that row.
+-- What do you see? What does this tell you about transaction isolation?
+```
+
+---
+
+## Osmosis Check
+
+1. Your FastAPI endpoint (v0.6) needs to write every incident to Postgres after analysis. Should the DB write happen inside the endpoint handler or as a background task — and what breaks in each case?
+2. A production query runs in 2ms locally but 800ms on Hetzner under load. You know from v0.1 that the server has 8 vCPU/16GB. What Postgres commands tell you whether the bottleneck is CPU, memory, or missing index?
+
+---
+
 ## Mastery Checkpoint
 
 Work through each of these in your local Postgres container. Do not move to v1 until you can do all of them from memory or near-memory.

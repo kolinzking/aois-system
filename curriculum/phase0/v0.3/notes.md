@@ -817,6 +817,43 @@ Then add `.env` to `.gitignore` before anything else.
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: initialise a git repo, make three commits with meaningful messages following the convention you learned, create a `.gitignore` that excludes `.env`, `__pycache__`, and `*.pyc`, push to a new GitHub remote. 20 minutes.
+
+Verify:
+```bash
+git log --oneline
+# Should show 3 commits with descriptive messages
+git status
+# Should show: nothing to commit, working tree clean
+cat .gitignore | grep -E "\.env|__pycache__"
+# Should show both lines
+```
+
+---
+
+## Failure Injection
+
+Commit a fake secret deliberately and then undo it:
+
+```bash
+echo "API_KEY=sk-fake-key-123" > secret.txt
+git add secret.txt && git commit -m "oops"
+```
+
+Now remove it from git history completely — not just delete the file, but remove the commit itself. Do it without looking at the notes. If you cannot, that is the exact scenario that causes production security incidents. Learn the command that saves you.
+
+---
+
+## Osmosis Check
+
+1. You push to GitHub and your CI pipeline fails because a shell script you wrote has a syntax error. Which v0.2 pattern would have caught this locally before the push?
+2. Your `.gitignore` was committed after the `.env` file was already tracked. Running `git rm --cached .env` removes it from tracking — but does it delete the file from disk? What does it actually do?
+
+---
+
 ## Mastery Checkpoint
 
 Git has no mystery after these exercises. Run every one before moving to v0.4.

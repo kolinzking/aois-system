@@ -564,6 +564,43 @@ This means the eval ground truth (Claude-generated severities) had high variance
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the LoRA training config — base model `TinyLlama/TinyLlama-1.1B-Chat-v1.0`, LoRA rank 16, target modules `q_proj` and `v_proj`, learning rate 2e-4, 3 epochs, output directory. Write the `generate_dataset.py` structure that produces input/output pairs from log samples. 20 minutes.
+
+```python
+# verify config loads correctly
+from peft import LoraConfig
+config = LoraConfig(r=16, target_modules=["q_proj", "v_proj"], ...)
+print(config)
+```
+
+---
+
+## Failure Injection
+
+Load the base model (no LoRA) and run the same eval as the fine-tuned version:
+
+```python
+# eval.py with use_lora=False
+results = run_eval(use_lora=False)
+print(f"Base JSON valid: {results['json_valid_pct']}%")
+print(f"Base severity match: {results['severity_match_pct']}%")
+# Expected: ~2% JSON valid — this is what fine-tuning fixes
+```
+
+This is the before state. If you cannot see the 92-point gap between base and fine-tuned, the fine-tuning result means nothing. Run it.
+
+---
+
+## Osmosis Check
+
+1. The fine-tuned TinyLlama achieves 44% severity match. Claude achieves 80%. A P1 incident goes to TinyLlama because the routing logic misclassifies it as P3. What is the cost of that routing error in terms of MTTR — and which eval metric from v23.5 catches this in CI before it ships?
+2. The LoRA adapter is stored in a Modal volume at `/models/tinyllama-sre-lora`. The Triton deployment in v13.5 needs to load it at startup. Write the Modal volume mount configuration from memory. (v13.5 + v14 Modal patterns)
+
+---
+
 ## Mastery Checkpoint
 
 You have completed v15 when you can do all of the following:

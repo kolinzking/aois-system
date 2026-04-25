@@ -865,6 +865,42 @@ The Lambda is the most common failure point. Check: does it have the right permi
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the LiteLLM routing configuration for Bedrock — correct model prefix format (`bedrock/`), inference profile ID for Claude Haiku, AWS region configuration via environment variable. Write the tier selection logic that routes P1/P2 to Bedrock Sonnet. 20 minutes.
+
+```python
+result = route_to_bedrock("P1", "auth service down — complete outage")
+print(result.severity)  # P1
+print(result.model_used)  # bedrock/us.anthropic.claude-sonnet-...
+```
+
+---
+
+## Failure Injection
+
+Use the wrong inference profile ID and read the Bedrock error:
+
+```python
+litellm.completion(
+    model="bedrock/anthropic.claude-3-haiku",  # wrong — missing us. prefix
+    messages=[...]
+)
+# ValidationException or ResourceNotFoundException?
+```
+
+Understand the difference: `ValidationException` means the request format is wrong. `ResourceNotFoundException` means the model does not exist in your region. Both look like "Bedrock doesn't work" but have different fixes.
+
+---
+
+## Osmosis Check
+
+1. Bedrock requires AWS credentials. In v12 (EKS), IRSA provides them via pod service account annotation — no static keys. On Hetzner k3s, you are using static keys in a Kubernetes Secret. What is the specific security risk of static credentials vs IRSA and what rotation strategy mitigates it?
+2. LiteLLM routes P1 to Bedrock. Bedrock returns a 503 during an AWS regional outage. Your fallback chain should route to Anthropic direct. Write the LiteLLM fallback config from memory. (v2 routing fallback pattern)
+
+---
+
 ## Mastery Checkpoint
 
 **1. Prove Bedrock is running Claude, not a different model**

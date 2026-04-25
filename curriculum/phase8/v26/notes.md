@@ -746,6 +746,41 @@ The dashboard is the operator's window into the capstone game day. During the 1-
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the FastAPI WebSocket endpoint that streams AOIS analysis results to the dashboard — connection management, JSON serialisation of `AnalysisResult`, broadcast to all connected clients, graceful disconnection handling. 20 minutes.
+
+```javascript
+// Client connects and receives:
+// {"severity": "P1", "summary": "...", "suggested_action": "..."}
+// within 2 seconds of Kafka consumer processing the incident
+```
+
+---
+
+## Failure Injection
+
+Connect 10 WebSocket clients simultaneously and kill the AOIS pod:
+
+```bash
+# Open 10 browser tabs on the dashboard
+kubectl delete pod -n aois -l app=aois
+# All 10 connections drop simultaneously
+# Pod restarts — clients attempt to reconnect
+```
+
+Does the React dashboard handle the reconnection automatically? What is the user experience during the 10-15 second pod restart? This is the UX impact of your Kubernetes pod disruption budget — measure it.
+
+---
+
+## Osmosis Check
+
+1. The dashboard displays severity distribution as a heatmap. The data comes from Prometheus (v16) via a Grafana panel, not directly from AOIS. Why is it architecturally correct to pull historical aggregations from Prometheus rather than from the WebSocket stream? (v16 Prometheus + v26 real-time vs historical distinction)
+2. The React dashboard sends a JWT in the WebSocket upgrade request. The FastAPI WebSocket handler must validate it. Does the standard JWT middleware (v27) apply to WebSocket connections the same way it applies to HTTP requests? What is different about WebSocket authentication?
+
+---
+
 ## Mastery Checkpoint
 
 1. Run `npm run dev` and open the dashboard. Post 3 incidents with different severities via the analyze endpoint. Confirm all 3 appear in the Incident Feed without page refresh, and the Severity Heatmap shows the correct counts.

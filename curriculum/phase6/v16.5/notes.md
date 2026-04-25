@@ -854,6 +854,47 @@ The AI-specific SLOs in the capstone — model accuracy SLO, hallucination rate 
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the ClickHouse `incidents` table schema — correct MergeTree engine, partition by month, order by timestamp and severity, columns for all AOIS analysis fields including model, tier, cost, latency, tokens. 20 minutes.
+
+```sql
+SHOW CREATE TABLE aois.incidents;
+-- Must show MergeTree, correct PARTITION BY, ORDER BY
+```
+
+---
+
+## Failure Injection
+
+Create the table with the wrong engine and observe the query difference:
+
+```sql
+CREATE TABLE aois.incidents_wrong (
+  timestamp DateTime,
+  severity String,
+  cost Float32
+) ENGINE = Log;   -- wrong engine, no ORDER BY
+
+INSERT INTO aois.incidents_wrong SELECT now(), 'P1', 0.016 FROM numbers(1000000);
+
+-- Compare query times:
+SELECT severity, count() FROM aois.incidents GROUP BY severity;
+SELECT severity, count() FROM aois.incidents_wrong GROUP BY severity;
+```
+
+The MergeTree query should be 10-100x faster. If it is not, check the ORDER BY — ClickHouse uses it for physical data ordering, not just sorting.
+
+---
+
+## Osmosis Check
+
+1. Prometheus (v16) stores metrics with 15-second resolution. ClickHouse stores every incident with full metadata. Which do you query to answer "what was AOIS p99 latency at 2:47am on Tuesday"? Which do you query to answer "which log pattern has the highest P1 rate this month"?
+2. ClickHouse's MergeTree engine merges data parts in the background. During a heavy write burst (10,000 incidents in 60 seconds), query latency increases temporarily. What is happening internally and which ClickHouse system table shows you the merge status?
+
+---
+
 ## Mastery Checkpoint
 
 1. Deploy ClickHouse via Docker Compose. Confirm `SELECT version()` returns `24.x`. Create the `incident_telemetry` table and verify the HNSW-equivalent: confirm `DESCRIBE incident_telemetry` shows `LowCardinality(String)` for model, tier, and severity.

@@ -670,6 +670,49 @@ The game day in v34.5 involves intentional crashes during agent investigations. 
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the Temporal workflow definition for AOIS incident investigation — `@workflow.defn`, `@workflow.run` method, three activity calls (detect, investigate, remediate) with retry policies and timeouts, result persistence. 20 minutes.
+
+```python
+handle = await client.start_workflow(
+    InvestigationWorkflow.run,
+    log_entry,
+    id=f"investigation-{incident_id}",
+    task_queue="aois-investigations",
+)
+result = await handle.result()
+print(result["severity"])
+```
+
+---
+
+## Failure Injection
+
+Put non-deterministic code inside the workflow function and observe the replay error:
+
+```python
+@workflow.run
+async def run(self, log_entry: str) -> dict:
+    import random
+    threshold = random.random()   # non-deterministic — breaks replay
+    result = await workflow.execute_activity(detect_severity, log_entry)
+    if result.confidence > threshold:   # different on replay
+        ...
+```
+
+Re-run the workflow. Temporal will replay from history. The `random.random()` call produces a different value on replay — observe the `NonDeterminismError`. This is the error that costs production engineers hours to debug. Learn to recognise it immediately.
+
+---
+
+## Osmosis Check
+
+1. A Temporal workflow for a P1 incident runs for 8 minutes across 12 activity calls. The AOIS pod is killed by OOM (v19 chaos) at minute 5. Temporal retries from the last completed activity. How does Temporal know which activity was last completed — what does it persist and where?
+2. Per-incident cost attribution (v20) assigns an `incident_id` to all LLM calls. The Temporal workflow spans multiple activities. Which activity owns the `incident_id` — the workflow or each individual activity — and how is it threaded through without being passed as an explicit parameter to every call?
+
+---
+
 ## Mastery Checkpoint
 
 1. Start the Temporal server and the AOIS worker. Open `http://localhost:8233`. Confirm the UI shows the `default` namespace and your task queue is registered.

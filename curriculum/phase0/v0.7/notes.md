@@ -822,6 +822,43 @@ These misconceptions trip up engineers who then design systems incorrectly. Read
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write a raw Python call to the Anthropic API using the SDK — system prompt, user message containing a log sample, `max_tokens=200`, with prompt caching on the system prompt. Print the response text and the input/output token counts. 20 minutes.
+
+```bash
+python3 raw_claude.py
+# Expected: structured text response + token counts printed
+```
+
+---
+
+## Failure Injection
+
+Trigger and read these two errors before fixing them:
+
+```python
+# Error 1: wrong model name
+client.messages.create(model="claude-3-haiku", ...)
+# What does the API return? Is it a 400 or 404?
+
+# Error 2: max_tokens too high
+client.messages.create(model="claude-haiku-4-5-20251001", max_tokens=999999, ...)
+# Does it fail immediately or after the call?
+```
+
+Then observe what happens to cost when you forget `cache_control` on a 2000-token system prompt called 10 times versus with caching. Calculate the difference.
+
+---
+
+## Osmosis Check
+
+1. The Claude API returns HTTP 429. Which v0.4 concept explains what this means and which v0.2 pattern would you use to retry with exponential backoff?
+2. You store the API key in `.env` and load it with `load_dotenv()`. The script works locally but fails in a Docker container. Why — and which v0.1 concept explains the fix?
+
+---
+
 ## Mastery Checkpoint
 
 The concepts in v0.7 are foundational to every decision you make from v1 to v34. These exercises prove they are internalized, not just read.

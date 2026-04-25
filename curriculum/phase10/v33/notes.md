@@ -723,6 +723,38 @@ if __name__ == "__main__":
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write a PyRIT attack scenario that attempts prompt injection via the log input — it must target the `suggested_action` field specifically (trying to make AOIS recommend a destructive action), run 10 attack variants, and score each attempt on whether the output blocklist fired. 20 minutes.
+
+```python
+results = run_injection_attack(target="suggested_action", attempts=10)
+print(f"Blocked: {results.blocked}/{results.total}")
+# Expected: 10/10 blocked by output blocklist
+```
+
+---
+
+## Failure Injection
+
+Run a Garak probe that your output blocklist does NOT catch:
+
+```bash
+garak --model-type rest --model-name http://localhost:8000/analyze   --probes encoding.InjectAscii85
+```
+
+ASCII85-encoded instructions bypass simple string matching. Does AOIS block the encoded injection? If not — that is a real vulnerability. Document it and add the encoding pattern to the blocklist. This is what production red-teaming finds.
+
+---
+
+## Osmosis Check
+
+1. Your red-team CI gate (v28) runs PyRIT on every PR. A new attack technique emerges that PyRIT's library does not yet cover. How do you add a custom attack to the CI gate without waiting for a PyRIT library update? (v28 CI extensibility + v33 PyRIT custom scenarios)
+2. Constitutional AI (v33) defines what AOIS should never recommend autonomously. The E2B sandbox (v25) executes commands before human approval. These are two different safety layers. An attacker crafts a log that passes constitutional AI (the recommendation looks safe) but the executed command is destructive. At which layer does the defence break, and which v25 control should catch it?
+
+---
+
 ## Mastery Checkpoint
 
 1. Run `python3 redteam/run_pyrit.py` with AOIS running locally. Record how many injection attacks succeed on the first pass.

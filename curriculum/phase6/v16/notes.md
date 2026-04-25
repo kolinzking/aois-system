@@ -666,6 +666,41 @@ The most common cause: mixing 2-space and 4-space indentation in the `service.pi
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the OTel span instrumentation for a single `analyze()` call — create a span, set the GenAI semantic convention attributes (model name, input tokens, output tokens, cost), handle the exception case, end the span in a finally block. 20 minutes.
+
+```python
+with tracer.start_as_current_span("llm.analyze") as span:
+    span.set_attribute("gen_ai.system", "anthropic")
+    span.set_attribute("gen_ai.request.model", model)
+    # ... call, set output attributes, handle exception
+```
+
+---
+
+## Failure Injection
+
+Start AOIS without the OTel Collector running and observe what happens to the application:
+
+```bash
+docker stop otel-collector
+python3 -c "from main import analyze; analyze('test')"
+# Does AOIS crash, log a warning, or continue silently?
+```
+
+OTel is designed to fail open — instrumentation should never break the application it observes. Verify this is true in your implementation. If AOIS crashes when the collector is down, that is a bug, not a feature.
+
+---
+
+## Osmosis Check
+
+1. You add OTel tracing to the Kafka consumer (v17). A trace starts when a message arrives and ends when the analysis is written to `aois-results`. The LLM call in the middle creates a child span. What is the correct way to propagate the trace context from the Kafka message headers to the child span?
+2. Langfuse (v3) already traces every LLM call. OTel (v16) also traces them. Are you paying double? Explain what each system captures that the other does not. (v3 + v16 observability layers)
+
+---
+
 ## Mastery Checkpoint
 
 You have completed v16 when you can do all of the following:

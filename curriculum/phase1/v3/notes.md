@@ -792,6 +792,45 @@ DSPy's `BootstrapFewShot` teleprompter would take your 500 labeled logs, try doz
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write an Instructor-wrapped Claude call that returns a validated `AnalysisResult`. Then write the Langfuse trace decorator that logs model, tokens, cost, and latency for that call. 20 minutes.
+
+```python
+result = analyze_with_instructor("disk pressure node aois-worker-1")
+print(result.severity)          # Must be typed AnalysisResult, not dict
+print(type(result))             # <class 'AnalysisResult'>
+```
+
+---
+
+## Failure Injection
+
+Make Instructor fail validation deliberately:
+
+```python
+class AnalysisResult(BaseModel):
+    severity: Literal["P1", "P2", "P3", "P4"]
+    confidence: float
+
+# Prompt the LLM to return severity "CRITICAL" instead of P1-P4
+# Instructor will retry — watch how many times and what it sends
+import instructor
+instructor.patch(litellm)  # observe retry behaviour in logs
+```
+
+Count how many API calls Instructor makes when validation fails. Each retry costs tokens. What is the maximum retry budget before Instructor gives up?
+
+---
+
+## Osmosis Check
+
+1. Langfuse traces every LLM call. At 50,000 calls/day, the `observations` table grows fast. Which database from the curriculum handles 100M rows with sub-second query time — and which version introduced it? (no version hint)
+2. DSPy optimises prompts by running your eval set repeatedly. At 20 examples × 5 optimisation rounds, how many Claude API calls does a DSPy run make? What is the cost at Claude Sonnet pricing?
+
+---
+
 ## Mastery Checkpoint
 
 Guaranteed valid output and full observability are non-negotiable in production AI. These exercises prove you have both.

@@ -756,6 +756,42 @@ Switch to a model that supports tool use. As of 2026, `meta/llama-3.1-8b-instruc
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the LiteLLM configuration for the NIM and Groq tiers — correct model names, API base URLs, authentication pattern. Write the `_call_groq()` helper that bypasses LiteLLM using the OpenAI-compatible client directly. 20 minutes.
+
+```python
+result = _call_groq("pod/api-gateway high CPU 95%")
+print(result.severity)       # P3 or P4
+print(result.model_used)     # groq/llama-3.1-8b-instant
+```
+
+---
+
+## Failure Injection
+
+Set an invalid Groq model name and observe the fallback:
+
+```python
+groq_client.chat.completions.create(
+    model="llama-99b-instant",   # does not exist
+    messages=[...]
+)
+# 404 or 400? Read the exact error from Groq's API
+```
+
+Then test the NIM endpoint with an expired NGC API key. The error message is different — understand what changes and why the two providers format authentication errors differently.
+
+---
+
+## Osmosis Check
+
+1. Groq processes at 0.22 seconds. Claude processes at 2 seconds. Your SLO is p99 < 30 seconds. Under what failure mode does the Groq fast tier cause an SLO violation even though individual calls are under 1 second? (v19 SLO concepts — reason forward)
+2. The SEVERITY_TIER_MAP routes P1/P2 to Claude and P3/P4 to Groq. An attacker submits a log crafted to always trigger P1 classification, knowing Claude is more expensive. What is the monthly cost impact at 1,000 such requests/day? (v1 cost model + v5 security)
+
+---
+
 ## Mastery Checkpoint
 
 **1. The NGC API connection**

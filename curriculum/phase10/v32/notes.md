@@ -636,6 +636,45 @@ ollama --version
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the offline queue logic — append a failed analysis to `/var/aois/offline_queue.jsonl`, the `sync_to_central()` function that reads the queue, sends each entry to the central AOIS URL, and removes successfully synced entries. Handle partial sync failures. 20 minutes.
+
+```python
+# Simulate offline mode
+queue_incident({"log": "OOMKilled", "timestamp": "2026-04-25T10:00:00"})
+print(len(read_queue()))   # 1
+
+# Simulate connectivity restored
+sync_to_central()
+print(len(read_queue()))   # 0 if sync succeeded
+```
+
+---
+
+## Failure Injection
+
+Simulate a partial sync failure — 3 entries in the queue, central AOIS returns 200 for the first, 500 for the second, 200 for the third:
+
+```python
+# Mock the central endpoint to return 500 for every second entry
+# Run sync_to_central()
+# Which entries remain in the queue?
+# Is the order preserved?
+```
+
+If entries 1 and 3 are deleted but entry 2 remains, that is correct. If all three remain because entry 2 failed, that is a bug — you are losing successfully processed entries. Fix it before this version is done.
+
+---
+
+## Osmosis Check
+
+1. The edge node uses Ollama with `llama3.2` for local inference. The central cluster uses Claude Sonnet. A P1 incident is detected offline, classified as P3 by Ollama (model quality gap), and synced to central. The central system re-analyses it and classifies P1. How do you reconcile the conflicting classifications — and which system's classification is authoritative?
+2. The offline queue writes to `/var/aois/offline_queue.jsonl`. The edge node pod is killed by OOM (v19 patterns). The JSONL file is on a `hostPath` volume. When the pod restarts, is the queue intact? What happens if the node itself fails? (v6 k8s storage + v19 chaos patterns)
+
+---
+
 ## Mastery Checkpoint
 
 1. Run `ollama run llama3.2:3b "Classify: CrashLoopBackOff on payments-api. Return JSON: {\"severity\": \"P1-P4\"}"`. Record the raw output. Is the JSON valid? Did the model add text before or after the JSON object?

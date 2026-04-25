@@ -847,6 +847,46 @@ for attempt in range(3):
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the W&B experiment logging for one AOIS eval run — initialise a run with project and config, log severity accuracy, hallucination rate, and safety rate as summary metrics, log each individual eval result as a Table row. 20 minutes.
+
+```python
+import wandb
+run = wandb.init(project="aois", config={"model": "claude-sonnet-4-6", "prompt_version": "v3"})
+# Log metrics and table
+run.finish()
+# Check wandb.ai — run appears with all metrics
+```
+
+---
+
+## Failure Injection
+
+Log the same run twice with the same run ID and observe the conflict:
+
+```python
+run1 = wandb.init(project="aois", id="test-run-001")
+run1.log({"accuracy": 0.92})
+run1.finish()
+
+run2 = wandb.init(project="aois", id="test-run-001", resume="allow")
+run2.log({"accuracy": 0.88})   # overwrite or append?
+run2.finish()
+```
+
+Which value appears in W&B — 0.92 or 0.88? What does `resume="allow"` vs `resume="must"` vs `resume="never"` control? This matters when CI reruns a failed eval job.
+
+---
+
+## Osmosis Check
+
+1. W&B tracks every eval run as an experiment. DSPy (v3) also runs multiple prompt optimisation rounds. Should you log DSPy optimisation rounds as W&B experiments? What would the W&B `sweep` feature give you that running DSPy optimisation manually does not?
+2. You ran A/B eval: Claude Sonnet (92% accuracy) vs Groq Llama (71% accuracy) on the same 20-entry golden dataset. W&B shows the result. But the golden dataset has only 5 P1 examples. Is the 21-point gap statistically significant? What sample size do you need for a 95% confidence interval on a 20% accuracy difference?
+
+---
+
 ## Mastery Checkpoint
 
 You have completed v29 when you can do all of the following:

@@ -566,6 +566,51 @@ If all three answers are "yes": use vision. Otherwise: use the text `/analyze` e
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write `analyze_image()` — it must load a PNG file as base64, build the Anthropic messages payload with the correct `image` content block type and media type, send to Claude with a system prompt asking for infrastructure analysis, and return a structured finding. 20 minutes.
+
+```python
+finding = analyze_image("screenshots/grafana_cpu_spike.png")
+print(finding.anomaly_detected)   # True
+print(finding.description)        # Non-empty string
+```
+
+---
+
+## Failure Injection
+
+Send an image that exceeds the Claude API size limit and read the error:
+
+```python
+# Create a 30MB PNG
+from PIL import Image
+img = Image.new("RGB", (8000, 8000), color="red")
+img.save("huge.png")
+
+analyze_image("huge.png")
+# What error? RequestTooLargeError or a different one?
+```
+
+Then send a non-image file with `image/png` media type:
+
+```python
+# Send a PDF as if it were a PNG
+with open("document.pdf", "rb") as f:
+    # encode as base64, send as image/png
+    # What does Claude return?
+```
+
+---
+
+## Osmosis Check
+
+1. AOIS analyzes Grafana screenshots every 5 minutes. Each screenshot is ~500KB. At Claude Sonnet pricing ($3/1M input tokens), and knowing that images are charged at a fixed token count regardless of content — calculate the monthly cost for screenshot analysis at that cadence. Is prompt caching (v1) applicable to image content blocks?
+2. The vision endpoint receives a Grafana screenshot that shows a flat line at zero for `aois_incidents_total`. Is this a good sign or a bad sign — and how do you distinguish "no incidents" from "metrics pipeline broken"? (v16 OTel + v17 Kafka consumer health)
+
+---
+
 ## Mastery Checkpoint
 
 1. Run `analyze_image_from_path` on any screenshot or dashboard image. Show the raw Claude Vision response, unedited.

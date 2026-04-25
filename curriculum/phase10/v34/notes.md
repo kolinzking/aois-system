@@ -760,6 +760,42 @@ This query answers: "Is the human oversight gate actually being used, or are eng
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write a Playwright + Claude Computer Use step that: opens a URL in a browser, takes a screenshot, sends it to Claude with the `computer_use` tool enabled, receives a click action from Claude, executes the click via Playwright. 20 minutes.
+
+```python
+result = run_grafana_agent("http://localhost:3000")
+print(result.actions_taken)   # list of Playwright actions
+print(result.findings)        # AOIS analysis of what was found
+```
+
+---
+
+## Failure Injection
+
+Send Computer Use a page that requires authentication and observe the screenshot Claude receives:
+
+```python
+# Navigate to Grafana login page (not pre-authenticated)
+result = run_grafana_agent("http://localhost:3000/d/aois")
+# Claude sees the login form, not the dashboard
+# What action does it propose?
+# Does it attempt to enter credentials? Should it?
+```
+
+This is the boundary problem for Computer Use: Claude sees a login form and may attempt to interact with it. Your `computer_use/grafana_agent.py` must handle unauthenticated pages without leaking credentials.
+
+---
+
+## Osmosis Check
+
+1. EU AI Act risk classification (v34) categorises AOIS as high-risk because it makes automated infrastructure decisions. The governance layer requires human oversight for all P1 actions. The LangGraph agent (v23) has a human-in-the-loop approval gate. Are these the same mechanism or are they complementary — and what does the EU AI Act require that LangGraph's approval gate alone does not provide?
+2. The audit log (v34 governance) records every AOIS decision with model version, input hash, and output hash. A regulator asks for all decisions made by model version `claude-sonnet-4-5` between Jan-March 2026. Which storage system holds this data at the required query speed — ClickHouse (v16.5), Postgres (v0.8), or the Langfuse trace store (v3)? (cross-version data architecture)
+
+---
+
 ## Mastery Checkpoint
 
 1. Run the Grafana computer use agent on a real Grafana dashboard (even an empty one). Show the `actions_taken` list and `findings`.

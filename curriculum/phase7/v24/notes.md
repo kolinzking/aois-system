@@ -762,6 +762,40 @@ W&B logs each framework's latency, cost, and eval score as separate experiment r
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write a two-agent CrewAI crew — a Detector agent that classifies severity and a Remediation agent that proposes a fix. Both agents use Claude. The crew runs sequentially, passing the Detector output to Remediation. 20 minutes.
+
+```python
+result = crew.kickoff(inputs={"log": "auth-service OOMKilled exit code 137"})
+print(result.raw)
+# Should contain both severity classification and remediation proposal
+```
+
+---
+
+## Failure Injection
+
+Create a circular dependency between two AutoGen agents and observe the termination condition:
+
+```python
+# Agent A calls Agent B, Agent B calls Agent A back
+# What prevents an infinite loop?
+# Remove the termination condition and run — how many rounds before it stops?
+```
+
+Every multi-agent framework has a termination problem. In AutoGen it is the `is_termination_msg` function. In LangGraph it is the `END` node. In CrewAI it is task completion. Understand how each framework handles infinite loops — this is the failure mode that burns GPU budget.
+
+---
+
+## Osmosis Check
+
+1. You have LangGraph (v23), CrewAI (v24), AutoGen (v24), and Pydantic AI (v24) all available. An incident requires: parallel investigation of 3 subsystems simultaneously, stateful memory across steps, and a human approval gate before remediation. Which framework is the right choice and why? (4-framework comparison — reason from architecture, not preference)
+2. Google ADK sends an incident report from AOIS to a Vertex-hosted agent via A2A. That agent is running Gemini 2.5 Pro. The A2A message contains the full incident context including log data that may contain customer identifiers. Which v5 security control should be applied before the A2A handoff, and where in the call stack does it apply?
+
+---
+
 ## Mastery Checkpoint
 
 1. Run `python3 multi_agent/compare.py` with a P1 incident. Record: CrewAI latency, AutoGen latency, Pydantic AI latency, and which produced the most actionable proposed action.

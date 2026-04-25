@@ -533,6 +533,48 @@ The full remediation pipeline (generate → sandbox validate → human approve �
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the E2B executor — create a sandbox, install `kubectl` equivalent, run a generated shell command, capture stdout/stderr, destroy the sandbox. Write the `validate_kubectl_command()` function that refuses `delete`, `drain`, and `replace` operations. 20 minutes.
+
+```python
+result = execute_in_sandbox("kubectl get pods -n aois")
+print(result.stdout)   # pod list
+print(result.stderr)   # empty if successful
+# sandbox is destroyed after the call
+```
+
+---
+
+## Failure Injection
+
+Attempt to execute a destructive command and verify the validator blocks it:
+
+```python
+result = execute_in_sandbox("kubectl delete namespace aois")
+# Must be blocked BEFORE reaching E2B
+# The sandbox should never see this command
+```
+
+Then submit a command that bypasses the word filter by using a shell escape:
+
+```python
+result = execute_in_sandbox("kubectl get pods && kubectl dele" + "te pod test")
+# Does the validator catch the concatenated command?
+```
+
+This is the same class of bypass as v5's prompt injection — the defence must parse intent, not just match strings.
+
+---
+
+## Osmosis Check
+
+1. E2B sandboxes are destroyed after each command. The AOIS agent needs to run three sequential `kubectl` commands where each depends on output from the previous. Describe two approaches — one using multiple sandbox calls, one using a single sandbox — and explain the tradeoff in terms of cost (E2B charges per sandbox-second) and security (v5 isolation principles).
+2. The E2B executor validates the command before sending it to the sandbox. The OPA policy (v20) validates the tool call before the executor runs. These are two different enforcement layers. What class of attack does each layer catch that the other does not?
+
+---
+
 ## Mastery Checkpoint
 
 1. Run `validate_kubectl_command("kubectl delete namespace production")`. Confirm it is blocked before reaching the sandbox. Show the output.

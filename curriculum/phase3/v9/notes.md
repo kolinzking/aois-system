@@ -692,6 +692,51 @@ All of these use the same ScaledObject structure. The `type` field and `metadata
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the KEDA `ScaledObject` manifest — targets the AOIS Deployment, uses a CPU trigger at 60% threshold, minimum 1 replica, maximum 5 replicas, 60-second cooldown. 20 minutes.
+
+```bash
+kubectl get scaledobject -n aois
+# NAME   SCALETARGETKIND   MIN   MAX   TRIGGERS   READY
+# aois   Deployment        1     5     cpu        True
+
+kubectl get hpa -n aois
+# Shows KEDA-managed HPA
+```
+
+---
+
+## Failure Injection
+
+Set the CPU threshold to 1% and watch KEDA immediately scale to max replicas:
+
+```yaml
+triggers:
+- type: cpu
+  metadata:
+    type: Utilization
+    value: "1"   # 1% — always exceeded
+```
+
+```bash
+kubectl apply -f keda/scaledobject.yaml
+kubectl get pods -n aois -w
+# Scales to 5 immediately
+```
+
+Now fix the threshold. Observe how long it takes KEDA to scale back down (cooldown period). This is why cooldown configuration matters — scale-down is slower than scale-up by design.
+
+---
+
+## Osmosis Check
+
+1. KEDA scales AOIS to 5 replicas under load. Each replica opens a connection to Redis. Your Redis instance is configured for 10 max connections. What happens to connection 11? Which v4 Docker Compose service is the bottleneck and how do you fix it?
+2. ArgoCD is managing the AOIS deployment. KEDA changes the replica count. Does ArgoCD try to revert KEDA's scaling decision? Why or why not? (v8 ArgoCD sync policy — reason from what you know about what ArgoCD watches)
+
+---
+
 ## Mastery Checkpoint
 
 **1. Trace KEDA's architecture on your cluster**

@@ -495,6 +495,49 @@ Production traffic is not the golden dataset. Check: is AOIS receiving incident 
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write a Prometheus alert rule for the AOIS hallucination rate SLO — fires when hallucination rate exceeds 5% over a 1-hour window, correct `expr` using the `aois_hallucination_total` and `aois_incidents_total` counters, appropriate severity label and annotations. 20 minutes.
+
+```bash
+promtool check rules hallucination_slo.yml
+# Checking hallucination_slo.yml SUCCESS
+```
+
+Then write the on-call runbook entry for "hallucination rate SLO breach" — what you check first, second, and third.
+
+---
+
+## Failure Injection
+
+Trigger the alert with a deliberately bad prompt that causes hallucinations:
+
+```python
+# Modify the system prompt to be intentionally vague
+# Run 20 incidents through the eval suite
+# Hallucination rate should exceed 5%
+python3 evals/run_evals.py
+# Hallucination rate: 12% (above 5% threshold)
+# Alert would fire in production
+```
+
+Revert the prompt. Confirm the rate drops below 5%. Then check: does the Prometheus alert fire immediately when the rate exceeds 5%, or does it wait for the full 1-hour evaluation window? Why does that delay exist?
+
+---
+
+## Osmosis Check
+
+This is the capstone. No single earlier version is referenced — all of them are. Answer these from the full system:
+
+1. A P1 incident arrives at 3am. Trace its path through the full AOIS stack from Kafka message to on-call notification, naming every component it touches and the version that introduced each component.
+
+2. Your LLM provider (Anthropic) has an outage. List every component in AOIS that fails immediately, every component that degrades gracefully, and every component that is unaffected. Your answer should reference at least 8 versions.
+
+3. The EU AI Act audit requires you to prove that no AOIS decision was made without human oversight for P1 incidents in the past 6 months. Name the three systems that provide this audit trail and explain why you need all three, not just one.
+
+---
+
 ## Mastery Checkpoint
 
 1. State the six AI-specific SLOs for AOIS, their targets, and how each is measured. Not from memory of these notes — from Prometheus and Langfuse queries on your live system.

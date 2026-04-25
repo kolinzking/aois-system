@@ -947,6 +947,55 @@ If this shows `1.x`, you need to upgrade.
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the core AOIS Pydantic models — `IncidentLog` (input) and `AnalysisResult` (output with severity P1-P4, summary, suggested_action, confidence). Add field validators that reject empty strings and confidence values outside 0.0-1.0. 20 minutes.
+
+```python
+from pydantic import ValidationError
+try:
+    AnalysisResult(severity="P5", summary="", suggested_action="fix it", confidence=1.5)
+except ValidationError as e:
+    print(e)
+# Expected: validation errors for severity, summary, and confidence
+```
+
+---
+
+## Failure Injection
+
+Run this and read the traceback before fixing it:
+
+```python
+from pydantic import BaseModel
+class Config(BaseModel):
+    api_key: str
+    max_tokens: int = "100"   # wrong type
+
+c = Config(api_key="sk-test")
+```
+
+Pydantic v2 will coerce this silently or raise — which is it? Test it. Then break the dotenv loading:
+
+```python
+import os
+# .env NOT loaded — os.getenv returns None
+api_key = os.getenv("ANTHROPIC_API_KEY")
+client = SomeClient(api_key=api_key)  # None passed
+```
+
+What error do you get downstream? This is how production bugs from missing env vars look — not at load time, at call time.
+
+---
+
+## Osmosis Check
+
+1. Your Pydantic model needs to validate that a log string is not an attempted prompt injection (contains `ignore previous instructions`). Write the validator using what you know from v0.2 string processing.
+2. You load `.env` with `load_dotenv()` but `os.getenv("ANTHROPIC_API_KEY")` still returns `None`. Name two causes, one from file permissions (v0.1) and one from Python path resolution.
+
+---
+
 ## Mastery Checkpoint
 
 Pydantic and Python project hygiene underpin everything in Phase 1+. These exercises make them automatic.

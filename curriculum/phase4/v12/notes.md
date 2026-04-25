@@ -966,6 +966,40 @@ kubectl debug -it -n aois $(kubectl get pod -n aois -o name | head -1) \
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the IRSA service account manifest — correct annotation with the IAM role ARN format, `eks.amazonaws.com/role-arn` annotation key, namespace `aois`, service account name `aois`. Write the Deployment reference to that service account. 20 minutes.
+
+```bash
+kubectl describe serviceaccount aois -n aois
+# Annotations: eks.amazonaws.com/role-arn: arn:aws:iam::...
+kubectl describe pod <aois-pod> -n aois | grep -A2 "AWS_ROLE"
+# AWS_ROLE_ARN and AWS_WEB_IDENTITY_TOKEN_FILE must be present
+```
+
+---
+
+## Failure Injection
+
+Deploy with the wrong role ARN and watch Bedrock fail:
+
+```yaml
+annotations:
+  eks.amazonaws.com/role-arn: arn:aws:iam::999999999999:role/wrong-role
+```
+
+The pod starts successfully. The error only appears when AOIS tries to call Bedrock. This is the deferred authentication failure pattern — the credential is wrong but the pod does not know until it tries to use it. Learn to recognise it: pod Running + API call failing = IAM issue.
+
+---
+
+## Osmosis Check
+
+1. Karpenter provisions a new node in 43 seconds under load. During those 43 seconds, incoming requests queue in the load balancer. KEDA has scaled AOIS to 5 replicas but only 3 nodes exist. What does Kubernetes do with the 2 pending pods? (v9 KEDA + v6 scheduling concepts)
+2. EKS costs $0.10/hour for the control plane plus EC2 costs for nodes. Your Hetzner k3s costs €0.027/hour for the full server. At what request volume does EKS justify its additional cost over Hetzner? Name two specific capabilities EKS provides that Hetzner k3s cannot match. (v6 vs v12 comparison)
+
+---
+
 ## Mastery Checkpoint
 
 **1. The IRSA flow from memory**

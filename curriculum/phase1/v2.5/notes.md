@@ -951,6 +951,37 @@ The audit log enables post-hoc analysis: for every agent run, retrieve all LLM c
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: implement the PII redaction middleware — it must strip email addresses, IP addresses, and AWS account IDs from prompts before they leave the gateway. Write the regex patterns and the middleware wrapper. 20 minutes.
+
+```python
+redact("user john.doe@company.com from 10.0.0.1 hit account 739275471358")
+# Expected: "user [EMAIL] from [IP] hit account [AWS_ACCOUNT]"
+```
+
+---
+
+## Failure Injection
+
+Feed your redaction regex a log that contains a false positive:
+
+```
+Error in function send_email_notification: timeout after 30s
+```
+
+Does `[EMAIL]` appear in the redacted output when it should not? If yes, fix the regex. A production PII redactor that redacts the word "email" inside identifiers is worse than no redactor — it corrupts the data the LLM needs to reason about.
+
+---
+
+## Osmosis Check
+
+1. The AI Gateway logs every prompt to Postgres for audit. At 10,000 requests/day, how long before the `audit_log` table needs partitioning? Which v0.8 concept tells you when a table scan becomes too slow to ignore?
+2. Budget enforcement halts a request mid-session. The FastAPI endpoint must return an error to the caller. What HTTP status code is correct — 429, 402, or 503 — and why does the choice matter for the client? (v0.4 + v0.6)
+
+---
+
 ## Mastery Checkpoint
 
 1. Start the gateway and confirm `/health` returns `{"status":"healthy"}`. Confirm both Redis and Postgres connections succeed (health check tests both).

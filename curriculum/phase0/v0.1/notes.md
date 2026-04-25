@@ -1019,6 +1019,49 @@ You do not need to memorise all of this at once. Run the commands. The muscle me
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. Write `sysinfo.sh` from memory — it must print: hostname, OS, kernel version, CPU count, total RAM, disk usage on `/`, and the five most CPU-intensive processes. Time yourself. You have 20 minutes.
+
+```bash
+chmod +x sysinfo.sh && ./sysinfo.sh
+# Expected: all six fields printed cleanly, no blank lines, no errors
+```
+
+If you finish in under 20 minutes, add a sixth section: top 5 open network ports using `ss`.
+
+---
+
+## Failure Injection
+
+Run this deliberately broken command and read the error before fixing it:
+
+```bash
+chmod 000 sysinfo.sh && ./sysinfo.sh
+# Permission denied
+```
+
+Now fix it without looking at the notes. The error is telling you exactly what to do. Then introduce a second failure:
+
+```bash
+#!/bin/bash
+echo "Host: $HOSTNAM"   # note: wrong variable name
+```
+
+Run it. The script will not error — it will silently print nothing. This is the class of bug that kills you in production: no error, wrong output. Learn to recognise it.
+
+---
+
+## Osmosis Check
+
+No earlier versions to reference — this is the foundation everything else stands on. Answer these from what you just built:
+
+1. A script runs without errors but produces no output. What are the three most likely causes?
+2. What is the difference between `$?` and the actual error message? When do you need each?
+
+---
+
 ## Mastery Checkpoint
 
 These are not theoretical exercises. Run every one. Do not move to v0.2 until each of these works correctly and you understand why.

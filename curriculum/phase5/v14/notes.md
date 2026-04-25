@@ -863,6 +863,36 @@ The caller then specifies which adapter to use per request. This means one deplo
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the Modal `@modal.asgi_app()` pattern for serving vLLM — the correct decorator, GPU type specification, model mount, and OpenAI-compatible endpoint. Write the skeleton only — no need to run it. 20 minutes.
+
+```python
+# Expected structure:
+@app.function(gpu="A10G", ...)
+@modal.asgi_app()
+def serve():
+    # vLLM engine init
+    # FastAPI app with /v1/chat/completions
+    ...
+```
+
+---
+
+## Failure Injection
+
+Review the v14 debugging history in the notes — the three version conflicts, the GPU cold start costs, the `@modal.fastapi_endpoint` dead end. Now answer from memory: which specific change from `@modal.fastapi_endpoint` to `@modal.asgi_app()` fixed the architecture, and what was wrong with the first approach? If you cannot answer without notes, re-read the troubleshooting section until you can.
+
+---
+
+## Osmosis Check
+
+1. vLLM uses PagedAttention for KV cache management. A GPU has 24GB VRAM. A Llama-7B model uses 14GB. How much KV cache space is available for concurrent requests — and what happens when that space fills up under load?
+2. Groq at $0.000001/call is already available as the fast tier. The break-even for self-hosted vLLM on Modal (A10G at $1.10/hr) versus Groq is at N calls/hour. Calculate N. Below that threshold, which is cheaper? (v13 cost model)
+
+---
+
 ## Mastery Checkpoint
 
 Complete these before moving to v15:

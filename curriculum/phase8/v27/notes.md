@@ -652,6 +652,46 @@ The RBAC model is the human oversight layer. During the game day, P1 incidents r
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write `create_access_token()` — accepts user_id and role, signs with HS256, sets 15-minute expiry, and `create_refresh_token()` — same structure with 7-day expiry. Write the FastAPI dependency that validates the access token and injects the current user. 20 minutes.
+
+```python
+token = create_access_token(user_id="collins", role="operator")
+user = get_current_user(token)
+print(user.role)   # operator
+```
+
+---
+
+## Failure Injection
+
+Use the wrong algorithm to verify a token and observe the error:
+
+```python
+jwt.decode(token, SECRET_KEY, algorithms=["RS256"])   # signed with HS256
+# InvalidAlgorithmError or DecodeError?
+```
+
+Then decode a token without verifying the signature:
+
+```python
+jwt.decode(token, options={"verify_signature": False})
+# This succeeds — and this is how JWT vulnerabilities happen
+```
+
+An attacker who knows you are not verifying the signature can forge any token. Understand why `verify_signature=False` exists (debugging) and why it must never appear in production code.
+
+---
+
+## Osmosis Check
+
+1. OpenFGA stores the authorisation model — user X can perform action Y on resource Z. A user with `viewer` role attempts to approve a remediation (requires `operator` role). The check fails. But OpenFGA itself is down. Does the AOIS endpoint fail open (allow) or fail closed (deny)? Which is correct for a security gate — and which is correct for a health check endpoint?
+2. SPIFFE/SPIRE (v6) issues SVIDs for service-to-service auth. JWT (v27) handles user-to-service auth. An incoming request to `/approve-remediation` has both a valid JWT and a valid SVID. Which identity does the OpenFGA check use — the user identity or the service identity? Why?
+
+---
+
 ## Mastery Checkpoint
 
 1. Generate a viewer token and an operator token. Confirm `GET /api/incidents` works for both. Confirm `POST /api/approve/{id}` returns 403 for the viewer and 200 for the operator.

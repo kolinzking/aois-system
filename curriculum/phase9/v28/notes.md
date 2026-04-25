@@ -967,6 +967,47 @@ while api.get_provider_details().status != ProviderStatus.READY:
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the GitHub Actions workflow steps for the AOIS CI pipeline — checkout, Python lint, run evals, Trivy scan, Cosign sign, docker build and push to GHCR, trigger ArgoCD sync. Include the correct secrets references. 20 minutes.
+
+```yaml
+# Expected structure — each step present and in correct order
+- uses: actions/checkout@v4
+- name: Lint
+- name: Run evals
+- name: Trivy scan
+- name: Build and push
+- name: Sign image
+- name: Sync ArgoCD
+```
+
+---
+
+## Failure Injection
+
+Introduce a secret name mismatch between the GitHub Actions workflow and the repo secrets:
+
+```yaml
+- name: Build and push
+  env:
+    GHCR_TOKEN: ${{ secrets.GHCR_TOKN }}   # typo — missing E
+```
+
+Push to GitHub and watch the action fail. Read the error. GitHub Actions secret mismatches produce empty strings, not errors — the token is empty, not missing. This is the class of CI failure that wastes an hour because everything "looks right."
+
+Then introduce a Trivy failure by adding a deliberately vulnerable base image and verify the pipeline halts.
+
+---
+
+## Osmosis Check
+
+1. GitHub Actions runs the eval suite (v23.5) on every PR. The eval suite makes 20 LLM calls. A developer opens 5 PRs in one day. How many LLM calls does CI make — and which rate limiting strategy from v2.5 (AI Gateway) applies here, if any?
+2. Cosign signs the container image with a keyless signature using GitHub OIDC. ArgoCD deploys only signed images. An attacker pushes a modified image to GHCR directly (bypassing CI). Does ArgoCD deploy it? What is the specific Cosign policy that blocks it, and where is it enforced in the cluster? (v28 supply chain security)
+
+---
+
 ## Mastery Checkpoint
 
 You have completed v28 when you can do all of the following:

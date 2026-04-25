@@ -1108,6 +1108,43 @@ docker compose build aois
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the Kafka `producer.py` — connects to bootstrap server, serialises an AOIS incident log as JSON, publishes to the `aois-logs` topic, handles connection errors gracefully. Write the consumer skeleton with correct group ID and auto-offset reset. 20 minutes.
+
+```bash
+python3 kafka/producer.py --count 5
+# 5 messages published to aois-logs
+python3 kafka/consumer.py &
+# Consumer starts, reads 5 messages, calls analyze() on each
+```
+
+---
+
+## Failure Injection
+
+Start the consumer with a wrong group ID and observe the offset behaviour:
+
+```python
+consumer = KafkaConsumer(
+    'aois-logs',
+    group_id='wrong-group',    # different from the producer's expectation
+    auto_offset_reset='latest'  # starts from end, misses all previous messages
+)
+```
+
+Now switch to `auto_offset_reset='earliest'`. The consumer replays all messages from the beginning. In production, this is how you recover a consumer that crashed mid-processing — but it also means processing every message twice if not idempotent. Which AOIS operations are idempotent and which are not?
+
+---
+
+## Osmosis Check
+
+1. KEDA (v9) scales AOIS pods based on Kafka consumer lag. The lag is currently 500 messages. KEDA scales to 5 replicas. Each replica has a consumer in the same consumer group. How does Kafka distribute the 500 messages across 5 consumers — and what happens if there are more consumers than partitions?
+2. Falco (v18) will publish security alerts to a separate `aois-security` Kafka topic. Your v17 consumer reads `aois-logs`. Write the multi-topic subscription configuration from memory without looking ahead. (v17 consumer pattern + reason forward)
+
+---
+
 ## Mastery Checkpoint
 
 You have completed v17 when you can do all of the following:

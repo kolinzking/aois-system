@@ -745,6 +745,44 @@ Read the response body — FastAPI's 422 includes the exact field that failed va
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write a curl command that POSTs JSON to `https://httpbin.org/post` with header `Content-Type: application/json` and body `{"service": "aois", "status": "ok"}`. Parse the response with `jq` to extract just the `json` field. 20 minutes.
+
+```bash
+# Expected output:
+# {
+#   "service": "aois",
+#   "status": "ok"
+# }
+```
+
+---
+
+## Failure Injection
+
+Run these deliberately wrong and read the errors:
+
+```bash
+curl http://localhost:9999/health
+# Connection refused — what does this tell you vs a timeout?
+
+curl -X POST http://localhost:8000/analyze   -H "Content-Type: text/plain"   -d '{"log": "test"}'
+# What HTTP status does FastAPI return for wrong Content-Type?
+```
+
+Explain the difference between a connection refused error and a 422 Unprocessable Entity. They look similar to users but have completely different root causes.
+
+---
+
+## Osmosis Check
+
+1. Your bash script from v0.2 needs to curl an API endpoint and parse the JSON response. Which two tools do you combine?
+2. A service returns HTTP 200 but the response body is `{"error": "quota exceeded"}`. Why does this happen and which layer of the stack is lying to you?
+
+---
+
 ## Mastery Checkpoint
 
 HTTP is how every service in this project communicates. These exercises prove you understand the protocol, not just the tool.

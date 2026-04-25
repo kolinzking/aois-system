@@ -824,6 +824,49 @@ uvicorn mock_api:app --port 8001
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the AOIS `/analyze` endpoint — POST, accepts `IncidentLog`, returns `AnalysisResult`, includes a mock implementation that always returns P3, a liveness probe at `/health`, and a startup message with uvicorn. 20 minutes.
+
+```bash
+uvicorn main:app --reload &
+curl -s http://localhost:8000/health | jq .
+# {"status": "ok"}
+curl -s -X POST http://localhost:8000/analyze   -H "Content-Type: application/json"   -d '{"log": "OOMKilled"}' | jq .severity
+# "P3"
+```
+
+---
+
+## Failure Injection
+
+Break the endpoint in two ways and read each error:
+
+```python
+# Break 1: missing async
+@app.post("/analyze")
+def analyze(payload: IncidentLog):   # synchronous — what happens under load?
+    import time; time.sleep(2)
+    return AnalysisResult(...)
+
+# Break 2: wrong return type
+@app.post("/analyze")
+async def analyze(payload: IncidentLog):
+    return {"severity": "P3"}   # dict not AnalysisResult — does FastAPI accept it?
+```
+
+Run both. Read the responses. Understand what FastAPI validates and what it does not.
+
+---
+
+## Osmosis Check
+
+1. Your `/analyze` endpoint receives a request body. Which HTTP header must the client set, and what status does FastAPI return if it is missing? (v0.4)
+2. The `IncidentLog` model rejects payloads over 5KB. Where in the FastAPI stack do you enforce that — in the Pydantic model or as middleware — and why does the choice matter? (v0.5)
+
+---
+
 ## Mastery Checkpoint
 
 v0.6 is the inflection point — the last version before AI. After these exercises you will feel the limitation viscerally, which makes v1 land hard.

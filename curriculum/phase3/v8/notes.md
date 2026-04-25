@@ -776,6 +776,40 @@ GitOps is not just an ArgoCD feature — it is the operational model for the res
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the ArgoCD `Application` manifest — correct `repoURL`, `targetRevision`, `path` to the Helm chart, `valueFiles` pointing to `values.prod.yaml`, `syncPolicy` with automated prune and selfHeal enabled. 20 minutes.
+
+```bash
+kubectl apply -f argocd/application.yaml
+argocd app get aois
+# Status: Synced, Health: Healthy
+```
+
+---
+
+## Failure Injection
+
+Set `selfHeal: false`, manually change a replica count with kubectl, and observe:
+
+```bash
+kubectl scale deployment aois -n aois --replicas=1
+argocd app get aois
+# Status: OutOfSync — it detects the drift but does not fix it
+```
+
+Now enable `selfHeal: true` and wait. How long does ArgoCD take to detect and correct the drift? This is the difference between GitOps as a convention and GitOps as an enforced invariant.
+
+---
+
+## Osmosis Check
+
+1. ArgoCD polls your GitHub repo every 3 minutes. You push a broken manifest. AOIS goes down. How long is the minimum blast radius before you can push a fix and have it deployed? What feature reduces this? (v7 Helm + git workflow from v0.3)
+2. ArgoCD needs to pull the Helm chart from a private GitHub repo. What credential type does it use and where is it stored in the cluster? Do not look at the notes — reason from what you know about k8s Secrets and Git auth. (v6 k8s secrets)
+
+---
+
 ## Mastery Checkpoint
 
 **1. Explain the GitOps inversion**

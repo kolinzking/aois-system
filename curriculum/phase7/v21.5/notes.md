@@ -1284,6 +1284,46 @@ something you would give to a team on Monday morning.
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the JWT validation middleware — extract Bearer token from Authorization header, decode with HS256, validate the `aois-mcp` audience claim, return an `MCPClient` object with client_id and scopes. 20 minutes.
+
+```python
+token = create_jwt(client_id="cursor", scopes=["analyze", "read_logs"])
+client = validate_token(token)
+print(client.client_id)   # cursor
+print(client.scopes)      # ["analyze", "read_logs"]
+```
+
+---
+
+## Failure Injection
+
+Create an expired token and verify the middleware rejects it:
+
+```python
+import jwt, time
+expired_token = jwt.encode({
+    "sub": "cursor",
+    "aud": "aois-mcp",
+    "exp": time.time() - 3600   # 1 hour ago
+}, JWT_SECRET_KEY, algorithm="HS256")
+
+validate_token(expired_token)  # must raise, not return
+```
+
+Then test with wrong audience: `aud: "wrong-service"`. The error should be different from the expiry error — learn to distinguish them in the JWT library exception hierarchy.
+
+---
+
+## Osmosis Check
+
+1. The sliding window rate limiter uses an in-memory deque. AOIS has 3 replicas (v9 KEDA). Each replica has its own in-memory rate limiter. Claude.ai sends 20 requests/minute split across all 3 replicas. Does the rate limit of 20 req/min per client hold? If not, what is the actual effective limit and what architecture fixes it? (v9 scaling + v5 rate limiting)
+2. OTel traces every MCP tool call with span attributes for client_id and tool_name. These traces go to Tempo (v16). Write the Grafana query that shows you the top 3 most-called MCP tools by client type over the last 24 hours. (v16 OTel + Grafana TraceQL)
+
+---
+
 ## Mastery Checkpoint
 
 Complete these tasks in sequence. Each depends on the previous.

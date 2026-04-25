@@ -1347,6 +1347,39 @@ defaulting to whichever you learned first.
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write a Triton `config.pbtxt` for a Python backend model — correct backend name, input tensor (string, variable length), output tensor (string), instance group with one instance on CPU, max batch size 8. 20 minutes.
+
+```bash
+cat model_repository/aois_sre/config.pbtxt
+# backend: "python"
+# max_batch_size: 8
+# input/output tensors defined correctly
+```
+
+---
+
+## Failure Injection
+
+Name the backend incorrectly and read the Triton startup error:
+
+```
+backend: "Python"   # capital P — wrong
+```
+
+Triton is case-sensitive on backend names. The error message tells you exactly what went wrong but only if you know what to look for. Then set `max_batch_size: 0` and observe what changes in throughput behaviour.
+
+---
+
+## Osmosis Check
+
+1. Triton serves the fine-tuned TinyLlama from v15. The LoRA adapter was trained with r=16. If you deploy the base model without the adapter, what changes in output quality — and which v15 eval metric tells you within 10 requests that the adapter is missing?
+2. NIM (v13) is built on Triton internally. Name two things NIM adds on top of raw Triton that justify its existence as a separate product. (v13 NIM vs v13.5 Triton comparison)
+
+---
+
 ## Mastery Checkpoint
 
 Complete these tasks in sequence. Each depends on the previous.

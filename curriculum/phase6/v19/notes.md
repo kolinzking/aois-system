@@ -961,6 +961,44 @@ The capstone game day is chaos engineering at scale: coordinated failures across
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write a Chaos Mesh `PodChaos` manifest that kills one random AOIS pod every 60 seconds — correct `action`, `mode`, `selector` with namespace and label, `duration` and `scheduler`. 20 minutes.
+
+```bash
+kubectl apply -f chaos/pod-kill.yaml
+kubectl get podchaos -n aois
+# Shows experiment running
+kubectl get pods -n aois -w
+# One pod terminates every 60 seconds, Kubernetes restarts it
+```
+
+---
+
+## Failure Injection
+
+Apply the pod kill experiment while AOIS is handling a Kafka consumer lag of 100 messages. Watch what happens to the lag after the pod is killed:
+
+```bash
+# Terminal 1: watch consumer lag
+watch kubectl exec -n kafka aois-kafka-dual-role-0 --   /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092   --describe --group aois-consumer
+
+# Terminal 2: apply chaos
+kubectl apply -f chaos/pod-kill.yaml
+```
+
+Does the lag spike? Does it recover? How long? This is your real MTTR measurement, not a theoretical number.
+
+---
+
+## Osmosis Check
+
+1. You run a network delay experiment (100ms latency to Kafka) while k6 is load testing at 50 RPS. The p99 latency breaches 30 seconds. Is the SLO violation caused by the network delay, the load, or the combination? How do you distinguish them in Grafana?
+2. Chaos Mesh requires `containerd` socket access on k3s at `/run/k3s/containerd/containerd.sock`. On a standard Docker-based cluster it is at `/var/run/containerd/containerd.sock`. What is the root cause of this difference — and which v6 installation detail determines which path is correct on your cluster?
+
+---
+
 ## Mastery Checkpoint
 
 Complete all nine before marking v19 done.

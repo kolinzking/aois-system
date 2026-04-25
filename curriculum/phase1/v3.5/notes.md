@@ -1071,6 +1071,45 @@ Embedding drift is an AI-specific SLO in the capstone. RAG quality degrades sile
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write `retrieve_context()` — it must embed a query string, search the pgvector incidents table using cosine similarity, apply a 0.7 minimum threshold, and return the top 3 results as formatted strings for LLM context injection. 20 minutes.
+
+```python
+ctx = retrieve_context("auth service keeps restarting with exit code 137")
+print(len(ctx))    # > 0 if incidents are indexed
+print(ctx[0])      # formatted incident string
+```
+
+---
+
+## Failure Injection
+
+Drop the HNSW index and run retrieval:
+
+```sql
+DROP INDEX incidents_embedding_idx;
+```
+
+```python
+import time
+start = time.time()
+retrieve_context("OOMKilled auth service")
+print(f"Without index: {time.time()-start:.3f}s")
+```
+
+Re-create the index and compare. Then set `min_similarity=0.99` and run the same query. What happens to results? Lower it to `0.0` — what returns now? This is the threshold calibration problem every RAG system faces.
+
+---
+
+## Osmosis Check
+
+1. The embedding model you use in v3.5 is `text-embedding-3-small`. In v20 (agent tool use), `search_past_incidents` calls the same `retrieve_context()`. If the embedding model is upgraded between now and v20, what breaks in the existing index and what is the remediation?
+2. Your RAG pipeline adds 2,000 tokens of retrieved context to every LLM call. Calculate the additional monthly cost at Claude Sonnet pricing for 5,000 incidents/day where 60% trigger RAG retrieval. Is caching (v1) applicable here?
+
+---
+
 ## Mastery Checkpoint
 
 1. Enable pgvector in Postgres and verify with `SELECT extversion FROM pg_extension WHERE extname='vector'`. Create the incidents table with a HNSW index and confirm the index exists with `\d incidents`.

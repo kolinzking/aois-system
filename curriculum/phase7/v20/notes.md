@@ -892,6 +892,42 @@ The multi-turn loop in `investigator.py` is a flat while-loop. LangGraph in v23 
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the `get_pod_logs` tool definition — correct tool schema with `namespace` and `pod_name` parameters, the implementation that calls `kubectl logs`, the `@gated_tool` decorator that checks OPA policy before execution. 20 minutes.
+
+```python
+result = await get_pod_logs(namespace="aois", pod_name="aois-abc123")
+print(type(result))  # str — the logs
+# OPA policy was checked before kubectl ran
+```
+
+---
+
+## Failure Injection
+
+Call a tool without the `@gated_tool` decorator and test whether the circuit breaker still fires:
+
+```python
+# Remove @gated_tool from get_pod_logs
+# Make 20 rapid tool calls in a loop
+for i in range(20):
+    await get_pod_logs(namespace="aois", pod_name=f"pod-{i}")
+# Circuit breaker should NOT fire — decorator is gone
+```
+
+This is the security regression test. The gate must be architectural, not optional. Document what happens when the decorator is absent — that is your threat model.
+
+---
+
+## Osmosis Check
+
+1. Mem0 stores a past resolution: "OOMKilled on auth-service fixed by increasing memory to 512Mi." A new incident arrives: auth-service OOMKilled again. AOIS retrieves the memory and recommends 512Mi. But the real cause this time is a memory leak, not insufficient limit. How do you detect that Mem0 is steering the agent toward a wrong answer — which eval metric catches this? (v23.5 eval framework)
+2. Per-incident cost attribution threads an `incident_id` through all LLM calls. The incident spans a Kafka consumer (v17) to a Temporal workflow (v22) to a LangGraph agent (v23). How does the `incident_id` cross these three system boundaries without being lost?
+
+---
+
 ## Mastery Checkpoint
 
 1. Run a live investigation on the Hetzner cluster for "AOIS Kafka consumer pods, check for issues". Confirm at least 3 tool calls are made and the final response cites specific evidence (pod names, log lines, event timestamps — not generalities).

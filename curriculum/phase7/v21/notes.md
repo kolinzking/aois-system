@@ -698,6 +698,41 @@ The AOIS Agent Card (`/.well-known/agent.json`) becomes the service catalog entr
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the MCP server tool registration — the `@server.tool()` decorator pattern, a `get_incident_analysis` tool with input schema, and the server startup using `stdio` transport. 20 minutes.
+
+```bash
+python3 mcp_server/server.py &
+# Server starts on stdio
+# MCP client can now call get_incident_analysis
+```
+
+---
+
+## Failure Injection
+
+Call an MCP tool with a missing required parameter and read the error:
+
+```python
+# Required: namespace and pod_name
+await client.call_tool("get_pod_logs", {"namespace": "aois"})
+# pod_name is missing — what does the MCP server return?
+# Is it a schema validation error or a runtime error?
+```
+
+Understand the difference: schema validation catches missing params before your tool code runs. Runtime errors happen inside your tool. Which is safer and why?
+
+---
+
+## Osmosis Check
+
+1. Claude.ai connects to your MCP server as a client. It calls `get_pod_logs` with `namespace="kube-system"`. Your OPA policy (v20 agent gate) allows only the `aois` namespace. Does the gate fire for MCP-initiated calls the same as agent-initiated calls? What determines whether the policy applies?
+2. A2A protocol allows AOIS to call a second agent's tools. That second agent also has an OPA gate. Describe the trust chain: when AOIS calls Agent B's tool, whose identity is presented to Agent B's gate — AOIS's identity or the original user's identity?
+
+---
+
 ## Mastery Checkpoint
 
 1. Start the MCP server and connect the MCP inspector. Call `get_pod_logs(namespace="aois", pod_name="aois")` from the inspector UI. Confirm you receive real pod logs from the cluster.

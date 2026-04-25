@@ -790,6 +790,45 @@ These are not deficiencies — they are the next three versions.
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: implement the `analyze()` function — it must call Claude with prompt caching on the system prompt, parse a structured response into an `AnalysisResult`, fall back to OpenAI if Claude fails, and return the result. 20 minutes.
+
+```bash
+python3 -c "
+from main import analyze
+result = analyze('pod/auth-service CrashLoopBackOff OOMKilled exit code 137')
+print(result.severity, result.confidence)
+"
+# Expected: P1 or P2, confidence > 0.8
+```
+
+---
+
+## Failure Injection
+
+Remove `cache_control` from the system prompt and call `analyze()` ten times in a loop. Then re-add it and run again. Print token counts both times.
+
+```python
+import time
+for i in range(10):
+    result = analyze("OOMKilled exit code 137")
+# Compare: total input tokens with vs without caching
+# The difference is the cost of forgetting one line of config
+```
+
+Then send a 10KB log payload and read what happens. Does AOIS reject it, truncate it, or silently overspend on tokens?
+
+---
+
+## Osmosis Check
+
+1. Your `analyze()` function returns a Pydantic model. The FastAPI endpoint needs to return it as JSON. What happens if you return it directly vs calling `.model_dump()`? (v0.6 + v0.5)
+2. The Claude API returns a 529 overloaded error at 2am during an incident. Your fallback is OpenAI but the OpenAI key is missing from the environment. What does Python raise and where in the call stack does it raise it? (v0.7 + v0.5)
+
+---
+
 ## Mastery Checkpoint
 
 v1 is the moment AOIS becomes real. These exercises prove you understand the core intelligence, not just how to run the server.

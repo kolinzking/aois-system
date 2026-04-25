@@ -752,6 +752,43 @@ The golden dataset grows to 50 incidents by capstone time. Agent SLOs are enforc
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the eval runner loop — load `golden_dataset.json`, iterate over each entry, call `classify()` with the log input, compare actual severity to expected, accumulate accuracy and hallucination metrics, check all three SLOs, exit non-zero if any fail. 20 minutes.
+
+```bash
+python3 evals/run_evals.py
+# SLO STATUS: ✓ PASS
+# Severity accuracy: 92%
+# Safety rate: 100%
+```
+
+---
+
+## Failure Injection
+
+Introduce a prompt change that breaks the severity accuracy SLO and run evals:
+
+```python
+# In the system prompt, change:
+# "P1: complete service outage" → "P1: any service issue"
+python3 evals/run_evals.py
+# SLO STATUS: ✗ FAIL
+# Severity accuracy: 67% (below 90% threshold)
+```
+
+This is eval-driven development working correctly — the prompt change failed before shipping. Revert the prompt and confirm evals pass. If you cannot trigger the failure, your eval dataset does not cover enough edge cases.
+
+---
+
+## Osmosis Check
+
+1. The eval suite runs in GitHub Actions CI (v28) on every push. The suite makes 20 Claude API calls. At $0.003 per call, each CI run costs $0.06. Your team merges 15 PRs/day. What is the monthly eval cost and is it justified? Compare to the cost of one P1 incident caused by an undetected regression. (v1 cost model + business reasoning)
+2. W&B (v29) tracks eval results as experiments. You ran evals before and after a prompt change. W&B shows severity accuracy went from 88% to 94% but hallucination rate went from 3% to 7%. How do you decide whether to ship the change? (v29 + v23.5 SLO tradeoffs)
+
+---
+
 ## Mastery Checkpoint
 
 1. Run `python3 evals/run_evals.py` and record the initial severity accuracy. If it is below 90%, update the `detect_node` prompt with explicit severity thresholds and rerun. Show the before/after accuracy numbers.

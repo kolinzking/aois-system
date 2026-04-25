@@ -612,6 +612,40 @@ The fallback only tries `standard`. If you want premium → standard → fast �
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the LiteLLM routing configuration — four tiers (Claude premium, GPT-4o-mini, Groq fast, Ollama local), fallback order, per-tier cost tracking. Write the `route_by_severity()` function that selects the tier. 20 minutes.
+
+```python
+result = route_by_severity("P1", "OOMKilled log")
+# Must call Claude tier
+result = route_by_severity("P3", "high cpu warning")
+# Must call Groq tier
+```
+
+---
+
+## Failure Injection
+
+Set an invalid model prefix and read the LiteLLM error:
+
+```python
+litellm.completion(model="groq/invalid-model-name", messages=[...])
+# What does LiteLLM raise — and is it a LiteLLM exception or a raw HTTP error?
+```
+
+Then remove the Groq API key from the environment and trigger the fallback chain. Does it fall to the next tier or fail immediately? What determines that behaviour?
+
+---
+
+## Osmosis Check
+
+1. LiteLLM's cost tracking logs `$0.000001` per Groq call. Over 10,000 P3 incidents per day, what is the monthly cost for that tier alone? Do the arithmetic — this is the number that justifies the routing architecture. (v1 cost model)
+2. Your routing function calls `os.getenv("GROQ_API_KEY")` at call time, not at startup. What is the advantage of that over reading it at module import? (v0.5 dotenv pattern)
+
+---
+
 ## Mastery Checkpoint
 
 LiteLLM and multi-tier routing are production patterns used in every serious AI application. These exercises make them concrete.

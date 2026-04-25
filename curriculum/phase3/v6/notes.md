@@ -1244,6 +1244,46 @@ kubectl delete namespace aois
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the Kubernetes Deployment, Service, and Ingress manifests for AOIS — correct namespace, image pull secret reference, resource limits (256Mi/512Mi, 100m/500m), liveness and readiness probes at `/health`, TLS via cert-manager annotation. 20 minutes.
+
+```bash
+kubectl apply -f deployment.yaml --dry-run=client
+# No errors
+kubectl apply -f service.yaml --dry-run=client
+kubectl apply -f ingress.yaml --dry-run=client
+```
+
+---
+
+## Failure Injection
+
+Deploy with a deliberately wrong image tag and watch the pod fail:
+
+```yaml
+image: ghcr.io/kolinzking/aois:doesnotexist
+```
+
+```bash
+kubectl get pods -n aois -w
+# STATUS: ErrImagePull → ImagePullBackOff
+kubectl describe pod <pod-name> -n aois | grep -A5 Events
+# Read the exact failure reason
+```
+
+Now fix the image tag. How long does Kubernetes take to recover once the correct image is available? That recovery time is your deployment MTTR for image errors.
+
+---
+
+## Osmosis Check
+
+1. The AOIS pod needs the `ANTHROPIC_API_KEY` at runtime. You stored it in a Kubernetes Secret. What happens to the running pod if you rotate the Secret value — does the pod pick up the new value automatically or does it require a restart?
+2. The readiness probe fails because AOIS takes 8 seconds to start (model loading). The probe has `initialDelaySeconds: 5`. What does Kubernetes do to incoming traffic during those 3 seconds of probe failure? (v0.4 HTTP + v0.6 FastAPI startup)
+
+---
+
 ## Mastery Checkpoint
 
 You are running a real production Kubernetes cluster. These exercises prove you can operate it with confidence.

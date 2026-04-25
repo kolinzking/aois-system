@@ -723,6 +723,47 @@ Or use a macro to exclude known-good containers from a rule condition.
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write a Falco rule that fires when any container in the `aois` namespace runs a shell command (`bash`, `sh`). Include the correct rule fields: `rule`, `desc`, `condition`, `output`, `priority`. 20 minutes.
+
+```bash
+kubectl exec -n aois deploy/aois -- bash -c "echo test" 2>&1
+# Falco should fire within 2 seconds
+kubectl logs -n falco -l app.kubernetes.io/name=falco | grep "aois"
+# Shows the alert
+```
+
+---
+
+## Failure Injection
+
+Write a Falco rule with incorrect condition syntax and read the validation error:
+
+```yaml
+- rule: Bad Rule
+  condition: container.name = "aois" and proc.name = bash   # missing quotes
+  output: "shell in container"
+  priority: WARNING
+```
+
+```bash
+kubectl rollout restart daemonset/falco -n falco
+kubectl logs -n falco -l app.kubernetes.io/name=falco | grep -i error
+```
+
+Falco condition syntax errors appear at startup, not at rule trigger time. Learn to read them.
+
+---
+
+## Osmosis Check
+
+1. Falco fires a WARNING when a container writes to `/etc`. The Falco Sidekick publishes this to the `aois-security` Kafka topic. Your consumer (v17) reads it and sends it to `analyze()`. The LLM returns "this is expected — AOIS writes config at startup." How do you suppress false positives like this without disabling the Falco rule entirely?
+2. eBPF-based Falco requires BTF (BPF Type Format) support in the kernel. Hetzner's Kernel 6.8 has BTF. An on-premises customer runs kernel 4.19. What fallback does Falco offer, and what capability does it lose? (v18 Falco driver options)
+
+---
+
 ## Mastery Checkpoint
 
 1. **Explain eBPF to someone who knows Linux but not Kubernetes**: what problem does it solve, what are the two alternatives, and what makes it safe to run in the kernel.

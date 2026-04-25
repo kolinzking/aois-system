@@ -742,6 +742,48 @@ Do NOT commit:
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the AOIS multi-stage Dockerfile — build stage installs dependencies, runtime stage uses a minimal base, runs as non-root user `aois`, exposes port 8000. No `latest` tags. 20 minutes.
+
+```bash
+docker build -t aois:test .
+docker run --rm aois:test id
+# uid=1001(aois) gid=1001(aois) — must NOT be root
+docker run --rm aois:test python3 -c "import fastapi; print('ok')"
+# ok
+```
+
+---
+
+## Failure Injection
+
+Build the image running as root and run Trivy against it:
+
+```dockerfile
+FROM python:3.11-slim
+# No USER directive — runs as root
+COPY . .
+RUN pip install -r requirements.txt
+CMD ["uvicorn", "main:app"]
+```
+
+```bash
+trivy image aois:root-test --severity HIGH,CRITICAL
+```
+
+Count the vulnerabilities. Now build the hardened version and compare. This is the before/after that justifies the multi-stage pattern in every security review.
+
+---
+
+## Osmosis Check
+
+1. Your Dockerfile copies `requirements.txt` before copying the application code. This is deliberate — why does layer ordering matter for build cache? Which v0.1 concept about filesystem operations explains the underlying mechanism?
+2. The container starts successfully but `os.getenv("ANTHROPIC_API_KEY")` returns `None` inside it. Name the two correct ways to inject the env var, and why you must not bake it into the image. (v0.5 + v0.3 git security)
+
+---
+
 ## Mastery Checkpoint
 
 Containerization is not optional at Phase 3+. Everything from v6 onwards lives in containers. These exercises make the mental model automatic.

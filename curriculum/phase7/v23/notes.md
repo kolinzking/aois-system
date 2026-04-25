@@ -783,6 +783,45 @@ The full SRE loop — Detect → Investigate → Hypothesize → Verify → (hum
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the LangGraph `detect` node — it receives `AgentState`, calls the classify function, sets `severity` and `confidence` on the state, and returns the updated state dict. Write the conditional edge logic that routes to `investigate` for P1/P2 and `report` for P3/P4. 20 minutes.
+
+```python
+result = graph.invoke({"log_entry": "auth-service OOMKilled"})
+print(result["severity"])      # P1 or P2
+print(result["next_action"])   # "investigate"
+```
+
+---
+
+## Failure Injection
+
+Create a cycle in the graph by pointing an edge back to an earlier node and run it:
+
+```python
+builder.add_edge("investigate", "detect")   # loop back
+```
+
+LangGraph should detect this or run indefinitely. What happens? Then remove the cycle and introduce a wrong state key:
+
+```python
+def detect(state: AgentState) -> dict:
+    return {"sevrity": "P1"}   # typo — 'sevrity' not 'severity'
+```
+
+The graph runs without error but the severity is never set. This is the silent state mutation bug that makes agent graphs hard to debug — the node ran, the graph advanced, but the state is wrong.
+
+---
+
+## Osmosis Check
+
+1. The LangGraph agent calls `get_pod_logs` via the `@gated_tool` decorator (v20). The OPA policy checks `incident_id` for rate limiting. If the LangGraph `investigate` node calls `get_pod_logs` 15 times in one investigation (normal for complex incidents), does the circuit breaker (v20) fire? What is the correct threshold for a multi-call investigation?
+2. Dapr pub/sub connects LangGraph nodes across services. Node A runs in the AOIS pod. Node B runs in a separate metrics-analyzer pod. The Dapr message between them has a TTL of 30 seconds. Node B is restarting due to a pod kill (v19 chaos). What happens to the message and the in-flight investigation?
+
+---
+
 ## Mastery Checkpoint
 
 1. Create the `investigation_reports` table. Run the graph to the approval gate for a real incident. Confirm the graph pauses before `remediate_node` (does not execute remediation).

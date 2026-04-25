@@ -1014,6 +1014,56 @@ Common cause: the XRD schema has a validation error — a field type mismatch or
 
 ---
 
+
+## Build-It-Blind Challenge
+
+Close the notes. From memory: write the Crossplane XRD (CompositeResourceDefinition) for an AOIS tenant — defines `spec.parameters` with `tenantName`, `replicaCount`, and `tier` fields, correct `apiVersion` and `kind`. Write the Composition that maps these to a Namespace and Deployment. 20 minutes.
+
+```bash
+kubectl apply -f k8s/crossplane/xrd.yaml --dry-run=client
+# No errors
+kubectl apply -f k8s/crossplane/composition.yaml --dry-run=client
+# No errors
+```
+
+---
+
+## Failure Injection
+
+Create an XRD with a missing required field in the schema and apply a claim that omits it:
+
+```yaml
+# XRD requires tenantName but has no default
+spec:
+  parameters:
+    tenantName:
+      type: string
+      # no default
+
+# Claim omits tenantName:
+spec:
+  parameters:
+    replicaCount: 2
+    tier: standard
+```
+
+```bash
+kubectl apply -f claim.yaml
+kubectl get composite -A
+# What status does the composite resource show?
+```
+
+Crossplane validation errors are different from Kubernetes admission errors — they appear in the resource status, not as rejected applies. Learn to find them.
+
+---
+
+## Osmosis Check
+
+1. Pulumi (v30) provisions AOIS infrastructure in Python. ArgoCD (v8) deploys the application. Crossplane (v30) provisions cloud resources from k8s. Where does each tool's responsibility begin and end? Draw the boundary: Pulumi handles X, ArgoCD handles Y, Crossplane handles Z.
+2. Semantic Kernel (v30) exposes AOIS as a plugin to a .NET enterprise application. The plugin calls the AOIS `/analyze` endpoint with a JWT (v27). The .NET app is in Azure Active Directory. Which JWT issuer does the AOIS endpoint need to trust — your internal JWT_SECRET_KEY or an Azure AD public key — and what changes in the JWT validation code?
+
+---
+
 ## Mastery Checkpoint
 
 You have completed v30 when you can do all of the following:
