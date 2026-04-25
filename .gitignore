@@ -35,3 +35,7 @@ logs/
 # Session artifacts
 .session_reminder
 k8s/secret.yaml
+
+# Machine-specific Claude Code settings (permissions vary per machine)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
