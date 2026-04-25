@@ -857,6 +857,7 @@ print("Export complete")
 ```
 
 ```bash
+# Run on your LOCAL machine — this pulls from Modal, not Vast.ai
 python3 export_adapter.py
 # Expected:
 # Downloading adapter_config.json ...
@@ -873,6 +874,25 @@ ls -lh triton_adapter/
 # tokenizer_config.json       ~1KB
 # special_tokens_map.json     ~1KB
 ```
+
+Now copy the adapter to your Vast.ai instance:
+
+```bash
+# Replace 12345 and 1.2.3.4 with your actual Vast.ai SSH port and IP
+scp -P 12345 -r ./triton_adapter/ root@1.2.3.4:/tmp/triton_adapter/
+# Expected:
+# adapter_config.json       100%  1KB
+# adapter_model.safetensors 100%  9MB   4.2MB/s
+# tokenizer.json            100%  2MB
+# tokenizer_config.json     100%  1KB
+# special_tokens_map.json   100%  1KB
+
+# Verify it arrived on Vast.ai
+ssh -p 12345 root@1.2.3.4 "ls -lh /tmp/triton_adapter/"
+# Expected: same 5 files listed above
+```
+
+All remaining steps in Step 6 run **on the Vast.ai instance** (inside your SSH session).
 
 ### Step 6b: Build the model repository
 
