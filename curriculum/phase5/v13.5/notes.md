@@ -1360,11 +1360,13 @@ reduce to `torch_dtype=torch.int8` to halve memory usage.
 
 ## Connection to Later Phases
 
-**v14 (vLLM)**: After this version the comparison is concrete. vLLM beats Triton Python backend
-for LLM serving: PagedAttention manages KV cache memory dynamically, continuous batching
-saturates the GPU without waiting for a queue window. For AOIS's TinyLlama tier, vLLM is the
-correct production choice. Triton is correct when you host a fleet of mixed model types on
-shared GPU hardware — embedding model, reranker, and LLM together.
+**v14 (SGLang, vLLM, Dynamo)**: After this version the comparison is concrete. SGLang beats Triton
+Python backend for multi-turn agent LLM serving: RadixAttention reuses shared prefix KV cache
+across turns, continuously batches requests, and latency drops on turns 2–3 as the system prompt
+hits cache. vLLM beats Triton Python backend for high-concurrency single-turn batch serving
+(PagedAttention). Both run on the same Vast.ai instance you just used for Triton. Triton is
+correct when you host mixed model types on shared GPU hardware — embedding model, reranker, and
+LLM together in a single server.
 
 **v16 (OpenTelemetry)**: Triton exposes Prometheus metrics at `:8002` by default. Add it to
 `otel/prometheus.yml` as a scrape target:
