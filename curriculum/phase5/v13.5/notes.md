@@ -1041,9 +1041,19 @@ class TritonPythonModel:
         print("[aois_tinyllama] finalized")
 ```
 
-### Step 6d: Launch Triton with GPU access
+### Step 6d: Launch Triton with GPU access (on Vast.ai)
 
 ```bash
+# On Vast.ai — first verify Docker sees your GPU
+docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
+# Expected: shows your RTX 3090 or RTX 4090, 24576MiB
+
+# Pull the Triton image (nvcr.io/nvidia/tritonserver is public — no NGC auth needed)
+# First pull is ~8GB, subsequent runs use cached image
+docker pull nvcr.io/nvidia/tritonserver:24.01-py3
+# Expected: Status: Downloaded newer image for nvcr.io/nvidia/tritonserver:24.01-py3
+
+# Start Triton with GPU passthrough
 docker run --rm -d \
   --gpus all \
   --name triton-aois-gpu \
@@ -1056,7 +1066,7 @@ docker run --rm -d \
     --log-verbose=0
 ```
 
-Watch for model load (takes 30–60s on A10G):
+Watch for model load (takes 30–90s on RTX 3090 — downloads TinyLlama base weights ~2.2GB):
 ```bash
 docker logs -f triton-aois-gpu 2>&1 | grep -E "aois_tinyllama|READY|ERROR"
 # Expected:
@@ -1066,7 +1076,14 @@ docker logs -f triton-aois-gpu 2>&1 | grep -E "aois_tinyllama|READY|ERROR"
 # ... Successfully loaded model 'aois_tinyllama'
 ```
 
-Test inference:
+For the inference test, forward the Triton port back to your local machine:
+```bash
+# In a new local terminal — forward Vast.ai port 8000 to local 8000
+ssh -N -L 8000:localhost:8000 -p 12345 root@1.2.3.4
+# Leave running while you test
+```
+
+Test inference (run locally — hits Vast.ai Triton via port forward):
 ```python
 # test_tinyllama_triton.py
 import tritonclient.http as httpclient
