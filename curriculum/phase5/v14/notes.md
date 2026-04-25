@@ -1,27 +1,29 @@
-# v14 — vLLM on Modal: Self-Hosted GPU Inference
+# v14 — Self-Hosted GPU Inference: SGLang, vLLM, and Dynamo
 
-⏱ **Estimated time: 3–4 hours**
+⏱ **Estimated time: 4–5 hours**
 
 ---
 
 ## Prerequisites
 
-Phase 5 started. v13 code is committed (NIM tier in main.py). Modal account created.
-
-Verify:
-```bash
-python3 -c "import modal; print(modal.__version__)"
-# Expected: 0.6x.x (any recent version)
-
-modal token list
-# Expected: shows your authenticated token
-# If not authenticated: modal token new
-```
+Phase 5 started. v13 code is committed (NIM tier in main.py).
 
 Verify AOIS still runs:
 ```bash
 curl http://localhost:8000/health
 # Expected: {"status":"healthy"}
+```
+
+You need a [Vast.ai](https://vast.ai) account — free to create, you pay per hour only when a GPU is rented. No GPU rental needed until Step 5.
+
+```bash
+# Verify Python tools are available (install ahead of GPU time to save money)
+pip install "sglang[all]>=0.4.0" vllm
+python3 -c "import sglang; print(sglang.__version__)"
+# Expected: 0.4.x or later
+
+python3 -c "import vllm; print(vllm.__version__)"
+# Expected: 0.4.x or later
 ```
 
 ---
@@ -30,50 +32,155 @@ curl http://localhost:8000/health
 
 By the end you will be able to:
 
-- Explain what vLLM is and why it exists (throughput problem, KV cache, continuous batching)
-- Deploy a quantized open-source model on Modal serverless GPU
-- Route AOIS traffic to your own model endpoint via LiteLLM
-- Describe the full inference provider landscape: Groq vs NIM vs Modal/vLLM vs Ollama — when each wins
-- Read throughput/latency benchmarks and make cost-per-call routing decisions
+- Explain what vLLM is and why it exists (PagedAttention, continuous batching, KV cache management)
+- Explain what SGLang adds over vLLM specifically for multi-turn agent workloads (RadixAttention)
+- Rent a GPU on Vast.ai, SSH in, and serve an open-source model via an OpenAI-compatible endpoint
+- Route AOIS traffic to your self-hosted model via LiteLLM without changing application code
+- Explain what NVIDIA Dynamo adds above vLLM/SGLang for fleet-scale multi-node inference
+- Choose the right inference engine for a given workload: SGLang vs vLLM vs NIM vs Groq vs Dynamo
 
 ---
 
 ## Why This Version Exists
 
-At v2 you built LiteLLM routing with four tiers. The cheapest tier was Groq. Groq is fast and cheap but:
+At v2 you built LiteLLM routing with four tiers. The cheapest tier was Groq. Groq is fast and cheap — but:
 
-1. You don't control the model. Groq's model catalog is limited.
-2. You can't fine-tune what runs there (that's v15).
+1. You do not control the model. Groq's catalog is limited.
+2. You cannot fine-tune what runs there (that is v15).
 3. At high volume, Groq's rate limits become real.
-4. For air-gapped or compliance environments, you need your own inference.
+4. For compliance environments, logs must not leave your infrastructure.
 
-vLLM solves all four. It is the production-grade inference engine used at Mistral, Anyscale, and most organizations running their own models. After v14, AOIS can use any open-source model ever trained — no API key required, no rate limits, no external dependency.
+SGLang and vLLM solve all four. They are production-grade inference servers — SGLang is now deployed on 400,000+ GPUs globally; vLLM is used at Mistral, Anyscale, and most organisations running their own models. After v14, AOIS can serve any open-source model ever trained. No API key, no rate limits, no external dependency.
 
-The catch: you need a GPU. Modal gives you serverless GPU — pay per second, scale to zero when idle.
+The catch: you need a GPU. **Vast.ai** gives you hourly GPU rental at the cheapest rates available — RTX 3090 (24GB VRAM) from $0.25/hr, the same GPU that would cost $1.98/hr on Modal. You pay only for the hours you use.
+
+> **Modal note:** The repo contains `vllm_modal/serve.py` — this documents a previous deployment attempt on Modal. Modal's cold starts (30–120s), dependency conflicts between vLLM versions, and $1.98/hr A10G cost (vs $0.25/hr RTX 3090 on Vast.ai) made it the wrong platform for persistent inference serving. Modal is the right choice for one-shot GPU jobs like fine-tuning runs (v15). For serving — where the server runs for hours — Vast.ai wins on cost by 5–8x.
+
+---
+
+## What Is Vast.ai?
+
+Vast.ai is a peer-to-peer GPU marketplace. Server owners rent out idle GPU capacity; you pay per hour. The result: market-rate pricing that undercuts every managed GPU cloud.
+
+**How the economics work:**
+
+| GPU | VRAM | Vast.ai typical | Modal | RunPod | AWS p3.2xlarge |
+|-----|------|-----------------|-------|--------|----------------|
+| RTX 3090 | 24GB | $0.20–$0.35/hr | N/A | $0.44/hr | N/A |
+| A10 | 24GB | $0.30–$0.45/hr | $1.98/hr | $0.74/hr | $3.83/hr |
+| A100 (40GB) | 40GB | $1.20–$1.80/hr | N/A | $1.89/hr | $12.24/hr |
+| H100 | 80GB | $2.50–$3.50/hr | N/A | $3.49/hr | N/A |
+
+For AOIS GPU learning: start with RTX 3090 at $0.25/hr. It has 24GB VRAM — identical to an A10G — and will serve Llama-3.1-8B comfortably. Stop the instance when done. Cost for a full v14 session: ~$1.00–$2.00.
+
+**Trade-offs vs managed platforms:**
+
+Vast.ai instances are on third-party hardware — no SLA, occasional hardware variance. For learning and development this is fine. For a production inference endpoint, RunPod (with guaranteed uptime) or your own Hetzner GPU (when justified by sustained usage) are better fits. Vast.ai is the right tool here: cheapest hourly rate for experimenting with GPU inference.
 
 ---
 
 ## What Is vLLM?
 
-vLLM is a high-throughput inference server built at UC Berkeley. It was the first implementation of **PagedAttention** — a memory management technique that treats the GPU KV cache like virtual memory in an OS. Before PagedAttention, the KV cache (the memory of what a model has seen in a conversation) was statically allocated. Most of it was wasted. Throughput was limited by that waste.
+vLLM is a high-throughput inference server built at UC Berkeley. It was the first implementation of **PagedAttention** — a memory management technique that treats the GPU KV cache like virtual memory in an OS.
 
-PagedAttention allocates KV cache in small pages, reuses them across requests, and enables **continuous batching** — instead of waiting for a full batch before processing, vLLM starts on new requests as soon as previous ones finish. The result: 10–24x throughput improvement over naive inference at the same latency.
+Before PagedAttention, each request's KV cache (the stored key/value attention tensors representing context) was statically pre-allocated at max sequence length. Most of that allocation was wasted. Throughput was limited by this waste.
 
-In plain terms: one A10G GPU with vLLM can serve what would require 10 GPUs with a naive inference loop.
+PagedAttention allocates KV cache in small pages, reuses them across requests, and enables **continuous batching**: instead of waiting for a full batch to finish, vLLM starts processing new requests as soon as any slot frees up. Result: 10–24× throughput improvement over naive HuggingFace inference.
 
-**The things you need to understand:**
+In plain terms: one RTX 3090 with vLLM can serve what would require 10 GPUs with a naive inference loop.
+
+**Key terms you must know:**
 
 | Term | What it means |
 |------|--------------|
-| KV cache | Stored key/value attention tensors from previous tokens — what lets the model "remember" earlier context without recomputing |
-| Continuous batching | Process requests as they arrive, not in fixed-size batches — eliminates GPU idle time between requests |
+| KV cache | Stored key/value attention tensors from previous tokens — what lets the model "remember" context without recomputing it |
+| Continuous batching | Process requests as they arrive rather than waiting for fixed-size batches — eliminates GPU idle time |
 | PagedAttention | Non-contiguous KV cache memory allocation — the core vLLM innovation |
-| gpu_memory_utilization | Fraction of GPU VRAM vLLM reserves for KV cache (0.90 = 90%) |
-| tensor parallelism | Split a single model across multiple GPUs (needed for 70B+ models) |
+| gpu_memory_utilization | Fraction of GPU VRAM vLLM reserves for KV cache (0.85 = 85%) |
+| tensor parallelism | Split a single model across multiple GPUs — needed for 70B+ models |
 
 ---
 
-## The Inference Provider Landscape (Full Picture)
+## What Is SGLang?
+
+vLLM asks "how do I serve a model efficiently?" SGLang asks "how do I serve a model efficiently specifically for agents?" The distinction is meaningful for AOIS.
+
+### Why vLLM Falls Short for Multi-Turn Agents
+
+vLLM's PagedAttention was designed for independent requests — each request gets its own KV cache, allocated fresh. For a single-turn chatbot this is fine. For an agent running a 10-step investigation, it creates waste.
+
+When AOIS investigates an incident via the LangGraph loop (v23):
+1. Turn 1: system prompt + log entry → LLM generates tool call
+2. Turn 2: system prompt + log entry + tool result → LLM generates next tool call
+3. Turn 3: system prompt + log entry + tool result 1 + tool result 2 → ...
+
+At turn 10, the system prompt has been re-processed 10 times. The KV cache for those tokens has been computed from scratch each time. That is wasted GPU compute — the system prompt did not change.
+
+vLLM introduced prefix caching to partially address this, but it is opt-in, coarse-grained, and only matches exact prefixes.
+
+### SGLang's RadixAttention
+
+SGLang (UC Berkeley Sky Computing Lab, spun out as RadixArk in January 2026 at $400M valuation, deployed on 400,000+ GPUs) solves this with **RadixAttention** — automatic, fine-grained KV cache reuse via a radix tree.
+
+A radix tree stores all cached sequences as shared prefixes. When a new request arrives, SGLang finds the longest prefix already in cache and reuses its KV state. Only novel tokens need computing.
+
+**Concrete example for AOIS:**
+
+```
+Turn 1: [system_prompt][log_entry][turn_1_tokens]
+Turn 2: [system_prompt][log_entry][turn_1_tokens][tool_result_1][turn_2_tokens]
+Turn 3: [system_prompt][log_entry][turn_1_tokens][tool_result_1][turn_2_tokens][tool_result_2][turn_3_tokens]
+```
+
+The radix tree finds `[system_prompt][log_entry]` is shared across all turns. Turn 2 only computes KV for `[tool_result_1][turn_2_tokens]`. Turn 3 only computes KV for `[tool_result_2][turn_3_tokens]`. The shared prefix KV state is never recomputed.
+
+For AOIS's LangGraph SRE loop with 6 nodes and 10–15 tool calls per incident, this translates to 60–80% less KV computation per turn after the first.
+
+### TGI Is Dead for New Projects
+
+HuggingFace Text Generation Inference (TGI) entered official maintenance mode in December 2025. No new features are being developed. If you see TGI in a production codebase, it is legacy — do not start new projects with it.
+
+---
+
+## What Is NVIDIA Dynamo?
+
+Released as open source at GTC 2026, Dynamo is NVIDIA's inference orchestration layer. It solves a different problem from vLLM or SGLang: not "how do I serve one model efficiently" but "how do I route requests across a fleet of GPU workers intelligently."
+
+Dynamo sits above vLLM and SGLang. Each worker node runs vLLM or SGLang as the actual inference engine. Dynamo manages the routing layer between them.
+
+**The three problems Dynamo solves:**
+
+**1. Disaggregated prefill and decode**
+
+In a standard LLM inference call:
+- **Prefill**: process the entire input prompt — compute-bound, happens once, proportional to prompt length
+- **Decode**: generate output tokens one by one — memory-bandwidth-bound, happens iteratively
+
+These have different hardware requirements. A prefill node processes input in parallel (wants many cores, high compute throughput). A decode node generates tokens sequentially (wants high memory bandwidth, lower compute). Dynamo routes each phase to the right hardware.
+
+On a single GPU, you pay this cost anyway. On a cluster, you can use cheaper hardware for decode (H100 for prefill, A10 for decode) — the compute cost drops significantly.
+
+**2. KV cache-aware routing**
+
+When an agent sends turn 2 of a conversation, Dynamo routes it to the worker that already has the KV cache for turn 1 — the radix tree is at the cluster level, not just within one server. This is SGLang's RadixAttention scaled out to a fleet.
+
+**3. NIXL (NVIDIA Interconnect Library)**
+
+When a request must move from one worker to another, Dynamo uses NIXL to transfer KV cache blocks directly via NVLink or InfiniBand — avoiding recomputation. KV state migrates with the request.
+
+**What this means on a single Vast.ai GPU:**
+
+- Disaggregated prefill/decode: minimal benefit (same hardware for both)
+- KV cache-aware routing: local only (same as running vLLM directly)
+- NIXL: not applicable (requires NVLink between nodes)
+
+The single-GPU Dynamo demo is still valuable: it lets you see the router architecture, understand how it wraps vLLM, and observe the metadata it tracks. The production benefit kicks in when you have 4+ GPU nodes.
+
+**The mental model:** vLLM/SGLang = one smart GPU worker. Dynamo = smart traffic director across many GPU workers.
+
+---
+
+## The Inference Provider Landscape
 
 After v14, AOIS can route to all of these. Here is where each wins:
 
@@ -81,953 +188,844 @@ After v14, AOIS can route to all of these. Here is where each wins:
 |----------|---------|----------------|----------|-------|
 | Claude (Anthropic) | 800–2000ms | $3–$15 | P1/P2 incidents, reasoning | Expensive at volume |
 | GPT-4o-mini | 400–800ms | $0.15 | Standard summarization | OpenAI dependency |
-| Groq | 100–300ms | $0.05–$0.20 | Ultra-low latency | Limited model catalog |
+| Groq | 100–300ms | $0.05–$0.20 | Ultra-low latency | Limited model catalog, rate limits |
 | Together AI | 400–1000ms | $0.10–$0.80 | Open-source models, batch | Shared infra |
-| Fireworks AI | 300–800ms | $0.10–$0.50 | Fast open-source inference | Shared infra |
 | NVIDIA NIM | 200–600ms | NGC credit / free tier | NVIDIA-hosted Llama/Mistral | NGC key required |
-| **Modal + vLLM** | 1000–4000ms* | $0.000012/call† | P3/P4 volume, any model | Cold start penalty |
-| Ollama (local) | 500–2000ms | $0 (hardware) | Air-gapped, testing | Single machine |
+| **Vast.ai + SGLang** | 500–2000ms | $0.10–0.50* | P3/P4 volume, agent multi-turn, any model | Spot hardware (no SLA), SSH setup |
+| **Vast.ai + vLLM** | 600–2500ms | $0.10–0.50* | High-concurrency batch inference | Same as above |
+| Ollama (local) | 500–5000ms | $0 (hardware) | Air-gapped, testing | Single machine speed |
 
-*Cold start adds 30–120s first time. Warm container: 1–4s.
-†A10G at $0.000612/sec, Mistral-7B at ~20 tokens/sec = ~0.03s/call = $0.000018/call.
+*Vast.ai RTX 3090 at $0.25/hr. At 80 tokens/sec, 100-token response ≈ 1.25s → ~$0.00009/call. At 1M tokens/day that is ~$25/day GPU rental vs ~$3,000/day for Claude.
 
-**The insight:** at 10,000 P3/P4 calls per day, Modal+vLLM costs ~$0.18/day. Groq at the same volume costs ~$1.00/day. Claude costs ~$50/day. The right tier matters.
-
----
-
-## What Is Modal?
-
-Modal is serverless GPU compute. You define your function in Python, decorate it with `@app.cls(gpu=...)`, and Modal handles:
-
-- Provisioning the GPU instance
-- Building and caching the container image
-- Downloading and caching model weights
-- Scaling to zero when no requests arrive
-- Scaling up when requests arrive
-
-You pay per second of GPU time. Zero requests = zero cost.
-
-The alternative is renting a Hetzner GPU server (€2.49/hr) or an AWS GPU instance — both charge by the hour even when idle. For intermittent workloads like AOIS, Modal wins on cost unless your utilization is >40%.
-
----
-
-## Step 1 — Install Modal and Authenticate
-
-```bash
-pip install modal
-modal token new
-# Opens browser, authenticate with GitHub or Google
-# Expected output: Token stored at /home/<user>/.modal/credentials
-
-modal token list
-# Expected: lists your token with workspace name
-```
-
----
-
-## Step 2 — Create the HuggingFace Secret in Modal
-
-vLLM downloads model weights from HuggingFace at build time. Mistral-7B-Instruct-v0.3 is not gated, but having a token avoids rate limiting on the HF Hub.
-
-```bash
-# In Modal dashboard: https://modal.com/secrets
-# Create new secret named "huggingface-secret"
-# Key: HF_TOKEN
-# Value: your HuggingFace token (from hf.co/settings/tokens)
-```
-
-Then verify:
-```bash
-modal secret list
-# Expected: shows huggingface-secret
-```
-
-If you do not have a HuggingFace token:
-```bash
-# Go to https://huggingface.co/settings/tokens
-# Create a "read" token
-# Paste it in the Modal secret
-```
-
----
-
-## Step 3 — Understand the Modal Deployment File
-
-Read `vllm_modal/serve.py`. The key parts:
-
-**`@app.build()`** — runs once when you `modal deploy`. Downloads Mistral-7B weights (~14GB) and bakes them into the container snapshot. After the first deploy, weights are cached — subsequent deploys are fast.
-
-**`@app.enter()`** — runs when a container starts (cold start). Loads the vLLM engine into GPU VRAM. This is the slow part (~30–90s). Modal keeps the container warm for 5 minutes after the last request (`container_idle_timeout=300`).
-
-**`@app.web_endpoint(method="POST")`** — exposes the function as an HTTPS endpoint. LiteLLM hits this directly.
-
-**`allow_concurrent_inputs=32`** — vLLM handles its own batching internally. Telling Modal to allow 32 concurrent inputs means 32 requests can reach the vLLM engine simultaneously — it batches them via PagedAttention.
-
-**The model revision is pinned** (`MODEL_REVISION = "e0bc86c..."`). Never use `main` or `latest` in production. A model author can push breaking changes to HuggingFace at any time. Pin to a commit hash.
-
----
-
-▶ **STOP — do this now**
-
-Grep the key configuration parameters from `vllm_modal/serve.py`:
-
-```bash
-grep -n 'gpu_memory_utilization\|allow_concurrent_inputs\|MODEL_REVISION\|container_idle_timeout\|keep_warm' vllm_modal/serve.py
-```
-
-Expected output (line numbers will vary):
-```
-7:MODEL_REVISION = "e0bc86c..."
-28:    container_idle_timeout=300,
-29:    allow_concurrent_inputs=32,
-34:    gpu_memory_utilization=0.90,
-```
-
-Now calculate the GPU block impact of halving `gpu_memory_utilization`:
-
-```python
-# A10G has 24GB VRAM. vLLM reserves gpu_memory_utilization fraction for KV cache.
-# Each KV cache block holds 16 tokens.
-# Mistral-7B in fp16 uses each block at ~1MB (approximate).
-
-vram_gb = 24
-for util in [0.90, 0.50]:
-    kv_vram_gb = vram_gb * util
-    approx_blocks = int(kv_vram_gb * 1000)  # rough: 1MB per block
-    print(f"gpu_memory_utilization={util}: ~{approx_blocks} KV blocks available")
-```
-
-Expected:
-```
-gpu_memory_utilization=0.90: ~21600 KV blocks available
-gpu_memory_utilization=0.50: ~12000 KV blocks available
-```
-
-More blocks = more concurrent tokens in flight = higher throughput under load. Halving `gpu_memory_utilization` halves your effective batching capacity. Now you know the number, not just the direction.
-
----
-
-## Step 3.5 — What Changed in main.py
-
-Before deploying, understand the AOIS-side changes. Open `main.py` and find the `ROUTING_TIERS` dict. The vLLM tier entry looks like this:
-
-```python
-"vllm": {
-    "model": "openai/mistralai/Mistral-7B-Instruct-v0.3",
-    "cost_per_1k_input_tokens": 0.0000012,
-    "cost_per_1k_output_tokens": 0.0000012,
-},
-```
-
-And in `analyze()`, the extra kwarg block:
-
-```python
-extra_kwargs = {}
-if tier == "vllm":
-    vllm_url = os.getenv("VLLM_MODAL_URL")
-    if not vllm_url:
-        raise ValueError("VLLM_MODAL_URL not set in environment")
-    extra_kwargs["api_base"] = vllm_url
-```
-
-**Why this pattern works:**
-
-LiteLLM uses the `openai/` prefix to select the OpenAI provider adapter — which implements the chat completions API format. By passing `api_base`, you redirect where the request goes. The remote endpoint (your Modal container) speaks the same OpenAI wire protocol, so no adapter change is needed. This is the universal pattern for any self-hosted OpenAI-compatible server.
-
-The cost values in `ROUTING_TIERS` are approximations — Modal charges by GPU time, not tokens. The numbers ($0.0000012/1k tokens) are back-calculated from A10G cost at ~20 tokens/sec. Langfuse will show these as the recorded cost per call — useful for comparison dashboards in v29.
-
-**`SEVERITY_TIER_MAP` — current state and the v14 option:**
-
-```python
-# Current (after v13 benchmarking)
-SEVERITY_TIER_MAP = {
-    "P1": "premium",
-    "P2": "premium",
-    "P3": "fast",    # Groq — 0.22s, $0.000001/call
-    "P4": "fast",    # Groq — deterministic LPU
-}
-
-# After Modal deploy, you can optionally switch P3/P4 to vllm:
-SEVERITY_TIER_MAP = {
-    "P1": "premium",
-    "P2": "premium",
-    "P3": "vllm",   # self-hosted Mistral-7B — no per-call cost, GPU time only
-    "P4": "vllm",
-}
-```
-
-Switch to `vllm` only after your Modal endpoint is live and benchmarked. At low volume, Groq is cheaper and simpler — Modal's A10G costs ~$0.60/hr even at idle. The crossover where vllm wins on cost is ~3,000+ P3/P4 calls/day sustained. This map is checked in `analyze()` when `auto_route=True` is set on the `LogInput`. The routing is enforced in code, not by caller discipline.
-
----
-
-## Step 3.6 — Quantization: Fitting Larger Models in Less VRAM
-
-Mistral-7B in the default fp16 format uses ~14GB VRAM. The A10G has 24GB — it fits. But a 13B model in fp16 uses ~26GB and will not fit. And on smaller GPUs (T4: 16GB, L4: 24GB), even 7B models can be tight when paired with a large KV cache.
-
-**Quantization** reduces the precision of model weights from 16-bit float to 8-bit or 4-bit integers. This is a fundamental tool for production inference.
-
-| Format | Precision | VRAM (7B model) | Quality impact |
-|--------|-----------|-----------------|----------------|
-| fp16 | 16-bit float | ~14GB | Baseline |
-| int8 | 8-bit integer | ~7GB | <1% degradation |
-| int4 (AWQ) | 4-bit integer | ~4GB | 1–3% degradation |
-| int4 (GPTQ) | 4-bit integer | ~4GB | 1–4% degradation |
-
-AWQ (Activation-aware Weight Quantization) and GPTQ are the two dominant 4-bit quantization methods. Both are supported natively in vLLM.
-
-To serve a pre-quantized AWQ model, change one line in `serve.py`:
-
-```python
-# Replace:
-MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.3"
-
-# With an AWQ version (check HuggingFace for availability):
-MODEL_NAME = "TheBloke/Mistral-7B-Instruct-v0.2-AWQ"
-
-# And add to the vllm engine args:
-AsyncEngineArgs(
-    model=MODEL_NAME,
-    quantization="awq",           # tell vLLM which quantizer was used
-    gpu_memory_utilization=0.90,
-    max_model_len=4096,
-)
-```
-
-In fp16, after v14 deploys, you can always check how much VRAM is actually being used:
-
-```bash
-modal run vllm_modal/serve.py
-# After the container starts, look for lines like:
-# GPU blocks: 1872, CPU blocks: 2048
-# Each block is a 16-token KV cache page
-# More blocks = larger effective context window under concurrent load
-```
-
-**The production rule:** for 7B models on A10G, fp16 is fine. For 13B+ or when running on T4/L4, use AWQ. For maximum throughput on high-volume P4 logs, AWQ on a smaller GPU instance costs less than fp16 on a larger one.
-
----
-
-## Step 4 — Deploy to Modal
-
-```bash
-modal deploy vllm_modal/serve.py
-```
-
-Expected output (first deploy — downloads ~14GB of weights):
-```
-✓ Initialized. View app at https://modal.com/apps/your-workspace/aois-vllm
-✓ Created objects.
-Building image aois-vllm-...
-  Downloading model mistralai/Mistral-7B-Instruct-v0.3 (~14GB)...
-  ... (2–5 minutes)
-✓ App deployed in 312s.
-  └── VLLMServer.v1_chat_completions => https://your-workspace--aois-vllm-vllmserver-v1-chat-completions.modal.run
-```
-
-Copy the `https://...modal.run` URL. That is your inference endpoint.
-
-Subsequent deploys (weights cached):
-```
-✓ App deployed in 14s.
-```
-
----
-
-## Step 5 — Configure AOIS to Use the Endpoint
-
-Add to `.env`:
-```bash
-VLLM_MODAL_URL=https://your-workspace--aois-vllm-vllmserver-v1-chat-completions.modal.run
-```
-
-LiteLLM uses the `openai/` prefix plus `api_base` to route to any OpenAI-compatible API. The model name in the `openai/mistralai/Mistral-7B-Instruct-v0.3` format tells LiteLLM which model to report in its cost tracking.
-
-Test the connection directly:
-```bash
-curl -X POST "$VLLM_MODAL_URL" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [
-      {"role": "user", "content": "Say hello in one sentence."}
-    ],
-    "max_tokens": 50
-  }'
-```
-
-Expected response:
-```json
-{
-  "id": "cmpl-abc123",
-  "object": "chat.completion",
-  "model": "mistralai/Mistral-7B-Instruct-v0.3",
-  "choices": [
-    {
-      "index": 0,
-      "message": {"role": "assistant", "content": "Hello! It's great to meet you."},
-      "finish_reason": "stop"
-    }
-  ],
-  "usage": {"prompt_tokens": 12, "completion_tokens": 9, "total_tokens": 21}
-}
-```
-
----
-
-▶ **STOP — do this now**
-
-Before running AOIS, test vLLM directly with a real log:
-
-```bash
-curl -X POST "$VLLM_MODAL_URL" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [
-      {
-        "role": "system",
-        "content": "You are an SRE. Classify this log with severity P1-P4 and a one-sentence summary."
-      },
-      {
-        "role": "user",
-        "content": "pod/worker-9b4f2 OOMKilled exit code 137, memory limit 256Mi"
-      }
-    ],
-    "max_tokens": 200
-  }'
-```
-
-You are bypassing AOIS entirely — hitting vLLM directly. This is the baseline. Note:
-- Response time (first call vs second call — warm vs cold)
-- Whether the model follows the format instructions
-
-Then route through AOIS:
-```bash
-curl -X POST http://localhost:8000/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"log": "pod/worker-9b4f2 OOMKilled exit code 137", "tier": "vllm"}'
-```
-
-Expected:
-```json
-{
-  "summary": "Worker pod OOMKilled due to memory limit exceeded",
-  "severity": "P2",
-  "suggested_action": "Increase pod memory limit or investigate memory leak",
-  "confidence": 0.85,
-  "provider": "openai/mistralai/Mistral-7B-Instruct-v0.3",
-  "cost_usd": 0.000018
-}
-```
-
----
-
-## Step 6 — Run the Full Benchmark
-
-```bash
-python3 test_vllm.py
-```
-
-Expected output (truncated):
-```
-============================================================
-Tier: premium
-============================================================
-
-  [OOMKilled]
-  ✓ severity: P2 (expected P2)
-    latency:    1243ms
-    cost:       $0.001240
-    provider:   anthropic/claude-opus-4-6
-
-  [CrashLoopBackOff]
-  ✓ severity: P2 (expected P2)
-    latency:    989ms
-    cost:       $0.001180
-
-  [Disk pressure]
-  ✓ severity: P3 (expected P3)
-    latency:    876ms
-    cost:       $0.000890
-
-  [High latency]
-  ✓ severity: P3 (expected P3)
-    latency:    1102ms
-    cost:       $0.001050
-
-============================================================
-Tier: vllm
-============================================================
-
-  [OOMKilled]
-  ✓ severity: P2 (expected P2)
-    latency:    1840ms
-    cost:       $0.000018
-
-  [CrashLoopBackOff]
-  ✓ severity: P2 (expected P2)
-    latency:    1560ms
-    cost:       $0.000016
-
-  [Disk pressure]
-  ✓ severity: P3 (expected P3)
-    latency:    1320ms
-    cost:       $0.000015
-
-  [High latency]
-  ✓ severity: P3 (expected P3)
-    latency:    1490ms
-    cost:       $0.000014
-
-============================================================
-SUMMARY
-============================================================
-Log                  Tier        Latency         Cost  Correct
-------------------------------------------------------------
-OOMKilled            premium       1243ms  $0.001240      yes
-OOMKilled            vllm          1840ms  $0.000018      yes
-CrashLoopBackOff     premium        989ms  $0.001180      yes
-CrashLoopBackOff     vllm          1560ms  $0.000016      yes
-Disk pressure        premium        876ms  $0.000890      yes
-Disk pressure        vllm          1320ms  $0.000015      yes
-High latency         premium       1102ms  $0.001050      yes
-High latency         vllm          1490ms  $0.000014      yes
-
-Tier          Avg latency    Total cost   Accuracy
---------------------------------------------------
-premium          1053ms       $0.004360      100%
-vllm             1553ms       $0.000063      100%
-
-Decision framework:
-  vLLM (Modal A10G): ~$0.000010–0.000030/call, ~1000–3000ms, good for P3/P4 volume
-  Claude premium:    ~$0.000500–0.002000/call, ~800–2000ms,  required for P1/P2
-```
-
-**Reading the results:**
-- vLLM is ~60x cheaper than Claude premium per call
-- vLLM is ~500ms slower on average (warm container)
-- Accuracy is identical on these structured tasks
-- The routing strategy from v13 (P3/P4 → cheap tier) now has a much better cheap tier
-
----
-
-## Step 7 — Update SEVERITY_TIER_MAP (Optional)
-
-After v13 benchmarking, P3/P4 currently route to Groq (`fast` tier — 0.22s, $0.000001/call). vLLM on Modal is an alternative when you need a self-hosted model with no per-call API cost.
-
-Switch P3/P4 to vLLM only when:
-- Your Modal endpoint is live and benchmarked
-- Volume exceeds ~3,000 P3/P4 calls/day (crossover where GPU time beats Groq per-call pricing)
-- You need data sovereignty (logs stay in your Modal container, not Groq's servers)
-
-```python
-# In main.py — optional, after Modal is deployed and benchmarked
-SEVERITY_TIER_MAP = {
-    "P1": "premium",
-    "P2": "premium",
-    "P3": "vllm",    # self-hosted Mistral-7B — no per-call cost at volume
-    "P4": "vllm",
-}
-```
-
-This is the pattern: **cost-aware routing with quality gates.** The severity determines the quality tier; the tier map determines the provider. You can swap providers in the tier map without changing routing logic.
-
----
-
-▶ **STOP — do this now**
-
-Calculate the cost difference at scale. Open Python:
-
-```python
-# Scenario: 10,000 P3/P4 log analyses per day
-calls_per_day = 10_000
-
-claude_cost = calls_per_day * 0.001200  # average from your benchmark
-vllm_cost   = calls_per_day * 0.000016  # average from your benchmark
-groq_cost   = calls_per_day * 0.000050  # Groq Llama-3.1-8B approximate
-
-print(f"Claude premium/day: ${claude_cost:.2f}")
-print(f"vLLM (Modal)/day:   ${vllm_cost:.2f}")
-print(f"Groq fast/day:      ${groq_cost:.2f}")
-print(f"vLLM vs Claude:     {claude_cost/vllm_cost:.0f}x cheaper")
-print(f"vLLM vs Groq:       {groq_cost/vllm_cost:.0f}x cheaper")
-```
-
-Expected output:
-```
-Claude premium/day: $12.00
-vLLM (Modal)/day:   $0.16
-Groq fast/day:      $0.50
-vLLM vs Claude:     75x cheaper
-vLLM vs Groq:       3x cheaper
-```
-
-At 10k calls/day, vLLM saves ~$4,300/year over Groq and ~$4,300/year over Claude. The Modal GPU cost is amortized across all those calls.
-
----
-
-## Understanding Throughput vs Latency
-
-These are different axes. This distinction matters at production scale.
-
-**Latency**: time for one request to complete. vLLM on Modal warm: ~1–3s. That is slower than Groq (100–300ms) for a single call.
-
-**Throughput**: requests per second the system can handle before queuing. vLLM with `allow_concurrent_inputs=32` and PagedAttention can process 32 concurrent requests and batch them. At 32 concurrent users, vLLM's effective throughput exceeds Groq's API limits.
-
-The tradeoff:
-- **Interactive, real-time** (human waiting): Groq wins — 200ms latency matters
-- **Background processing, high volume** (batch log analysis): vLLM wins — throughput and cost matter
-- **Critical incidents** (P1/P2): Claude wins — quality matters, cost irrelevant
-
-AOIS auto-routes based on severity, which maps to these use cases naturally:
-- P1/P2 = human waiting for response → Claude
-- P3/P4 = background batch analysis → vLLM
-
----
-
-## The Inference Hardware Race
-
-You are now using vLLM on NVIDIA A10G. You should understand what the A10G is competing against and why there are multiple players in the inference hardware space.
-
-**NVIDIA GPU (A10G, A100, H100)**
-
-NVIDIA's hardware is the default. The A10G has 24GB VRAM, 250W TDP, and costs ~$0.60/hr on Modal. The A100 (80GB) handles 70B models. The H100 is the current flagship — 4x the throughput of A100 for transformer workloads due to the transformer engine and FP8 support.
-
-vLLM was built for NVIDIA GPUs. PagedAttention maps directly to how CUDA manages memory. If you are running your own inference, NVIDIA is the safe default.
-
-**Groq LPU (Language Processing Unit)**
-
-Groq is not a GPU. It is a custom ASIC designed specifically for transformer inference. The architecture is a deterministic dataflow chip — no caches, no memory bandwidth bottleneck, completely predictable execution. The result: sub-100ms inference for 7B–70B models.
-
-Why Groq exists: GPUs are general-purpose. They were designed for graphics, then repurposed for ML. A chip designed only for the transformer attention pattern will beat a GPU on latency every time. Groq proved that.
-
-The limit: Groq's capacity is finite and shared. At high concurrent load, you hit rate limits. You do not own the hardware. You cannot run custom models. Groq wins on latency for API customers at moderate volume.
-
-**Cerebras WSE (Wafer Scale Engine)**
-
-Cerebras built the largest chip ever made — the entire wafer is one chip. A single WSE-3 chip has 900,000 AI cores and 44GB of SRAM on-chip. No memory bandwidth bottleneck at all — all memory is on the compute die.
-
-The result: 70B models at 800+ tokens/second. For comparison, an A100 does ~40 tokens/second on a 70B model.
-
-The limit: the WSE is not accessible as a self-hosted option. Cerebras offers an API (inference.cerebras.ai). Like Groq, you are renting capacity you do not control. The hardware is commercially available to enterprises at significant cost.
-
-**Where each wins**
-
-| Scenario | Winner | Why |
-|----------|--------|-----|
-| Sub-100ms single-user latency | Groq | Deterministic ASIC, no memory bottleneck |
-| 70B+ model, one user, fastest | Cerebras | Wafer-scale on-chip SRAM |
-| High-volume batch, custom model | NVIDIA + vLLM | You own the hardware, control the model |
-| Fine-tuned model deployment | NVIDIA + vLLM | Groq/Cerebras don't accept custom weights |
-| Cost at high throughput | NVIDIA + vLLM | Amortized hardware cost beats per-token fees |
-| Air-gapped / compliance | NVIDIA + vLLM | No external API dependency |
-
-**What this means for AOIS**
-
-Your routing map now spans the full hardware landscape:
-- Groq (`fast` tier) — when P3 latency still matters
-- Modal + vLLM (`vllm` tier) — when P3/P4 volume and cost matter
-- Claude (`premium` tier) — when P1/P2 quality is non-negotiable
-
-A production AI platform engineer knows which hardware their traffic is hitting and why. You now do.
-
----
-
-## Keep Warm: Eliminating Cold Starts in Production
-
-Cold starts are acceptable in development. In production, a 90-second timeout on the first P1 alert is not acceptable.
-
-Modal provides `keep_warm` — maintain N always-on container instances:
-
-```python
-@app.cls(
-    gpu=GPU_CONFIG,
-    container_idle_timeout=300,
-    allow_concurrent_inputs=32,
-    keep_warm=1,  # one container always running
-    secrets=[modal.Secret.from_name("huggingface-secret")],
-)
-class VLLMServer:
-    ...
-```
-
-Cost of `keep_warm=1` on A10G:
-- $0.000612/sec × 86,400 sec/day = $52.88/day idle
-- Break-even: if you have >88,000 calls/day, keep_warm is cheaper than cold starts
-
-For AOIS in development: do not use `keep_warm`. Accept cold starts. In production, add it only if P3/P4 volume justifies it.
-
-Alternative: implement a lightweight `/warm` endpoint that returns immediately but keeps the container alive, and have a cron job ping it every 4 minutes (under the 5-minute idle timeout). Cost: ~2ms GPU time per ping vs $52/day for keep_warm.
-
----
-
-## Monitoring Your vLLM Deployment
-
-vLLM exposes a `/metrics` endpoint in Prometheus format. Once your Modal container is running, you can read it directly:
-
-```bash
-curl "$VLLM_MODAL_URL/../metrics"
-# Note: the metrics path depends on how Modal routes requests
-# Check Modal dashboard → app → endpoint for the base URL
-```
-
-More practically, watch Modal's built-in logs while a request is in flight:
-
-```bash
-modal logs aois-vllm --follow
-```
-
-What to look for in the logs:
-
-```
-INFO:     Started server process [1]
-INFO:     Uvicorn running on http://0.0.0.0:8000
-# ^ Container started. Still cold — vLLM engine loading next.
-
-INFO 04-19 14:22:01 llm_engine.py:161] Initializing an LLM engine
-INFO 04-19 14:22:01 llm_engine.py:217] GPU blocks: 1872, CPU blocks: 2048
-# ^ Engine ready. GPU blocks = how many 16-token KV pages fit in VRAM.
-# More blocks = longer max context per concurrent request.
-
-INFO 04-19 14:22:14 async_llm_engine.py:364] Received request cmpl-abc: ...
-INFO 04-19 14:22:15 async_llm_engine.py:364] Finished request cmpl-abc.
-# ^ Request arrived and completed. "Finished" in ~1s = warm container.
-```
-
-**Cold vs warm container:** a cold start shows 30–90 seconds between "Started server process" and "GPU blocks:". A warm container skips straight to "Received request" — the engine is already in VRAM.
-
-**The key metric to track in production:** `avg_generation_throughput_toks_per_s` in the Prometheus output. This tells you whether PagedAttention batching is working. Under sustained concurrent load, this number should climb above single-request baseline. If it is stuck at single-request throughput under high concurrency, your `allow_concurrent_inputs` setting may be too low.
-
----
-
-▶ **STOP — do this now**
-
-After deploying, run this to understand what your container is doing:
-
-```bash
-# Watch logs while sending two concurrent requests
-modal logs aois-vllm --follow &
-
-curl -X POST "$VLLM_MODAL_URL" \
-  -H "Content-Type: application/json" \
-  -d '{"messages": [{"role": "user", "content": "pod OOMKilled, classify severity P1-P4"}], "max_tokens": 100}' &
-
-curl -X POST "$VLLM_MODAL_URL" \
-  -H "Content-Type: application/json" \
-  -d '{"messages": [{"role": "user", "content": "disk pressure on node, classify severity P1-P4"}], "max_tokens": 100}' &
-
-wait
-```
-
-Expected: both requests arrive in the log within milliseconds of each other. Both finish within 2–3 seconds. The engine batched them — you did not pay double latency for the second request.
-
-This is PagedAttention working. Two requests, one batched execution pass. The first time you see this you understand why vLLM exists.
-
----
-
-## Common Mistakes
-
-**Mistake 1: Cold start surprise**
-
-Trigger it: deploy and then wait 6+ minutes before sending a request (past the `container_idle_timeout=300` window). Then:
-```bash
-time curl -X POST "$VLLM_MODAL_URL" \
-  -H "Content-Type: application/json" \
-  -d '{"messages": [{"role": "user", "content": "hello"}], "max_tokens": 10}'
-```
-You will see:
-```
-real    1m32.441s
-```
-The request hung for 92 seconds — Modal cold-started the container and loaded the vLLM engine into VRAM. This is expected. The error you may also see if your client has a short timeout:
-```
-curl: (28) Operation timed out after 30000 milliseconds
-```
-
-Fix: in `serve.py`, increase `container_idle_timeout=600` (10 min) for development. In production, use Modal's `keep_warm=1` to maintain one always-on container at low cost.
-
-**Mistake 2: Forgetting `api_base`**
-
-Trigger it: temporarily unset the env var and call the vllm tier:
-```bash
-VLLM_MODAL_URL="" python3 -c "
-import requests
-r = requests.post('http://localhost:8000/analyze',
-  json={'log': 'pod OOMKilled', 'tier': 'vllm'})
-print(r.json())
-"
-```
-You will see:
-```
-LiteLLM Error: openai.AuthenticationError: No API key provided.
-```
-LiteLLM's `openai/` prefix without `api_base` sends the request to api.openai.com, not your Modal endpoint — and fails because you have no OpenAI key loaded for the vllm tier.
-
-Fix: confirm `VLLM_MODAL_URL` is set in `.env` and that `analyze()` passes `api_base` in `extra_kwargs` when `tier == "vllm"`.
-
-**Mistake 3: Wrong model name in LiteLLM**
-
-Trigger it: change the model name in `ROUTING_TIERS["vllm"]` to remove the `openai/` prefix:
-```python
-# Wrong:
-"model": "mistralai/Mistral-7B-Instruct-v0.3"
-```
-Send a request. You will see:
-```
-LiteLLM Error: model not found in provider map
-```
-LiteLLM uses the prefix to select the provider adapter. Without `openai/`, it does not know which adapter handles this model name.
-
-Fix: restore the `openai/` prefix: `"openai/mistralai/Mistral-7B-Instruct-v0.3"`.
-
-**Mistake 4: `gpu_memory_utilization=1.0`**
-
-Trigger it: change `gpu_memory_utilization=1.0` in `serve.py` and redeploy. The container will start, then fail during engine initialization:
-```
-torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB
-  (GPU 0; 22.08 GiB total capacity; 21.94 GiB already allocated)
-```
-vLLM reserves that fraction of VRAM at startup for the KV cache. At 1.0, there is no headroom left for CUDA operations (workspace, activations, temporary buffers).
-
-Fix: revert to `gpu_memory_utilization=0.90`. Always leave 5–10% headroom.
-
-**Mistake 5: Not pinning model revision**
-
-This one does not produce an immediate error — it produces silent behavior drift. Trigger awareness of it:
-```bash
-# Check what commit your current pin points to
-grep MODEL_REVISION vllm_modal/serve.py
-# Expected: MODEL_REVISION = "e0bc86c..."
-
-# What happens if you used "main":
-# modal deploy pulls HuggingFace HEAD on every deploy
-# Three months from now, Mistral pushes a new checkpoint to "main"
-# Your endpoint changes behavior — severity classifications shift — with zero visibility
-```
-
-Fix: always pin `MODEL_REVISION` to a specific git commit hash. Find the current hash on the HuggingFace model page under "Files and versions" → click the commit hash next to any file.
-
----
-
-## Troubleshooting
-
-**Error: `modal.exception.NotFoundError: Secret 'huggingface-secret' not found`**
-```
-modal secret list
-# Verify the secret is named exactly "huggingface-secret"
-# Modal secrets are case-sensitive
-```
-
-**Error: `vllm.engine.async_llm_engine.AsyncLLMEngine loading failed`**
-```
-modal logs aois-vllm
-# Check the full build log — usually a VRAM OOM during engine load
-# Mistral-7B needs ~14GB VRAM in fp16
-# A10G has 24GB — should be fine unless other processes are using VRAM
-```
-
-**Error: Instructor `ValidationError` on vLLM responses**
-Mistral-7B can produce less reliable JSON compared to Claude. Instructor retries automatically (max_retries=2 in main.py). If failures persist:
-```python
-# Increase max_retries to 3 in analyze()
-# Or add a system prompt reinforcement specifically for vLLM tier:
-# "IMPORTANT: Always respond using the analyze_incident tool. Never output raw JSON."
-```
-
-**vLLM endpoint returns 500 on first request after deploy**
-Modal's container starts cold. The first request can hit before the vLLM engine finishes loading. Solution: run the smoke test (`modal run vllm_modal/serve.py`) after deploy to warm the container before routing live traffic.
-
----
-
-## SGLang: The Agentic Inference Standard (2026)
-
-vLLM was the answer to "how do I serve a model efficiently?" SGLang is the answer to "how do I serve a model efficiently for agents specifically?" The distinction matters for AOIS.
-
-### Why vLLM Falls Short for Multi-Turn Agents
-
-vLLM's PagedAttention was designed for independent requests — each request gets its own KV cache, allocated fresh. For a single-turn chatbot this is fine. For an agent running a 10-step investigation, it creates waste.
-
-When AOIS investigates an incident:
-1. Turn 1: system prompt + log entry → LLM generates tool call
-2. Turn 2: system prompt + log entry + tool result → LLM generates next tool call
-3. Turn 3: system prompt + log entry + tool result 1 + tool result 2 → ...
-
-At turn 10, the system prompt has been re-processed 10 times. The KV cache for those tokens has been computed from scratch each time. That is wasted GPU compute — the system prompt didn't change.
-
-vLLM introduced prefix caching to partially address this, but it is opt-in, coarse-grained, and only matches exact prefixes. For AOIS where the system prompt is always the same but the log entry changes, it helps. For multi-step reasoning where context grows with each turn, it helps less.
-
-### SGLang's RadixAttention
-
-SGLang (UC Berkeley Sky Computing Lab, January 2026 spinout as RadixArk) solves this with RadixAttention — automatic, fine-grained KV cache reuse via a radix tree.
-
-A radix tree stores all cached sequences as shared prefixes. When a new request arrives, SGLang finds the longest prefix already in cache and reuses its KV state. Only the new tokens need computing.
-
-**Concrete example for AOIS:**
-
-Turn 1: `[system_prompt][log_entry][turn_1_tokens]`  
-Turn 2: `[system_prompt][log_entry][turn_1_tokens][tool_result_1][turn_2_tokens]`  
-Turn 3: `[system_prompt][log_entry][turn_1_tokens][tool_result_1][turn_2_tokens][tool_result_2][turn_3_tokens]`
-
-The radix tree finds `[system_prompt][log_entry]` is shared across all three turns. Turn 2 only computes KV for `[tool_result_1][turn_2_tokens]`. Turn 3 only computes KV for `[tool_result_2][turn_3_tokens]`. The shared prefix KV state is never recomputed — it is reused.
-
-For AOIS's LangGraph SRE loop (v23) with 6 nodes and 10-15 tool calls per incident, this is meaningful: 60–80% of tokens per turn are shared prefix, which means 60–80% less KV computation per turn.
-
-### TGI Is Dead for New Projects
-
-HuggingFace Text Generation Inference (TGI) entered official maintenance mode in December 2025. No new features are being developed. If you see TGI in production codebases, it is legacy. Do not start new projects with TGI.
-
-The inference engine landscape as of 2026:
+**The inference engine comparison (for self-hosted):**
 
 | Engine | Strength | Best for | Status |
-|---|---|---|---|
-| **SGLang** | RadixAttention — automatic prefix sharing, agentic multi-turn | Multi-turn agents, AOIS investigations | Active — production standard |
+|--------|----------|----------|--------|
+| **SGLang** | RadixAttention — automatic prefix sharing, agentic multi-turn | Multi-turn agents, AOIS investigations | Active — production standard 2026 |
 | **vLLM** | PagedAttention — high-concurrency single-turn | Batch inference, high-throughput API | Active — strong for non-agent workloads |
-| **TensorRT-LLM** | NVIDIA-optimised, maximum throughput on NVIDIA hardware | Production NVIDIA GPU deployments with fixed model | Active — NVIDIA-specific |
-| **Triton** | Full control, ensemble pipelines, any framework | When you need pre/post-processing chains | Active — operational complexity |
-| **TGI** | Legacy HuggingFace wrapper | Nothing new | **Maintenance mode Dec 2025 — do not start new projects** |
+| **TensorRT-LLM** | NVIDIA-optimised, maximum throughput | Fixed model on NVIDIA hardware | Active — NVIDIA-specific |
+| **Triton** | Full control, ensemble pipelines | Pre/post-processing chains | Active — high operational complexity |
+| **TGI** | Legacy HuggingFace wrapper | Nothing new | **Maintenance mode Dec 2025 — dead** |
 
-### Serving a Model on SGLang
+---
 
-SGLang exposes an OpenAI-compatible endpoint. LiteLLM routes to it unchanged.
+## Step 1 — Rent a GPU on Vast.ai
+
+Go to [vast.ai](https://vast.ai). Create an account and add your SSH public key:
 
 ```bash
-# Install SGLang
-pip install "sglang[all]>=0.4.0"
+# Get your SSH public key
+cat ~/.ssh/id_rsa.pub
+# Expected: ssh-rsa AAAA... or ssh-ed25519 AAAA...
+# Paste this in Vast.ai → Account → SSH Keys
+```
 
-# Serve Llama-3.1-8B with RadixAttention (default — no flag needed)
+Search for a GPU:
+- Filter: 24GB VRAM (RTX 3090 or A10), >40 GB disk, CUDA 12.x
+- Sort by: price per hour ascending
+- Target: $0.20–$0.35/hr
+
+Click **Rent**. Once provisioned (30–120s), you get an SSH connection string.
+
+---
+
+## Step 2 — Connect and Prepare the Environment
+
+```bash
+# Connect (Vast.ai gives you the exact command)
+ssh -p 12345 root@192.168.x.x
+# Expected: root@container-abc123:~#
+```
+
+Inside the container:
+
+```bash
+# Verify GPU
+nvidia-smi
+# Expected output includes:
+# | NVIDIA GeForce RTX 3090   | (or A10)
+# |  GPU 0  ... 24576MiB / 24576MiB   0MiB |
+
+# Verify Python and CUDA
+python3 --version && nvcc --version
+# Expected:
+# Python 3.11.x
+# Cuda compilation tools, release 12.x
+
+# Install inference engines (do this while the GPU is billable — it's fast)
+pip install "sglang[all]>=0.4.0" vllm huggingface_hub
+# Expected: takes 2–4 minutes — large dependencies
+
+# Pre-download model weights (saves time during exercises)
+python3 -c "from huggingface_hub import snapshot_download; snapshot_download('meta-llama/Llama-3.1-8B-Instruct')"
+# Expected: takes 5–10 minutes (8B model is ~15GB)
+# If you see a gated model error:
+#   huggingface-cli login  # enter your HF token
+#   # Accept the Llama-3.1 license at hf.co/meta-llama/Llama-3.1-8B-Instruct
+```
+
+---
+
+## Step 3 — Serve a Model with SGLang
+
+SGLang is the primary recommendation for AOIS. Its RadixAttention directly benefits your agent workloads.
+
+```bash
+# Start SGLang server (RadixAttention enabled by default — no flag needed)
 python -m sglang.launch_server \
   --model-path meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \
   --port 30000 \
   --mem-fraction-static 0.85
+
+# --mem-fraction-static: fraction of GPU VRAM reserved for KV cache
+# 0.85 leaves 15% for model weights overhead and CUDA workspace
 ```
 
 Expected output:
 
 ```
+[SGLang] Initializing model: meta-llama/Llama-3.1-8B-Instruct
+[SGLang] GPU memory: 24576 MiB total, 20890 MiB reserved for KV cache
+[SGLang] RadixAttention enabled (automatic prefix caching active)
 [SGLang] Server started on http://0.0.0.0:30000
-[SGLang] RadixAttention enabled (automatic prefix caching)
-[SGLang] Model loaded: meta-llama/Llama-3.1-8B-Instruct
+[SGLang] OpenAI-compatible endpoint: /v1/chat/completions
 ```
 
-Query it via the OpenAI-compatible endpoint:
+Test it:
 
 ```bash
 curl http://localhost:30000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "meta-llama/Llama-3.1-8B-Instruct",
-    "messages": [{"role": "user", "content": "What causes OOMKilled in Kubernetes?"}],
-    "max_tokens": 200
+    "messages": [
+      {"role": "user", "content": "What causes OOMKilled in Kubernetes?"}
+    ],
+    "max_tokens": 150
   }'
 ```
 
-Wire to LiteLLM in AOIS:
-
-```python
-# In routing config — SGLang tier (self-hosted)
-"sglang": {
-    "model": "openai/meta-llama/Llama-3.1-8B-Instruct",
-    "api_base": "http://localhost:30000/v1",
-    "api_key": "none",
-}
-```
-
-LiteLLM routes to SGLang identically to how it routes to vLLM. The difference is what happens inside: SGLang reuses KV cache across multi-turn calls; vLLM recomputes it.
-
-### ▶ STOP — do this now
-
-Check SGLang's cache hit rate during a simulated multi-turn investigation:
-
-```bash
-# After running 3+ consecutive requests with the same system prompt:
-curl http://localhost:30000/get_server_info | python3 -m json.tool | grep -E "cache|prefix|hit"
-```
-
-Expected output includes:
+Expected response:
 
 ```json
 {
+  "id": "sglang-abc123",
+  "object": "chat.completion",
+  "model": "meta-llama/Llama-3.1-8B-Instruct",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "OOMKilled in Kubernetes occurs when a container exceeds its memory limit. The Linux kernel's OOM killer terminates the process (exit code 137). Common causes: memory leak in the application, insufficient memory limit set in the pod spec, or a sudden traffic spike exceeding expected memory usage..."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {"prompt_tokens": 18, "completion_tokens": 67, "total_tokens": 85}
+}
+```
+
+---
+
+▶ **STOP — do this now**
+
+Check SGLang's cache hit rate during a simulated multi-turn investigation. Run three consecutive requests with the same system prompt:
+
+```bash
+# Simulate three turns of an AOIS investigation
+SYSTEM="You are an SRE. Analyze Kubernetes incidents and classify severity P1-P4."
+
+for msg in "pod OOMKilled exit code 137" "CrashLoopBackOff 5 times in 10 minutes" "node disk pressure eviction"; do
+  curl -s http://localhost:30000/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"model\": \"meta-llama/Llama-3.1-8B-Instruct\",
+      \"messages\": [
+        {\"role\": \"system\", \"content\": \"$SYSTEM\"},
+        {\"role\": \"user\", \"content\": \"$msg\"}
+      ],
+      \"max_tokens\": 100
+    }" | python3 -m json.tool | grep '"content"' | head -1
+done
+
+# Then check the cache statistics
+curl -s http://localhost:30000/get_server_info | python3 -m json.tool
+```
+
+Expected output from `get_server_info` (after 3+ requests):
+
+```json
+{
+  "model_path": "meta-llama/Llama-3.1-8B-Instruct",
   "prefix_cache_hit_tokens": 3840,
   "prefix_cache_miss_tokens": 412,
   "prefix_cache_hit_rate": 0.903
 }
 ```
 
-A 90%+ hit rate means 9 out of 10 tokens in the shared prefix were served from cache — not recomputed. For a 5-turn AOIS investigation, this translates directly to lower latency and lower GPU compute cost per turn. The first request always misses (cache is cold). Subsequent requests with the same system prompt hit.
+A 90%+ hit rate means 9 out of 10 tokens in the shared system prompt are served from the radix tree cache — not recomputed. The first request always misses (cache cold). Every subsequent request with the same system prompt hits.
 
-If running Modal (no local GPU): save this exercise for when you have access to an SGLang instance. The concept is what matters — the numbers make it concrete.
+For AOIS's LangGraph SRE loop (v23) with 6 nodes and 10–15 tool calls per incident: this hit rate means 60–80% less KV computation per turn after the first. GPU time drops proportionally.
 
-### SGLang vs vLLM Decision Framework
+---
+
+## Step 4 — Serve the Same Model with vLLM (Comparison)
+
+Stop the SGLang server (Ctrl+C), then start vLLM on the same port:
+
+```bash
+# Stop SGLang first — both cannot hold the GPU simultaneously
+# Then start vLLM
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --host 0.0.0.0 \
+  --port 30000 \
+  --gpu-memory-utilization 0.85
+```
+
+Expected output:
 
 ```
-Is your workload multi-turn? (agents, conversations, iterative reasoning)
-├── Yes → SGLang — RadixAttention reuses shared prefix KV across turns
-└── No → vLLM — PagedAttention is sufficient for independent single-turn requests
+INFO 04-25 10:22:01 llm_engine.py:161] Initializing an LLM engine (v0.4.x)
+INFO 04-25 10:22:14 llm_engine.py:217] GPU blocks: 3710, CPU blocks: 4096
+INFO:     Started server process [1]
+INFO:     Uvicorn running on http://0.0.0.0:30000
+```
 
-Do you have NVIDIA hardware and need maximum throughput for a fixed model?
-└── TensorRT-LLM — compiles the model to optimised CUDA kernels
+Run the same three test requests as above. Then compare:
 
-Are you on a pre-existing NVIDIA NIM deployment?
-└── NIM — abstracted SGLang/TensorRT-LLM under the hood, API-first
+```python
+# Run this comparison script on your local machine (not the Vast.ai instance)
+# It measures first-request latency vs third-request latency for each engine
 
-Is this legacy code using TGI?
-└── Plan migration to SGLang or vLLM — TGI is maintenance mode
+import requests, time
+
+ENDPOINT = "http://<vast-ai-ip>:30000/v1/chat/completions"
+SYSTEM = "You are an SRE. Analyze Kubernetes incidents and classify severity P1-P4."
+MESSAGES = [
+    "pod OOMKilled exit code 137",
+    "CrashLoopBackOff 5 times in 10 minutes",
+    "node disk pressure eviction",
+]
+
+latencies = []
+for i, msg in enumerate(MESSAGES, 1):
+    start = time.time()
+    resp = requests.post(ENDPOINT, json={
+        "model": "meta-llama/Llama-3.1-8B-Instruct",
+        "messages": [
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": msg}
+        ],
+        "max_tokens": 100
+    })
+    elapsed = (time.time() - start) * 1000
+    latencies.append(elapsed)
+    print(f"Turn {i}: {elapsed:.0f}ms — {resp.json()['choices'][0]['message']['content'][:60]}...")
+
+print(f"\nLatency trend: {[f'{l:.0f}ms' for l in latencies]}")
+```
+
+Expected pattern with SGLang (RadixAttention active):
+```
+Turn 1: 1240ms — OOMKilled pods occur when containers exceed memory limits...
+Turn 2:  890ms — CrashLoopBackOff indicates a container that repeatedly...
+Turn 3:  820ms — Disk pressure eviction removes pods to free disk space...
+Latency trend: ['1240ms', '890ms', '820ms']
+```
+
+Expected pattern with vLLM (no RadixAttention by default):
+```
+Turn 1: 1250ms — OOMKilled pods occur when containers exceed memory limits...
+Turn 2: 1240ms — CrashLoopBackOff indicates a container that repeatedly...
+Turn 3: 1230ms — Disk pressure eviction removes pods to free disk space...
+Latency trend: ['1250ms', '1240ms', '1230ms']
+```
+
+SGLang's latency falls on turns 2–3 as the system prompt hits cache. vLLM's latency is flat — every turn recomputes the system prompt KV state. This is the RadixAttention benefit made concrete.
+
+---
+
+## Step 5 — Wire SGLang to AOIS via LiteLLM
+
+Keep SGLang running on the Vast.ai instance. On your local machine, set up SSH port forwarding:
+
+```bash
+# Forward remote port 30000 to local port 30000
+ssh -N -L 30000:localhost:30000 -p 12345 root@<vast-ai-ip>
+# Leave this running in a separate terminal
+```
+
+Now test the forwarded port:
+
+```bash
+curl http://localhost:30000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "meta-llama/Llama-3.1-8B-Instruct", "messages": [{"role": "user", "content": "hello"}], "max_tokens": 10}'
+# Expected: {"choices": [{"message": {"content": "Hello! How can I help..."}}]}
+```
+
+Add to `.env`:
+
+```bash
+SGLANG_URL=http://localhost:30000/v1
+```
+
+In `main.py`, add the SGLang tier to `ROUTING_TIERS`:
+
+```python
+ROUTING_TIERS = {
+    "premium": {
+        "model": "claude-sonnet-4-6",
+        "cost_per_1k_input_tokens": 0.003,
+        "cost_per_1k_output_tokens": 0.015,
+    },
+    "fast": {
+        "model": "groq/llama-3.1-8b-instant",
+        "cost_per_1k_input_tokens": 0.00005,
+        "cost_per_1k_output_tokens": 0.00008,
+    },
+    "sglang": {
+        "model": "openai/meta-llama/Llama-3.1-8B-Instruct",
+        "cost_per_1k_input_tokens": 0.0001,  # back-calculated: $0.25/hr GPU at 80 tok/s
+        "cost_per_1k_output_tokens": 0.0001,
+    },
+}
+```
+
+In `analyze()`, add the URL injection for SGLang (same pattern as any self-hosted endpoint):
+
+```python
+extra_kwargs = {}
+if tier == "sglang":
+    sglang_url = os.getenv("SGLANG_URL")
+    if not sglang_url:
+        raise ValueError("SGLANG_URL not set — start SGLang and set this env var")
+    extra_kwargs["api_base"] = sglang_url
+```
+
+Test end-to-end:
+
+```bash
+curl -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"log": "pod/worker-9b4f2 OOMKilled exit code 137, memory limit 256Mi", "tier": "sglang"}'
+```
+
+Expected:
+
+```json
+{
+  "summary": "Worker pod killed by OOM due to memory limit exceeded",
+  "severity": "P2",
+  "suggested_action": "Increase memory limit in pod spec or investigate memory leak in application code",
+  "confidence": 0.82,
+  "provider": "openai/meta-llama/Llama-3.1-8B-Instruct",
+  "cost_usd": 0.000012
+}
+```
+
+---
+
+▶ **STOP — do this now**
+
+Run a head-to-head benchmark. This tests the same 4 log samples against the `premium` tier (Claude) and the `sglang` tier:
+
+```bash
+python3 test_vllm.py
+# This script was committed in v14's original implementation
+# Update the tier names to match: "sglang" instead of "vllm"
+```
+
+Expected output:
+
+```
+============================================================
+Tier: premium
+============================================================
+  [OOMKilled]    ✓ P2  latency: 1243ms  cost: $0.001240
+  [CrashLoop]    ✓ P2  latency:  989ms  cost: $0.001180
+  [Disk pressure] ✓ P3  latency:  876ms  cost: $0.000890
+  [High latency]  ✓ P3  latency: 1102ms  cost: $0.001050
+
+============================================================
+Tier: sglang
+============================================================
+  [OOMKilled]    ✓ P2  latency: 1240ms  cost: $0.000012
+  [CrashLoop]    ✓ P2  latency:  890ms  cost: $0.000011
+  [Disk pressure] ✓ P3  latency:  820ms  cost: $0.000010
+  [High latency]  ✓ P3  latency:  780ms  cost: $0.000009
+
+============================================================
+SUMMARY
+============================================================
+Tier          Avg latency    Total cost   Accuracy
+--------------------------------------------------
+premium          1053ms       $0.004360      100%
+sglang            933ms       $0.000042      100%
+
+SGLang vs Claude:  104x cheaper per call
+SGLang vs Groq:    ~2x cheaper at 1,000+ calls/day sustained GPU usage
+```
+
+Reading the results: SGLang latency drops below Claude by turn 3 (cache warming). Accuracy is equivalent on P1–P4 classification. At 10,000 P3/P4 calls/day, you save ~$4,300/year over Claude.
+
+---
+
+## Step 6 — Update SEVERITY_TIER_MAP (Condition-Based)
+
+After v13 benchmarking, P3/P4 currently route to Groq (`fast` tier — 0.22s, $0.000001/call). SGLang is the right alternative when you need:
+
+- A custom model (v15 fine-tune, can't run on Groq)
+- Data sovereignty (logs stay on your GPU, not Groq's servers)
+- Volume that justifies sustained GPU rental (>3,000 P3/P4 calls/day)
+
+Switch P3/P4 to SGLang only when one of those conditions applies:
+
+```python
+# Current (after v13 benchmarking)
+SEVERITY_TIER_MAP = {
+    "P1": "premium",
+    "P2": "premium",
+    "P3": "fast",    # Groq — 220ms, $0.000001/call, best for latency
+    "P4": "fast",
+}
+
+# Switch to SGLang when you need self-hosted (fine-tuned model, data sovereignty, high volume)
+SEVERITY_TIER_MAP = {
+    "P1": "premium",
+    "P2": "premium",
+    "P3": "sglang",  # self-hosted Llama-3.1-8B — no per-call API cost, GPU time only
+    "P4": "sglang",
+}
+```
+
+---
+
+▶ **STOP — do this now**
+
+Calculate the break-even. Open Python:
+
+```python
+# Scenario: 10,000 P3/P4 log analyses per day
+calls_per_day = 10_000
+
+claude_cost  = calls_per_day * 0.001200   # average Claude premium
+groq_cost    = calls_per_day * 0.000001   # Groq Llama-3.1-8B
+sglang_cost  = 24 * 0.25                  # Vast.ai RTX 3090 @ $0.25/hr, 24hr rental
+
+print(f"Claude premium/day:  ${claude_cost:.2f}")
+print(f"Groq fast/day:       ${groq_cost:.2f}")
+print(f"SGLang/day (GPU rental): ${sglang_cost:.2f}")
+print(f"Groq crossover: {sglang_cost/0.000001:.0f} calls/day")
+print(f"Claude crossover: {sglang_cost/0.001200:.0f} calls/day")
+```
+
+Expected output:
+
+```
+Claude premium/day:  $12.00
+Groq fast/day:       $0.01
+SGLang/day (GPU rental): $6.00
+
+Groq crossover: 6,000,000 calls/day
+Claude crossover: 5,000 calls/day
+```
+
+**The insight:** Groq stays cheaper than self-hosted SGLang unless you're running >6M calls/day. SGLang wins over Claude at >5,000 calls/day. The reason to choose SGLang over Groq is not cost — it is model control (fine-tuning, v15) and data sovereignty. Never self-host to save money at AOIS's scale; self-host to run your own model.
+
+---
+
+## Quantization: Fitting Larger Models in Less VRAM
+
+Llama-3.1-8B in the default fp16 format uses ~16GB VRAM. The RTX 3090 has 24GB — it fits. But a 13B model in fp16 uses ~26GB and will not fit. Quantization reduces model weight precision to shrink the footprint.
+
+| Format | Precision | VRAM (8B model) | Quality impact |
+|--------|-----------|-----------------|----------------|
+| fp16 | 16-bit float | ~16GB | Baseline |
+| int8 | 8-bit integer | ~8GB | <1% degradation |
+| int4 (AWQ) | 4-bit integer | ~4GB | 1–3% degradation |
+| int4 (GPTQ) | 4-bit integer | ~4GB | 1–4% degradation |
+
+AWQ (Activation-aware Weight Quantization) and GPTQ are supported natively in both SGLang and vLLM.
+
+To serve a pre-quantized AWQ model (allows 13B on 24GB VRAM):
+
+```bash
+# SGLang with AWQ quantization
+python -m sglang.launch_server \
+  --model-path TheBloke/Llama-2-13B-chat-AWQ \
+  --host 0.0.0.0 \
+  --port 30000 \
+  --mem-fraction-static 0.85 \
+  --quantization awq
+
+# vLLM with AWQ quantization
+vllm serve TheBloke/Llama-2-13B-chat-AWQ \
+  --quantization awq \
+  --gpu-memory-utilization 0.85
+```
+
+The production rule: for 8B models on RTX 3090, fp16 is fine. For 13B+ or when running on smaller GPUs (T4: 16GB, L4: 24GB), use AWQ. For maximum throughput on high-volume P4 logs, AWQ on a smaller GPU costs less than fp16 on a larger one.
+
+---
+
+## Understanding Throughput vs Latency
+
+These are different axes. The distinction matters at production scale.
+
+**Latency**: time for one request to complete. SGLang warm: ~800–2000ms. Groq: 100–300ms. For a single call, Groq wins.
+
+**Throughput**: requests per second the system can handle before queuing. SGLang with 32 concurrent requests and RadixAttention can process all 32 simultaneously with shared KV cache. At 32 concurrent users, SGLang's effective throughput exceeds Groq's API rate limits.
+
+The tradeoff:
+- **Interactive, real-time** (human watching a dashboard): Groq wins — 200ms per-call latency matters
+- **Background processing, high volume** (batch log analysis): SGLang wins — throughput and cost matter
+- **Critical incidents** (P1/P2): Claude wins — quality is non-negotiable, cost is secondary
+
+AOIS auto-routes by severity, which maps naturally to these profiles:
+- P1/P2 = human waiting for response → Claude
+- P3/P4 = background batch analysis → Groq (or SGLang for self-hosted models)
+
+---
+
+## The Inference Hardware Race
+
+After v14, you are using an NVIDIA GPU with SGLang. You should understand what that GPU competes against.
+
+**NVIDIA GPU (RTX 3090, A10, A100, H100)**
+
+NVIDIA is the default for self-hosted inference. The RTX 3090 has 24GB VRAM, and the A100 (80GB) handles 70B models. The H100 achieves 4× the A100's throughput for transformer workloads via the transformer engine and FP8 support.
+
+SGLang and vLLM were built for NVIDIA GPUs. PagedAttention and RadixAttention map directly to how CUDA manages memory. For self-hosted inference, NVIDIA is the safe choice.
+
+**Groq LPU (Language Processing Unit)**
+
+Groq is not a GPU. It is a custom ASIC designed specifically for transformer inference — a deterministic dataflow chip with no caches and no memory bandwidth bottleneck. The result: sub-100ms inference for 7B–70B models.
+
+Why Groq exists: GPUs are general-purpose. A chip designed only for the transformer attention pattern will beat a GPU on per-request latency. Groq proved it. The limit: you cannot run custom models, and rate limits apply under high concurrent load.
+
+**Cerebras WSE (Wafer Scale Engine)**
+
+The largest chip ever made — the entire wafer is one chip. 900,000 AI cores and 44GB of SRAM on-die. No memory bandwidth bottleneck. Result: 70B models at 800+ tokens/second (versus ~40 tokens/sec on A100). Available as an API (inference.cerebras.ai), not self-hosted.
+
+**Where each wins:**
+
+| Scenario | Winner | Why |
+|----------|--------|-----|
+| Sub-100ms single-user latency | Groq | Deterministic ASIC |
+| 70B+ model, fastest possible | Cerebras | Wafer-scale on-chip SRAM |
+| High-volume batch, custom model | NVIDIA + SGLang/vLLM | You own the weights |
+| Fine-tuned model deployment | NVIDIA + SGLang/vLLM | Groq/Cerebras don't accept custom weights |
+| Cost at high throughput, model control | NVIDIA + SGLang/vLLM | Amortized GPU cost + full control |
+| Air-gapped / compliance | NVIDIA + SGLang/vLLM | No external API |
+
+---
+
+## NVIDIA Dynamo: Single-Node Demo
+
+Now that you understand SGLang and vLLM, you are ready to understand Dynamo — the layer above them.
+
+Dynamo wraps SGLang or vLLM as its execution backend and adds the orchestration layer: disaggregated prefill/decode, KV cache-aware routing, and NIXL-based KV migration between nodes.
+
+**Install Dynamo:**
+
+```bash
+# On your Vast.ai instance
+pip install "ai-dynamo[vllm]>=0.1.0"
+
+# Verify
+python3 -c "import dynamo; print(dynamo.__version__)"
+# Expected: 0.1.x or later
+```
+
+**Single-node configuration file:**
+
+```yaml
+# dynamo_single_node.yaml
+# Single GPU demo: one router + one vLLM worker
+version: "1.0"
+
+router:
+  port: 8080
+  type: round_robin      # KV-aware routing requires multiple workers to show benefit
+
+workers:
+  - name: worker-0
+    backend: vllm
+    model: meta-llama/Llama-3.1-8B-Instruct
+    gpu_memory_utilization: 0.85
+    port: 8001
+```
+
+**Start Dynamo:**
+
+```bash
+dynamo serve --config dynamo_single_node.yaml
+```
+
+Expected output:
+
+```
+[Dynamo] Router starting on http://0.0.0.0:8080
+[Dynamo] Registering worker worker-0 (vLLM backend, port 8001)
+[Dynamo] KV cache metadata tracking: enabled
+[Dynamo] NIXL interconnect: not available (single node — expected)
+[Dynamo] Ready. Route requests to http://localhost:8080/v1/chat/completions
+```
+
+Query through the Dynamo router:
+
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "meta-llama/Llama-3.1-8B-Instruct",
+    "messages": [{"role": "user", "content": "pod OOMKilled, classify severity"}],
+    "max_tokens": 100
+  }'
+# Expected: same OpenAI-compatible response — Dynamo is transparent to the caller
+```
+
+Check what Dynamo tracks:
+
+```bash
+curl http://localhost:8080/metrics
+# Expected output includes:
+# dynamo_requests_total{worker="worker-0"} 1.0
+# dynamo_kv_cache_hits_total 0.0          # 0 on single node — expected
+# dynamo_request_duration_seconds_bucket ...
+```
+
+On a single node, `dynamo_kv_cache_hits_total` stays at 0 — there is only one worker and it manages its own KV cache internally. KV-aware routing only fires when a request can be sent to the worker that already holds the relevant KV state, which requires multiple workers.
+
+---
+
+▶ **STOP — do this now**
+
+Work through the Dynamo architecture exercise. Open a second terminal window and look at both the Dynamo router log and the vLLM worker log simultaneously while sending requests:
+
+```bash
+# Terminal 1: watch Dynamo router
+dynamo serve --config dynamo_single_node.yaml
+
+# Terminal 2: watch the vLLM worker logs (Dynamo starts it as a subprocess)
+# The worker port is 8001 as configured above
+curl http://localhost:8001/metrics 2>/dev/null | grep -E "request|kv_cache" | head -10
+
+# Terminal 3: send 5 requests
+for i in $(seq 1 5); do
+  curl -s http://localhost:8080/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{"model": "meta-llama/Llama-3.1-8B-Instruct",
+         "messages": [{"role": "user", "content": "classify severity: pod OOMKilled"}],
+         "max_tokens": 50}' > /dev/null
+done
+
+# Check Dynamo routing stats
+curl http://localhost:8080/metrics | grep dynamo_
+```
+
+Expected:
+```
+dynamo_requests_total{worker="worker-0"} 5.0
+dynamo_kv_cache_hits_total 0.0
+dynamo_worker_queue_depth{worker="worker-0"} 0.0
+```
+
+All 5 requests went to `worker-0` (only worker). No KV cache hits because there is only one worker. Now answer: what would the routing look like with 3 workers and an incoming second turn of a conversation that already processed turn 1 on worker-1? (Answer: the router would check which worker holds the KV state from turn 1 and send turn 2 to that same worker — `dynamo_kv_cache_hits_total` increments.)
+
+This is the mental model that matters. The single-node demo exists to show you the architecture before you encounter it at scale.
+
+**When you would actually use Dynamo:** once AOIS is handling thousands of concurrent investigations across a fleet of GPU nodes — Hetzner GEX44s, AWS p3 instances, or Vast.ai multi-GPU — Dynamo is the routing layer that makes that fleet behave as one coherent inference pool.
+
+---
+
+## Common Mistakes
+
+**Mistake 1: Starting both SGLang and vLLM simultaneously**
+
+Trigger it: start SGLang, then start vLLM on a different port without stopping SGLang:
+
+```bash
+python -m sglang.launch_server --port 30000 &
+vllm serve meta-llama/Llama-3.1-8B-Instruct --port 30001
+```
+
+You will see:
+```
+torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate 14.00 GiB
+  (GPU 0; 22.08 GiB total capacity; 20.50 GiB already allocated)
+```
+
+Both engines try to load the model into VRAM simultaneously. With only 24GB, there is not enough for two copies of an 8B model.
+
+Fix: stop SGLang before starting vLLM. Use one inference engine at a time per GPU.
+
+**Mistake 2: Setting `--mem-fraction-static` too high**
+
+Trigger it: set `--mem-fraction-static 0.97` in SGLang:
+
+```bash
+python -m sglang.launch_server --model-path meta-llama/Llama-3.1-8B-Instruct --mem-fraction-static 0.97
+```
+
+You will see the server crash during initialization:
+```
+RuntimeError: CUDA error: out of memory
+sglang: KV cache allocation failed. 
+  Requested: 23116MiB, Available: 22190MiB
+  Reduce --mem-fraction-static and retry.
+```
+
+SGLang tries to reserve 97% of VRAM for KV cache. The model itself (fp16 weights) already occupies ~16GB. With 24GB total, there is only ~8GB left for KV cache — but SGLang tried to grab 23GB.
+
+Fix: set `--mem-fraction-static 0.80` to 0.85. This gives the model weights room to load and leaves KV cache space proportional to available VRAM after weights.
+
+**Mistake 3: SSH port forward dies mid-session**
+
+Trigger it: let your local laptop go to sleep while the port forward is running:
+
+```bash
+curl http://localhost:30000/v1/chat/completions \
+  -d '{"model": "meta-llama/Llama-3.1-8B-Instruct", "messages": [{"role": "user", "content": "test"}], "max_tokens": 10}'
+# After laptop sleep/wake:
+```
+
+You will see:
+```
+curl: (7) Failed to connect to localhost port 30000: Connection refused
+```
+
+Or in Python:
+```
+requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+```
+
+Fix: restart the SSH port forward:
+```bash
+ssh -N -L 30000:localhost:30000 -p 12345 root@<vast-ai-ip>
+```
+
+For persistent sessions, use `autossh` or add `ServerAliveInterval 60` to your SSH config.
+
+**Mistake 4: Forgetting `openai/` prefix in LiteLLM model name**
+
+Trigger it: remove the `openai/` prefix from the model name in `ROUTING_TIERS`:
+
+```python
+# Wrong:
+"model": "meta-llama/Llama-3.1-8B-Instruct"
+```
+
+Send a request via AOIS. You will see:
+```
+LiteLLM Error: No model 'meta-llama/Llama-3.1-8B-Instruct' in provider map.
+  Use 'openai/meta-llama/Llama-3.1-8B-Instruct' with api_base for custom endpoints.
+```
+
+LiteLLM uses the prefix to select the OpenAI-compatible adapter. Without `openai/`, it does not know how to handle the model name.
+
+Fix: restore the `openai/` prefix: `"openai/meta-llama/Llama-3.1-8B-Instruct"`.
+
+**Mistake 5: Forgetting `api_base` in the extra_kwargs**
+
+Trigger it: set `SGLANG_URL` correctly but forget to pass it in `extra_kwargs`:
+
+```bash
+SGLANG_URL="" python3 -c "
+import requests
+r = requests.post('http://localhost:8000/analyze',
+  json={'log': 'pod OOMKilled', 'tier': 'sglang'})
+print(r.json())
+"
+```
+
+You will see:
+```
+ValueError: SGLANG_URL not set — start SGLang and set this env var
+```
+
+Or if the env var is set but `extra_kwargs["api_base"]` is not passed to LiteLLM:
+```
+openai.AuthenticationError: No API key provided.
+# LiteLLM sent the request to api.openai.com instead of your SGLang instance
+```
+
+Fix: confirm that `analyze()` checks `tier == "sglang"` and passes `api_base` in `extra_kwargs`.
+
+---
+
+## Troubleshooting
+
+**Error: `Connection refused` on port 30000 immediately after starting SGLang**
+```bash
+# SGLang takes 20–45 seconds to load the model into VRAM
+# Watch for the ready message before sending requests:
+python -m sglang.launch_server ... 2>&1 | grep -E "started|ready|error"
+# Wait for: [SGLang] Server started on http://0.0.0.0:30000
+```
+
+**Error: `Model not found` on HuggingFace during model download**
+```bash
+# Check if the model requires authentication
+huggingface-cli login
+# Enter your HF token from hf.co/settings/tokens
+# For gated models (Llama-3.x), accept the license at hf.co/<model-id>
+```
+
+**Error: Instructor `ValidationError` on SGLang responses**
+
+Llama-3.1-8B can produce less reliable JSON compared to Claude. Instructor retries automatically (`max_retries=2`). If failures persist:
+
+```python
+# Add a system prompt reinforcement for the sglang tier in analyze():
+if tier == "sglang":
+    system_prompt += "\n\nIMPORTANT: Always respond using the analyze_incident tool. Your response must be valid JSON."
+```
+
+**SGLang `prefix_cache_hit_rate` is 0.0 after multiple requests**
+
+The cache starts cold — the first request always misses. If hit rate stays at 0 after 5+ requests with the same system prompt:
+
+```bash
+# Check if RadixAttention is actually enabled
+curl http://localhost:30000/get_server_info | python3 -m json.tool | grep -i cache
+# Expected: "radix_cache": true, "prefix_cache_hit_rate": > 0.0
+# If radix_cache is false: SGLang version may not support it — upgrade to 0.4.0+
+```
+
+**Vast.ai instance shows CUDA driver mismatch**
+```bash
+nvidia-smi  # check CUDA version
+python3 -c "import torch; print(torch.version.cuda)"
+# If mismatch: reinstall PyTorch with matching CUDA version
+pip install torch --index-url https://download.pytorch.org/whl/cu121
 ```
 
 ---
 
 ## Connection to Later Phases
 
-**v15 (next):** You will fine-tune Mistral-7B on AOIS-specific SRE log data using LoRA. The fine-tuned model will be served from this same vLLM endpoint on Modal. You built the serving infrastructure here; v15 changes the model weights.
-
-One important detail to preview: vLLM has native LoRA adapter support via `--enable-lora`. Instead of baking the fine-tuned weights into a new full model, you can serve the base Mistral-7B and hot-swap LoRA adapters at request time:
+**v15 (next):** You will fine-tune a TinyLlama model on AOIS SRE log data using LoRA. The fine-tuned model is deployed on Modal (one-shot fine-tune job = Modal's right use case). After v15, you can serve the fine-tuned weights with SGLang via `--lora-paths` — same infrastructure, custom model weights.
 
 ```python
-# v15 addition to serve.py (preview — do not add yet)
-AsyncEngineArgs(
-    model=MODEL_NAME,
-    enable_lora=True,
-    max_lora_rank=64,
-    gpu_memory_utilization=0.90,
-)
+# v15 preview: serving a fine-tuned LoRA adapter with SGLang
+python -m sglang.launch_server \
+  --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --lora-paths aois-sre-lora=/path/to/lora/adapter \
+  --port 30000
+# The caller specifies: "lora_name": "aois-sre-lora" per request
 ```
 
-The caller then specifies which adapter to use per request. This means one deployed vLLM instance can serve the base model AND the fine-tuned SRE model simultaneously — routing via the request payload. The v14 infrastructure you are building right now is exactly what makes this possible.
+**v16 (observability):** You will add OpenTelemetry spans to `analyze()`. Every tier — including SGLang — will emit latency, cost, and cache hit metrics to Grafana. SGLang's `/get_server_info` prefix cache hit rate becomes a Prometheus metric.
 
-**v16 (observability):** You will add OpenTelemetry spans to the `analyze()` function. Every tier — including vLLM — will emit latency and cost metrics to Grafana. The `gpu_memory_utilization` and throughput metrics from vLLM's built-in `/metrics` endpoint will flow into Prometheus.
+**v17 (Kafka):** AOIS consumes logs from Kafka and analyzes in real-time. At high consumer lag, KEDA scales AOIS pods. The SGLang endpoint handles the burst — RadixAttention batches concurrent multi-turn requests efficiently. The infrastructure you are building here is what makes that scale possible.
 
-**v17 (Kafka):** AOIS will consume logs from Kafka topics and analyze in real-time. At high consumer lag, KEDA will scale AOIS pods. The vLLM endpoint on Modal handles the burst — it batches concurrent requests via PagedAttention. You are building the full pipeline now.
+**v23 (LangGraph):** The 6-node SRE investigation loop sends 10–15 sequential tool calls to the LLM. SGLang's RadixAttention reuses the shared system prompt + incident context KV cache across every turn. You will see the cache hit rate in v16's Grafana dashboard — a direct measurement of the RadixAttention benefit in production.
 
-**v29 (Weights & Biases):** Every prompt version and model version will be tracked as a W&B experiment. You will compare fine-tuned vLLM vs base vLLM vs Claude across a ground truth eval set. The routing decision (`SEVERITY_TIER_MAP`) becomes data-driven.
-
----
-
-
-## Build-It-Blind Challenge
-
-Close the notes. From memory: write the Modal `@modal.asgi_app()` pattern for serving vLLM — the correct decorator, GPU type specification, model mount, and OpenAI-compatible endpoint. Write the skeleton only — no need to run it. 20 minutes.
-
-```python
-# Expected structure:
-@app.function(gpu="A10G", ...)
-@modal.asgi_app()
-def serve():
-    # vLLM engine init
-    # FastAPI app with /v1/chat/completions
-    ...
-```
-
----
-
-## Failure Injection
-
-Review the v14 debugging history in the notes — the three version conflicts, the GPU cold start costs, the `@modal.fastapi_endpoint` dead end. Now answer from memory: which specific change from `@modal.fastapi_endpoint` to `@modal.asgi_app()` fixed the architecture, and what was wrong with the first approach? If you cannot answer without notes, re-read the troubleshooting section until you can.
-
----
-
-## Osmosis Check
-
-1. vLLM uses PagedAttention for KV cache management. A GPU has 24GB VRAM. A Llama-7B model uses 14GB. How much KV cache space is available for concurrent requests — and what happens when that space fills up under load?
-2. Groq at $0.000001/call is already available as the fast tier. The break-even for self-hosted vLLM on Modal (A10G at $1.10/hr) versus Groq is at N calls/hour. Calculate N. Below that threshold, which is cheaper? (v13 cost model)
+**v34.5 (capstone):** Multi-node Dynamo is referenced in the game day scenario. When AOIS is handling hundreds of concurrent investigations, the routing layer above vLLM/SGLang is Dynamo. The mental model built here is what makes that section click.
 
 ---
 
@@ -1035,27 +1033,25 @@ Review the v14 debugging history in the notes — the three version conflicts, t
 
 Complete these before moving to v15:
 
-1. `modal deploy vllm_modal/serve.py` succeeds. Endpoint URL is in your `.env` as `VLLM_MODAL_URL`.
+1. You have a Vast.ai account and have rented a GPU. SGLang serves Llama-3.1-8B at port 30000. Direct curl returns a valid response.
 
-2. Direct vLLM call via curl returns a valid OpenAI-compatible response within 5 seconds (warm container).
+2. `curl http://localhost:30000/get_server_info` shows `prefix_cache_hit_rate > 0.5` after running 5 consecutive requests with the same system prompt.
 
-3. `curl http://localhost:8000/analyze -d '{"log": "...", "tier": "vllm"}'` returns a valid `IncidentAnalysis` with `provider` field showing the Modal model.
+3. AOIS routes the `sglang` tier successfully. `curl localhost:8000/analyze -d '{"log": "...", "tier": "sglang"}'` returns a valid `IncidentAnalysis` with `provider` showing the Llama model.
 
-4. `python3 test_vllm.py` completes. Both tiers produce correct severity classifications on ≥3 of 4 log samples.
+4. You ran vLLM serving the same model and compared latency curves. SGLang latency dropped on turns 2–3; vLLM latency stayed flat. You can explain why in one sentence.
 
-5. You can explain in one sentence why vLLM's cost per call is lower than Groq's at high volume, even though Groq is faster per call. (Answer: throughput — vLLM batches many concurrent requests on owned GPU; Groq charges per token on shared infra.)
+5. You can explain the Groq break-even: for pure cost savings, self-hosted SGLang never beats Groq at AOIS's scale. The reason to choose SGLang over Groq is model control — fine-tuning, data sovereignty, or running a model Groq does not offer.
 
-6. You know the two knobs that control vLLM throughput: `gpu_memory_utilization` (KV cache size) and `allow_concurrent_inputs` (max concurrent batched requests).
+6. You know the two knobs that control inference throughput: `--mem-fraction-static` (KV cache size in VRAM) and concurrent request concurrency (SGLang handles this automatically with RadixAttention).
 
-7. `SEVERITY_TIER_MAP` in `main.py` routes P3/P4 to `vllm`. You understand why — cost and throughput over latency for non-critical logs.
+7. You can explain what Dynamo adds above SGLang: disaggregated prefill/decode, KV cache-aware routing across multiple workers, and NIXL-based KV migration. And you know the single-GPU limitation: KV-aware routing requires ≥2 workers to show benefit.
 
-8. `modal logs aois-vllm` — you can read the container logs and identify a cold start vs a warm serving event.
+8. Name the inference engine for each scenario: (a) AOIS LangGraph 10-step investigation, 8B model; (b) single-turn high-concurrency summarization API at 500 RPS; (c) P1 critical incident requiring best reasoning; (d) a fleet of 8 GPU workers needing smart KV routing. Justify each without notes.
 
-9. Explain the difference between vLLM and SGLang to a senior engineer: what RadixAttention adds over PagedAttention, why it matters for AOIS's LangGraph loop specifically, and one operational tradeoff SGLang introduces. No notes.
+9. You know why Modal was the wrong platform for v14: cold starts (30–120s), A10G at $1.98/hr vs RTX 3090 at $0.25/hr on Vast.ai, and dependency conflicts in vLLM 0.4.x–0.8.x made persistent serving unreliable. Modal's right use case is one-shot GPU jobs (v15 fine-tuning), not persistent inference servers.
 
-10. Name the inference engine you would choose for each scenario: (a) single-turn high-concurrency summarization API at 500 RPS, (b) AOIS 10-step investigation agent with shared system prompt, (c) fixed production model on NVIDIA A100s needing maximum throughput. Justify each.
-
-**The mastery bar:** you understand the self-hosted inference tier from first principles — vLLM's PagedAttention for concurrency, SGLang's RadixAttention for agentic multi-turn, TGI's deprecation, and the break-even economics between self-hosted GPU and managed APIs. You can route AOIS to any of them via LiteLLM without changing application code.
+**The mastery bar:** you understand self-hosted inference from first principles — vLLM's PagedAttention for concurrent batching, SGLang's RadixAttention for multi-turn agents, Dynamo's orchestration layer for fleet routing, and the economics that decide between managed APIs vs self-hosted GPU. You can route AOIS to any of them via LiteLLM without changing application code.
 
 ---
 
@@ -1069,31 +1065,15 @@ Complete these before moving to v15:
 
 | Layer | |
 |---|---|
-| **Plain English** | An open-source server for running large language models that uses a smarter memory management system to serve more requests simultaneously — turning a single GPU into a high-throughput inference engine. |
-| **System Role** | vLLM is AOIS's self-hosted open-source inference tier. It exposes an OpenAI-compatible endpoint, routed to by LiteLLM. The case for vLLM: once a model is deployed, marginal inference cost is GPU time only — no per-token API charges. At scale, this flips the break-even economics against managed APIs. |
-| **Technical** | vLLM uses PagedAttention — KV cache stored in non-contiguous memory pages, allocated on demand, shared across requests using copy-on-write. This eliminates KV cache fragmentation and allows continuous batching: new requests join mid-batch instead of waiting for the current batch to finish. Result: 2–24× higher throughput than naive HuggingFace inference. Served via `vllm serve` as an OpenAI-compatible HTTP server. |
-| **Remove it** | Without vLLM, self-hosted inference either uses HuggingFace's `pipeline()` (single-threaded, no batching, 1/10th the throughput) or Triton (full control but requires manual batching configuration). vLLM is the standard production choice for open-source model serving — used at Mistral, scale-AI, and most inference startups as the internal serving engine. |
+| **Plain English** | An open-source server for running large language models that uses smarter memory management to serve many requests simultaneously — turning a single GPU into a high-throughput inference engine. |
+| **System Role** | vLLM is AOIS's self-hosted open-source inference engine option. It exposes an OpenAI-compatible endpoint, routed to via LiteLLM. The case for vLLM over managed APIs: once deployed, marginal inference cost is GPU rental time only — no per-token API charges. The case for vLLM over SGLang: better for high-concurrency single-turn workloads where shared prefix reuse does not apply. |
+| **Technical** | vLLM uses PagedAttention — KV cache stored in non-contiguous memory pages, allocated on demand, shared across requests using copy-on-write. This eliminates KV cache fragmentation and enables continuous batching: new requests join mid-batch instead of waiting for the current batch to finish. Result: 2–24× higher throughput vs naive HuggingFace `pipeline()` inference. Served via `vllm serve` as an OpenAI-compatible HTTP server. |
+| **Remove it** | Without vLLM, self-hosted inference uses HuggingFace `pipeline()` (single-threaded, no batching, 1/10th the throughput) or Triton (full control but requires manual batching configuration). vLLM is the standard for production open-source model serving — used at Mistral, scale-AI, and most inference-at-scale organisations as the internal engine. |
 
 **Say it at three levels:**
-- *Non-technical:* "vLLM is a smarter way to share a GPU. Instead of one user waiting for the previous user to finish, vLLM figures out how to run multiple requests at the same time on the same hardware."
-- *Junior engineer:* "`vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000`. It starts an OpenAI-compatible server. LiteLLM routes to it with `openai/llama-3.1-8b-instruct` and `api_base=http://localhost:8000/v1`. PagedAttention means the GPU doesn't pre-allocate max-sequence-length KV cache for every request — memory is used only as tokens are generated."
-- *Senior engineer:* "PagedAttention's real benefit is at high concurrency — 50+ simultaneous requests. For AOIS's typical load (1–10 concurrent), standard batching achieves similar throughput. The production decision: vLLM for batch inference workloads and high concurrency; Groq for low-latency streaming; NIM when you have NVIDIA infra and want the operational simplicity. Quantization tradeoff: INT4 cuts VRAM requirement ~4× with ~5% quality degradation on benchmarks — real-world quality loss is task-dependent, always eval before deploying quantized models to production tiers."
-
----
-
-### Modal (Serverless GPU Compute)
-
-| Layer | |
-|---|---|
-| **Plain English** | A cloud platform where you write Python functions and Modal runs them on GPUs — without you provisioning, configuring, or managing any servers. You pay only for the seconds your code actually runs. |
-| **System Role** | Modal is how AOIS runs GPU workloads (vLLM serving, fine-tuning) without owning or renting a dedicated GPU instance. In v14 the vLLM server runs on Modal's A10G GPUs. In v15 the fine-tuning job runs on Modal. The cost model: $1.10/GPU-hr, billed per second, zero cost when idle. |
-| **Technical** | Modal uses a Python decorator pattern: `@app.function(gpu="A10G")` turns a Python function into a Modal function that executes remotely. Container images are built from `modal.Image` definitions and cached. `@modal.asgi_app()` exposes a FastAPI/ASGI app as a persistent endpoint. Deployments are triggered via `modal deploy`. Logs stream back to the terminal. |
-| **Remove it** | Without Modal, running GPU workloads requires: renting a GPU VM (minimum 1-hour billing), SSHing in, installing CUDA + dependencies, managing the process, and terminating the instance manually. Modal reduces this to a `modal run` command. The alternative for AOIS-scale GPU jobs: Lambda Labs, RunPod, or AWS SageMaker — all require more operational overhead than Modal for experimentation workloads. |
-
-**Say it at three levels:**
-- *Non-technical:* "Modal is serverless for AI. You write your code, Modal finds a GPU, runs it, and charges you only for the time it took. No servers to set up or shut down."
-- *Junior engineer:* "Define your container image with `modal.Image.debian_slim().pip_install(...)`. Decorate your function with `@app.function(gpu='A10G', timeout=600)`. Run with `modal run script.py` or deploy persistently with `modal deploy script.py`. The function executes in Modal's cloud, not your local machine. GPU cold start is 30–60 seconds — design workflows to minimize cold starts."
-- *Senior engineer:* "Modal's container caching is the key operational detail. First run builds and pushes the image (~5 min for vLLM dependencies). Subsequent runs reuse the cached image — cold start is model download time, not build time. The architectural constraint: Modal functions are stateless — the vLLM model loads fresh on each cold start. Warm instances stay alive for ~5 minutes after last request. For AOIS's sporadic GPU needs this is fine; for low-latency production serving, keep-warm via a periodic dummy request or use a persistent GPU provider."
+- *Non-technical:* "vLLM is a smarter way to share a GPU. Instead of one user waiting for the previous one to finish, vLLM figures out how to run multiple requests at the same time on the same hardware."
+- *Junior engineer:* "`vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000`. Starts an OpenAI-compatible server. LiteLLM routes to it with `openai/llama-3.1-8b-instruct` and `api_base=http://localhost:8000/v1`. PagedAttention means the GPU does not pre-allocate max-sequence-length KV cache for every request — memory is used only as tokens are generated."
+- *Senior engineer:* "PagedAttention's real benefit manifests at high concurrency — 50+ simultaneous requests. For AOIS's typical load (1–10 concurrent), the throughput advantage narrows. The production decision: vLLM for batch/high-concurrency single-turn; SGLang for multi-turn agents (RadixAttention); NIM when you want NVIDIA's managed operational simplicity. INT4 AWQ quantization cuts VRAM ~4× with ~5% benchmark degradation — real-world quality loss is task-dependent, always eval before deploying quantized models to production tiers."
 
 ---
 
@@ -1101,12 +1081,28 @@ Complete these before moving to v15:
 
 | Layer | |
 |---|---|
-| **Plain English** | A smarter inference server built specifically for agents. Instead of recomputing the same context on every turn of a conversation, SGLang remembers the parts that didn't change — so multi-step agent investigations get faster with each tool call rather than slower. |
-| **System Role** | SGLang is the self-hosted inference tier AOIS would use for multi-turn agent workloads. It exposes an OpenAI-compatible endpoint that LiteLLM routes to identically to vLLM. For AOIS's LangGraph investigations (6-node loop, 10–15 tool calls), SGLang's RadixAttention reuses the shared system prompt KV cache across all turns — 60–80% fewer tokens recomputed per turn. |
-| **Technical** | SGLang (UC Berkeley Sky Computing Lab, spun out as RadixArk January 2026, deployed on 400,000+ GPUs) implements RadixAttention: a radix tree stores all cached key-value states as shared prefix paths. When a new request arrives, the longest matching prefix is found in the tree and its KV state is reused. Only novel tokens are computed. The result: near-zero KV computation for repeated context in multi-turn conversations. TGI (HuggingFace Text Generation Inference) entered maintenance mode December 2025 — dead for new projects. |
-| **Remove it** | Without SGLang: use vLLM (good for single-turn, less optimal for agents), TensorRT-LLM (best throughput but NVIDIA-only and operationally heavier), or NIM (abstracted, API-first). For AOIS's multi-turn agent workloads, removing SGLang means higher latency and higher GPU cost per investigation turn. The alternative is managed APIs (Groq, Claude) at higher per-token cost. |
+| **Plain English** | A smarter inference server built specifically for agents. Instead of recomputing the same context on every turn of a conversation, SGLang remembers the parts that did not change — so multi-step agent investigations get faster after the first turn, not slower. |
+| **System Role** | SGLang is AOIS's primary self-hosted inference engine for agent workloads. It exposes an OpenAI-compatible endpoint that LiteLLM routes to identically to vLLM. For AOIS's LangGraph investigations (6-node loop, 10–15 tool calls), SGLang's RadixAttention reuses the shared system prompt KV cache across all turns — 60–80% fewer tokens recomputed per turn after the first. |
+| **Technical** | SGLang (UC Berkeley Sky Computing Lab, spun out as RadixArk January 2026, deployed on 400,000+ GPUs) implements RadixAttention: a radix tree stores all cached key-value states as shared prefix paths. When a new request arrives, the longest matching prefix is found and reused. Only novel tokens are computed. TGI (HuggingFace Text Generation Inference) entered maintenance mode December 2025 — dead for new projects. SGLang is the de facto agentic inference standard. |
+| **Remove it** | Without SGLang: use vLLM (adequate for single-turn, less optimal for agents), TensorRT-LLM (best throughput but NVIDIA-only and operationally heavier), or managed APIs at higher per-token cost. For AOIS's multi-turn LangGraph workloads, removing SGLang means higher GPU compute cost per investigation turn and higher latency by turn 3+. |
 
 **Say it at three levels:**
-- *Non-technical:* "SGLang is an AI inference server that remembers context between turns of a conversation. Instead of re-reading everything from the start on each reply, it picks up where it left off."
-- *Junior engineer:* "`python -m sglang.launch_server --model-path meta-llama/Llama-3.1-8B-Instruct --port 30000`. RadixAttention is on by default — no configuration needed. LiteLLM routes to it with `api_base=http://localhost:30000/v1`. Check cache hit rate at `/get_server_info`. For multi-turn agents you should see 80%+ hit rate after the first request."
-- *Senior engineer:* "RadixAttention's radix tree stores KV states indexed by token prefix. The tree is shared across all in-flight requests — a new multi-turn request that shares a prefix with a completed request reuses its KV without any explicit session management. The operational tradeoff vs vLLM: SGLang's tree management adds memory overhead (the tree itself), and eviction under memory pressure requires tuning `--mem-fraction-static`. For AOIS at low concurrency, the cache hit rate benefit dominates. At high concurrency with diverse prompts, the tree becomes fragmented and the benefit narrows — measure before committing."
+- *Non-technical:* "SGLang is an AI inference server that remembers context between turns of a conversation. Instead of re-reading everything from the start on each reply, it picks up where it left off — getting faster as the conversation continues."
+- *Junior engineer:* "`python -m sglang.launch_server --model-path meta-llama/Llama-3.1-8B-Instruct --port 30000`. RadixAttention is on by default — no flags needed. LiteLLM routes to it with `api_base=http://localhost:30000/v1`. Check cache hit rate at `/get_server_info`. For multi-turn agents expect 80%+ hit rate after the first request."
+- *Senior engineer:* "RadixAttention's radix tree stores KV states indexed by token prefix. The tree is shared across all in-flight requests — a new multi-turn request that shares a prefix with a completed request reuses its KV without explicit session management. The operational tradeoff vs vLLM: SGLang's tree management adds memory overhead, and eviction under memory pressure requires tuning `--mem-fraction-static`. At low concurrency with long shared prefixes (AOIS's profile), RadixAttention dominates. At high concurrency with diverse prompts, the tree fragments and the benefit narrows — measure before committing."
+
+---
+
+### NVIDIA Dynamo
+
+| Layer | |
+|---|---|
+| **Plain English** | A traffic controller for a fleet of GPU servers. When dozens of GPU machines are running inference, Dynamo decides which server handles each request — sending it to the one that already has the right context in memory, so no computation is repeated across the fleet. |
+| **System Role** | Dynamo sits above SGLang or vLLM as an orchestration layer. In a multi-GPU AOIS deployment, Dynamo routes investigation requests to the worker that already holds the KV cache for that incident's context. On a single GPU (v14), you see the architecture — the full benefit (KV-aware routing, NIXL migration) requires ≥2 GPU workers. |
+| **Technical** | Released by NVIDIA at GTC 2026 as open source. Key mechanisms: (1) Disaggregated prefill/decode — compute-bound input processing and memory-bandwidth-bound token generation run on separate hardware. (2) KV cache-aware routing — the router tracks which worker holds which KV state and routes follow-on turns to the same worker. (3) NIXL (NVIDIA Interconnect Library) — transfers KV cache blocks between nodes via NVLink or InfiniBand without recomputation. Backends: vLLM, SGLang, or TensorRT-LLM — Dynamo orchestrates, it does not replace. |
+| **Remove it** | Without Dynamo at fleet scale: each GPU worker manages its own KV cache in isolation. A multi-turn request landing on a different worker than turn 1 recomputes all prior context from scratch. At 8+ GPU workers, the repeated KV computation becomes significant. For AOIS's current single-GPU deployment, removing Dynamo has zero impact — it becomes relevant when AOIS scales to handling thousands of concurrent investigations across a GPU cluster. |
+
+**Say it at three levels:**
+- *Non-technical:* "Dynamo is like an air traffic controller for AI servers. When you have many AI servers working together, Dynamo decides who handles each request — specifically choosing the server that already knows the history of that conversation, so it doesn't start over."
+- *Junior engineer:* "`pip install ai-dynamo[vllm]`. Write a YAML config listing your workers. `dynamo serve --config config.yaml`. Requests hit the Dynamo router at port 8080, which routes them to the appropriate vLLM/SGLang worker. On a single node, routing is round-robin — the KV-aware routing benefit requires multiple workers with overlapping request patterns."
+- *Senior engineer:* "Dynamo's disaggregated prefill/decode changes the hardware economics: prefill nodes need high FLOPs (H100 class), decode nodes need high memory bandwidth (A10 class). The ratio of prefill to decode nodes is workload-dependent — long prompts/short outputs shift toward prefill-heavy; short prompts/long outputs shift toward decode-heavy. NIXL's KV migration adds network latency for the transfer — the break-even is when recomputation cost > migration cost. For 8B models, the crossover is at context lengths >2K tokens or when the same context is reused across >3 requests from different workers."
