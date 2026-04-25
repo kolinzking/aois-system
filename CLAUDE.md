@@ -221,7 +221,8 @@ Notes retrofitted 2026-04-25. New approach: SGLang on Vast.ai (RTX 3090 from $0.
 **History:** Modal vLLM attempt failed — $7.71 burned on cold starts + dependency hell (vLLM 0.4.3/0.6.6/0.7.3/0.8.4 conflicts). Modal is right for one-shot fine-tune jobs (v15); wrong for persistent inference servers. Lesson documented in notes.
 
 **New platform — Vast.ai:**
-- RTX 3090 (24GB VRAM) from $0.25/hr — same VRAM as Modal A10G, 8× cheaper
+- RTX 3090 (24GB VRAM) from $0.13/hr — same VRAM as Modal A10G, 15× cheaper
+- RTX 4090 (24GB VRAM, faster Ada) from $0.29/hr — ~7× cheaper than Modal A10G
 - No cold starts — GPU always warm while rented
 - `vllm_modal/serve.py` stays in repo as historical reference
 
