@@ -629,10 +629,10 @@ Expected output:
 ```
 Claude premium/day:  $12.00
 Groq fast/day:       $0.01
-SGLang/day (GPU rental): $6.00
+SGLang/day (GPU rental): $3.12
 
-Groq crossover: 6,000,000 calls/day
-Claude crossover: 5,000 calls/day
+Groq crossover: 3,120,000 calls/day
+Claude crossover: 2,600 calls/day
 ```
 
 **The insight:** Groq stays cheaper than self-hosted SGLang unless you're running >6M calls/day. SGLang wins over Claude at >5,000 calls/day. The reason to choose SGLang over Groq is not cost — it is model control (fine-tuning, v15) and data sovereignty. Never self-host to save money at AOIS's scale; self-host to run your own model.
