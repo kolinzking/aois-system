@@ -223,9 +223,9 @@ cat ~/.ssh/id_rsa.pub
 ```
 
 Search for a GPU:
-- Filter: 24GB VRAM (RTX 3090 or A10), >40 GB disk, CUDA 12.x
+- Filter: 24GB VRAM (RTX 3090 or RTX 4090), >40 GB disk, CUDA 12.x
 - Sort by: price per hour ascending
-- Target: $0.20–$0.35/hr
+- RTX 3090: ~$0.13/hr (cheapest). RTX 4090: ~$0.29/hr (faster, Ada Lovelace). Either works for v14.
 
 Click **Rent**. Once provisioned (30–120s), you get an SSH connection string.
 
