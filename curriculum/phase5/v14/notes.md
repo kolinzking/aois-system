@@ -490,7 +490,7 @@ ROUTING_TIERS = {
     },
     "sglang": {
         "model": "openai/meta-llama/Llama-3.1-8B-Instruct",
-        "cost_per_1k_input_tokens": 0.0001,  # back-calculated: $0.25/hr GPU at 80 tok/s
+        "cost_per_1k_input_tokens": 0.00005,  # back-calculated: $0.13/hr RTX 3090 at 80 tok/s
         "cost_per_1k_output_tokens": 0.0001,
     },
 }
