@@ -340,15 +340,14 @@ The pattern behind half of all production AI applications — AOIS needs it for 
 - Compare: NIM (abstracted, API-ready) vs Triton (full control, requires configuration) — when to use each
 - Deploy the fine-tuned TinyLlama from v15 on Triton instead of vLLM — same model, different server
 
-**v14 — vLLM Inference Server**
-- Deploy vLLM on Modal (serverless GPU, no hardware needed)
-- Serve an open-source model via OpenAI-compatible API
-- AOIS can now use: Claude, OpenAI, Bedrock, Groq, Together AI, Fireworks, NIM, Triton, vLLM — all via LiteLLM
-- KV cache: what it is, why it matters, how vLLM's PagedAttention manages it
-- Quantization: INT8 and INT4 — how much quality you lose for how much speed you gain
-- Speculative decoding: draft model proposes tokens, main model verifies — latency trick for large models
-- Cost tracking: GPU-hours vs API calls — build the break-even model for self-hosted vs managed
-- Inference hardware comparison: NVIDIA GPU vs Groq LPU vs Cerebras WSE — why they exist, what each wins at
+**v14 — Self-Hosted GPU Inference: SGLang, vLLM, and Dynamo**
+- Rent a GPU on Vast.ai (RTX 3090 from $0.25/hr — 8× cheaper than Modal A10G at $1.98/hr)
+- SGLang as primary engine: RadixAttention reuses shared prefix KV cache across multi-turn agent calls
+- vLLM as comparison: PagedAttention for high-concurrency single-turn batch inference
+- NVIDIA Dynamo: orchestration layer above vLLM/SGLang — disaggregated prefill/decode, KV-aware routing across GPU fleet, NIXL migration
+- AOIS can now use: Claude, OpenAI, Bedrock, Groq, Together AI, Fireworks, NIM, Triton, SGLang, vLLM — all via LiteLLM
+- TGI deprecated (maintenance mode Dec 2025) — SGLang is the 2026 agentic inference standard
+- KV cache, RadixAttention, PagedAttention, quantization (AWQ/GPTQ), inference hardware landscape (GPU vs Groq LPU vs Cerebras WSE)
 
 **v15 — Fine-tuning with SRE Data**
 - Curate a dataset: 500 real log samples + ideal AOIS responses
