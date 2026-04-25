@@ -256,7 +256,7 @@ Loss interpretation:
 
 ## ▶ STOP — do this now
 
-Run the fine-tune (uses ~$0.02 of Modal credits, ~2 minutes including container cold start):
+Run the fine-tune (uses ~$0.07 of Modal credits at current A10G pricing of $1.98/hr, ~2 minutes including container cold start). For longer fine-tuning runs (Mistral-7B, larger datasets), Vast.ai RTX 3090 at $0.25/hr is 8× cheaper than Modal A10G — the same pattern from v14 applies: Modal for short one-shot jobs (TinyLlama at 63s is fine), Vast.ai for hour-long training runs.
 
 ```bash
 python3 finetune/generate_dataset.py   # only if you haven't already
