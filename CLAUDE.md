@@ -214,18 +214,28 @@ curl -X POST https://l9ryxlxtpe.execute-api.us-east-1.amazonaws.com/prod/analyze
 ```
 Then measure cold vs warm start, check CloudWatch logs, complete mastery checkpoint.
 
-### v14 — CLOSED (Modal GPU blocked; Groq serves as fast tier)
-vLLM deployment attempted extensively. GPU cold starts consumed $7.71 of Modal credits across debugging sessions. Closing v14 without live Modal endpoint.
+### v14 — NOTES COMPLETE, HANDS-ON PENDING
 
-**What was built and learned:**
-- `@modal.asgi_app()` subprocess/proxy pattern — correct architecture, committed
-- vLLM dependency chain: 0.4.3 (NumPy/outlines), 0.6.6/0.7.3/0.8.4 (TokenizersBackend tokenizer bug)
-- GPU inference cost model: A10G at $1.10/hr vs Claude at $0.016/call
-- Real-world ML infra dependency hell — this is curriculum, not failure
+Notes retrofitted 2026-04-25. New approach: SGLang on Vast.ai (RTX 3090 from $0.25/hr).
 
-**Why this is fine:** Groq already covers the fast/cheap tier: 0.22s latency, $0.000001/call. The vLLM tier adds self-hosted knowledge but not a new capability. The architecture is sound — the endpoint just isn't live.
+**History:** Modal vLLM attempt failed — $7.71 burned on cold starts + dependency hell (vLLM 0.4.3/0.6.6/0.7.3/0.8.4 conflicts). Modal is right for one-shot fine-tune jobs (v15); wrong for persistent inference servers. Lesson documented in notes.
 
-**If resuming Modal later:** `modal deploy vllm_modal/serve.py` + `python3 test_vllm.py`. Budget at least $5 clean credits.
+**New platform — Vast.ai:**
+- RTX 3090 (24GB VRAM) from $0.25/hr — same VRAM as Modal A10G, 8× cheaper
+- No cold starts — GPU always warm while rented
+- `vllm_modal/serve.py` stays in repo as historical reference
+
+**To complete hands-on:**
+1. Create Vast.ai account at vast.ai, add SSH key
+2. Rent RTX 3090, ~$0.25/hr
+3. Follow v14 notes Steps 1–7: SGLang serve → benchmark → LiteLLM wire → Dynamo demo
+4. Stop instance when done. Total cost: ~$1–2
+
+**What Dynamo adds (covered in notes, architecture only on single GPU):**
+- Disaggregated prefill/decode routing across multi-GPU fleet
+- KV cache-aware routing — routes turn 2 to the worker holding turn 1's KV state
+- NIXL KV migration between nodes (requires NVLink — not on single Vast.ai node)
+- Single-node demo shows the router architecture; full benefit at 4+ GPU workers
 
 ### Curriculum Additions (April 2026 Audit) — ALL COMPLETE
 
