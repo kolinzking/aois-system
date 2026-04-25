@@ -1017,7 +1017,10 @@ Expected: `InvokeModel` → `allowed`, `DeleteFoundationModel` and `CreateModelC
 **6. The compliance argument**
 Without notes: explain to a skeptical colleague why a regulated company would use Bedrock over Anthropic direct even though Bedrock costs more and has higher latency. Cover: audit trail, data residency, IAM vs API keys, VPC PrivateLink, and CloudTrail integration. If you can make this argument convincingly, you understand enterprise AI deployment — not just the commands, but the why behind the architecture.
 
-**The mastery bar:** You can call Claude via Bedrock using IAM credentials (not API keys), route AOIS through Bedrock via LiteLLM with a config change, invoke a Bedrock Agent that calls a Lambda tool, and explain the compliance rationale for Bedrock in a production enterprise context. You know exactly what changes in v12 (IRSA replaces manual IAM role) and v11 (Lambda becomes the primary deployment surface).
+**7. The three-layer architecture — no notes**
+Explain the difference between Bedrock (Layer 1), Bedrock Agents (Layer 2), and Bedrock AgentCore (Layer 3) to a senior AWS architect. For each: one sentence on what it does, one sentence on when you would choose it over the alternatives, and which AOIS Phase 7 component it replaces in the AWS-managed pattern.
+
+**The mastery bar:** You can call Claude via Bedrock using IAM credentials (not API keys), route AOIS through Bedrock via LiteLLM with a config change, invoke a Bedrock Agent that calls a Lambda tool, explain the compliance rationale for Bedrock in a production enterprise context, and articulate the three-layer AWS agent architecture (Bedrock → Bedrock Agents → Bedrock AgentCore) and when you would choose each. You know exactly what changes in v12 (IRSA replaces manual IAM role), v11 (Lambda becomes the primary deployment surface), and v21 (AG-UI protocol connects AgentCore to the React dashboard).
 
 ---
 
