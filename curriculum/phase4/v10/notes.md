@@ -1071,6 +1071,15 @@ Explain the difference between Bedrock (Layer 1), Bedrock Agents (Layer 2), and 
 | **Technical** | Bedrock Agents use a ReAct-style planning loop internally. An action group maps agent intent to Lambda functions (described by an OpenAPI schema). A knowledge base is backed by an S3-managed vector store. The agent decides which tools to invoke, calls them via Lambda, and synthesizes results. Session context is managed by AWS. |
 | **Remove it** | Without Bedrock Agents, you own the orchestration loop (LangGraph in v23). The trade-off: Bedrock Agents ships faster with less infrastructure overhead, but LangGraph gives full control over state transitions, retry logic, cost attribution per step, and evaluation tooling. Bedrock Agents is right when you are inside an enterprise AWS account and cannot maintain an orchestration framework. |
 
+### Amazon Bedrock AgentCore
+
+| Layer | Question | Answer |
+|---|---|---|
+| **Plain English** | What problem does this solve? | Bedrock Agents runs an agent inside a single request. AgentCore runs an agent as a persistent managed service — it survives restarts, streams real-time state to frontends via AG-UI, and manages the agent's full lifecycle (start, pause, resume, stop) as AWS infrastructure. It is the difference between "invoke an agent" and "run an agent." |
+| **System Role** | Where does it sit in AOIS? | AgentCore is the AWS-managed equivalent of Temporal (v22) + AG-UI streaming (v21) combined. When AOIS runs as a fully managed AWS deployment: Bedrock (Layer 1) provides the model, Bedrock Agents (Layer 2) routes tools, and AgentCore (Layer 3) manages the agent runtime and streams investigation events to the v26 React dashboard via the same AG-UI protocol. |
+| **Technical** | What is it, precisely? | A managed agent runtime announced by AWS in early 2026. Key capabilities: persistent agent state across invocations (checkpointed to S3), AG-UI native event emission (RunStarted / ToolCallStart / StateSnapshot / RunFinished over SSE), lifecycle management API (StartAgent, PauseAgent, ResumeAgent, StopAgent), and native CloudWatch integration for agent execution graphs and tool call traces. Sits above Bedrock Agents in the AWS abstraction stack. |
+| **Remove it** | Without AgentCore: use Temporal (v22) for durable agent execution and the AG-UI SSE endpoint from v21 for frontend streaming. AgentCore packages both into managed infrastructure with no server to run. Remove AgentCore in an enterprise AWS context → the team must deploy and operate Temporal (EKS + PostgreSQL + Temporal server) and maintain the SSE streaming endpoint. AgentCore trades that operational burden for vendor lock-in and less customization. |
+
 **Say it at three levels:**
 - *Non-technical:* "Bedrock Agents is like a smart assistant who decides which phone calls to make and in what order to answer your question — you don't need to script every step."
 - *Junior engineer:* "You define tools as Lambda functions with an OpenAPI spec. Bedrock decides when to call them. You do not write the for-loop — AWS runs the ReAct loop. Right for teams that are AWS-native and do not want to maintain an agent framework."
