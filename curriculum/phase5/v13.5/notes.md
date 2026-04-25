@@ -823,13 +823,16 @@ for TinyLlama will be model latency, not Triton overhead.
 
 ---
 
-## Step 6: Deploying TinyLlama on Triton (GPU Required)
+## Step 6: Deploying TinyLlama on Triton (GPU Required — Vast.ai)
 
 Same model as v15, different server. Triton's Python backend vs vLLM — this demonstrates the
 difference: Triton is a general-purpose container, vLLM is LLM-optimized. Both serve the same
 LoRA-adapted model.
 
-### Step 6a: Export the LoRA adapter from Modal
+**Before starting Step 6:** rent a Vast.ai RTX 3090 or RTX 4090 and SSH in (same process as
+v14 Steps 1–2). Keep the SSH port-forward and instance running throughout Step 6.
+
+### Step 6a: Export the LoRA adapter from Modal and copy to Vast.ai
 
 The adapter is in a Modal volume. Export it locally:
 
