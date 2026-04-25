@@ -197,7 +197,7 @@ After v14, AOIS can route to all of these. Here is where each wins:
 | **Vast.ai + vLLM** | 600–2500ms | $0.10–0.50* | High-concurrency batch inference | Same as above |
 | Ollama (local) | 500–5000ms | $0 (hardware) | Air-gapped, testing | Single machine speed |
 
-*Vast.ai RTX 3090 at $0.25/hr. At 80 tokens/sec, 100-token response ≈ 1.25s → ~$0.00009/call. At 1M tokens/day that is ~$25/day GPU rental vs ~$3,000/day for Claude.
+*Vast.ai RTX 3090 at $0.13/hr. At 80 tokens/sec, 100-token response ≈ 1.25s → ~$0.00005/call. At 1M tokens/day that is ~$13/day GPU rental vs ~$3,000/day for Claude.
 
 **The inference engine comparison (for self-hosted):**
 
