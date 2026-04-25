@@ -1143,9 +1143,9 @@ existing AOIS routing code) and record both latency and cost. Fill in this table
 
 The answer tells you the break-even point for running your own GPU instance versus paying Groq
 per call. (Spoiler from v13: at ~3,000 P3/P4 calls/day, Groq at $0.000001/call is ~$0.003/day.
-A Modal A10G at $1.10/hr × 24hr = $26.40/day. You would need >26,400 calls/day for self-hosted
-GPU to be cheaper. Groq wins for every AOIS deployment that is not processing millions of
-incidents daily.)
+A Vast.ai RTX 3090 at $0.13/hr × 24hr = $3.12/day. You would need >3,120 calls/day for self-hosted
+GPU to be cheaper than Groq. At that volume it is worth it — but remember the main reason to
+self-host is not cost at this scale, it is running your fine-tuned model that Groq cannot serve.)
 
 ---
 
