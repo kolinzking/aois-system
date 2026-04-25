@@ -837,6 +837,144 @@ Modal's container starts cold. The first request can hit before the vLLM engine 
 
 ---
 
+## SGLang: The Agentic Inference Standard (2026)
+
+vLLM was the answer to "how do I serve a model efficiently?" SGLang is the answer to "how do I serve a model efficiently for agents specifically?" The distinction matters for AOIS.
+
+### Why vLLM Falls Short for Multi-Turn Agents
+
+vLLM's PagedAttention was designed for independent requests — each request gets its own KV cache, allocated fresh. For a single-turn chatbot this is fine. For an agent running a 10-step investigation, it creates waste.
+
+When AOIS investigates an incident:
+1. Turn 1: system prompt + log entry → LLM generates tool call
+2. Turn 2: system prompt + log entry + tool result → LLM generates next tool call
+3. Turn 3: system prompt + log entry + tool result 1 + tool result 2 → ...
+
+At turn 10, the system prompt has been re-processed 10 times. The KV cache for those tokens has been computed from scratch each time. That is wasted GPU compute — the system prompt didn't change.
+
+vLLM introduced prefix caching to partially address this, but it is opt-in, coarse-grained, and only matches exact prefixes. For AOIS where the system prompt is always the same but the log entry changes, it helps. For multi-step reasoning where context grows with each turn, it helps less.
+
+### SGLang's RadixAttention
+
+SGLang (UC Berkeley Sky Computing Lab, January 2026 spinout as RadixArk) solves this with RadixAttention — automatic, fine-grained KV cache reuse via a radix tree.
+
+A radix tree stores all cached sequences as shared prefixes. When a new request arrives, SGLang finds the longest prefix already in cache and reuses its KV state. Only the new tokens need computing.
+
+**Concrete example for AOIS:**
+
+Turn 1: `[system_prompt][log_entry][turn_1_tokens]`  
+Turn 2: `[system_prompt][log_entry][turn_1_tokens][tool_result_1][turn_2_tokens]`  
+Turn 3: `[system_prompt][log_entry][turn_1_tokens][tool_result_1][turn_2_tokens][tool_result_2][turn_3_tokens]`
+
+The radix tree finds `[system_prompt][log_entry]` is shared across all three turns. Turn 2 only computes KV for `[tool_result_1][turn_2_tokens]`. Turn 3 only computes KV for `[tool_result_2][turn_3_tokens]`. The shared prefix KV state is never recomputed — it is reused.
+
+For AOIS's LangGraph SRE loop (v23) with 6 nodes and 10-15 tool calls per incident, this is meaningful: 60–80% of tokens per turn are shared prefix, which means 60–80% less KV computation per turn.
+
+### TGI Is Dead for New Projects
+
+HuggingFace Text Generation Inference (TGI) entered official maintenance mode in December 2025. No new features are being developed. If you see TGI in production codebases, it is legacy. Do not start new projects with TGI.
+
+The inference engine landscape as of 2026:
+
+| Engine | Strength | Best for | Status |
+|---|---|---|---|
+| **SGLang** | RadixAttention — automatic prefix sharing, agentic multi-turn | Multi-turn agents, AOIS investigations | Active — production standard |
+| **vLLM** | PagedAttention — high-concurrency single-turn | Batch inference, high-throughput API | Active — strong for non-agent workloads |
+| **TensorRT-LLM** | NVIDIA-optimised, maximum throughput on NVIDIA hardware | Production NVIDIA GPU deployments with fixed model | Active — NVIDIA-specific |
+| **Triton** | Full control, ensemble pipelines, any framework | When you need pre/post-processing chains | Active — operational complexity |
+| **TGI** | Legacy HuggingFace wrapper | Nothing new | **Maintenance mode Dec 2025 — do not start new projects** |
+
+### Serving a Model on SGLang
+
+SGLang exposes an OpenAI-compatible endpoint. LiteLLM routes to it unchanged.
+
+```bash
+# Install SGLang
+pip install "sglang[all]>=0.4.0"
+
+# Serve Llama-3.1-8B with RadixAttention (default — no flag needed)
+python -m sglang.launch_server \
+  --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --host 0.0.0.0 \
+  --port 30000 \
+  --mem-fraction-static 0.85
+```
+
+Expected output:
+
+```
+[SGLang] Server started on http://0.0.0.0:30000
+[SGLang] RadixAttention enabled (automatic prefix caching)
+[SGLang] Model loaded: meta-llama/Llama-3.1-8B-Instruct
+```
+
+Query it via the OpenAI-compatible endpoint:
+
+```bash
+curl http://localhost:30000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "meta-llama/Llama-3.1-8B-Instruct",
+    "messages": [{"role": "user", "content": "What causes OOMKilled in Kubernetes?"}],
+    "max_tokens": 200
+  }'
+```
+
+Wire to LiteLLM in AOIS:
+
+```python
+# In routing config — SGLang tier (self-hosted)
+"sglang": {
+    "model": "openai/meta-llama/Llama-3.1-8B-Instruct",
+    "api_base": "http://localhost:30000/v1",
+    "api_key": "none",
+}
+```
+
+LiteLLM routes to SGLang identically to how it routes to vLLM. The difference is what happens inside: SGLang reuses KV cache across multi-turn calls; vLLM recomputes it.
+
+### ▶ STOP — do this now
+
+Check SGLang's cache hit rate during a simulated multi-turn investigation:
+
+```bash
+# After running 3+ consecutive requests with the same system prompt:
+curl http://localhost:30000/get_server_info | python3 -m json.tool | grep -E "cache|prefix|hit"
+```
+
+Expected output includes:
+
+```json
+{
+  "prefix_cache_hit_tokens": 3840,
+  "prefix_cache_miss_tokens": 412,
+  "prefix_cache_hit_rate": 0.903
+}
+```
+
+A 90%+ hit rate means 9 out of 10 tokens in the shared prefix were served from cache — not recomputed. For a 5-turn AOIS investigation, this translates directly to lower latency and lower GPU compute cost per turn. The first request always misses (cache is cold). Subsequent requests with the same system prompt hit.
+
+If running Modal (no local GPU): save this exercise for when you have access to an SGLang instance. The concept is what matters — the numbers make it concrete.
+
+### SGLang vs vLLM Decision Framework
+
+```
+Is your workload multi-turn? (agents, conversations, iterative reasoning)
+├── Yes → SGLang — RadixAttention reuses shared prefix KV across turns
+└── No → vLLM — PagedAttention is sufficient for independent single-turn requests
+
+Do you have NVIDIA hardware and need maximum throughput for a fixed model?
+└── TensorRT-LLM — compiles the model to optimised CUDA kernels
+
+Are you on a pre-existing NVIDIA NIM deployment?
+└── NIM — abstracted SGLang/TensorRT-LLM under the hood, API-first
+
+Is this legacy code using TGI?
+└── Plan migration to SGLang or vLLM — TGI is maintenance mode
+```
+
+---
+
 ## Connection to Later Phases
 
 **v15 (next):** You will fine-tune Mistral-7B on AOIS-specific SRE log data using LoRA. The fine-tuned model will be served from this same vLLM endpoint on Modal. You built the serving infrastructure here; v15 changes the model weights.
