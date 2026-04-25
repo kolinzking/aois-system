@@ -421,7 +421,7 @@ Expected output (at these cost estimates):
       10,000 |     $4,500.00 |        $33.00 |     $1,365.00 |  $3,135.00
      100,000 |    $45,000.00 |       $330.00 |    $13,650.00 | $31,350.00
 ```
-At 10,000 calls/day, routing P3/P4 to NIM saves ~$3,135/month vs always-on Claude. The savings justify even a dedicated Modal GPU ($1.10/hr A10G = ~$800/month) once you exceed ~3,000 calls/day.
+At 10,000 calls/day, routing P3/P4 to NIM saves ~$3,135/month vs always-on Claude. The savings justify even a dedicated GPU ($0.25/hr RTX 3090 on Vast.ai = ~$180/month) once you exceed ~3,000 calls/day.
 
 **What the stddev tells you about reliability:**
 If NIM stddev is high (>1s on a ~2s mean), run the benchmark again at different times of day. NGC hosted NIM shares GPU resources — load varies. A dedicated GPU has flat latency because you own the hardware.
