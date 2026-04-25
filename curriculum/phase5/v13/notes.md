@@ -553,7 +553,7 @@ SEVERITY_TIER_MAP = {
 - Cost: both effectively zero at development volumes
 
 **When to revisit this decision:**
-If you deploy a self-hosted NIM container on a dedicated GPU (not the NGC API), NIM's stddev collapses. At that point the comparison is: Groq API (0.22s, pay per call) vs self-hosted NIM (0.3–0.4s, fixed GPU cost). At ~3,000 P3/P4 calls/day, self-hosted NIM on Modal's spot A10G (~$0.60/hr) becomes cheaper than Groq's per-call pricing.
+If you deploy a self-hosted NIM container on a dedicated GPU (not the NGC API), NIM's stddev collapses. At that point the comparison is: Groq API (0.22s, pay per call) vs self-hosted NIM (0.3–0.4s, fixed GPU cost). At ~3,000 P3/P4 calls/day, self-hosted NIM on Vast.ai RTX 3090 (~$0.25/hr) becomes cheaper than Groq's per-call pricing — and 7× cheaper than the same GPU on Modal.
 
 ---
 
