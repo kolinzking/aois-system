@@ -1051,7 +1051,7 @@ Complete these before moving to v15:
 
 8. Name the inference engine for each scenario: (a) AOIS LangGraph 10-step investigation, 8B model; (b) single-turn high-concurrency summarization API at 500 RPS; (c) P1 critical incident requiring best reasoning; (d) a fleet of 8 GPU workers needing smart KV routing. Justify each without notes.
 
-9. You know why Modal was the wrong platform for v14: cold starts (30–120s), A10G at $1.98/hr vs RTX 3090 at $0.25/hr on Vast.ai, and dependency conflicts in vLLM 0.4.x–0.8.x made persistent serving unreliable. Modal's right use case is one-shot GPU jobs (v15 fine-tuning), not persistent inference servers.
+9. You know why Modal was the wrong platform for v14: cold starts (30–120s), A10G at $1.98/hr vs RTX 3090 at $0.13/hr on Vast.ai (15× cheaper), and dependency conflicts in vLLM 0.4.x–0.8.x made persistent serving unreliable. Modal's right use case is one-shot GPU jobs (v15 fine-tuning), not persistent inference servers.
 
 **The mastery bar:** you understand self-hosted inference from first principles — vLLM's PagedAttention for concurrent batching, SGLang's RadixAttention for multi-turn agents, Dynamo's orchestration layer for fleet routing, and the economics that decide between managed APIs vs self-hosted GPU. You can route AOIS to any of them via LiteLLM without changing application code.
 
