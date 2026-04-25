@@ -1031,6 +1031,22 @@ This document is not theoretical — it becomes the acceptance criteria for v20,
 
 ---
 
+### Microsoft Agent Governance Toolkit
+
+| Layer | |
+|---|---|
+| **Plain English** | A structured framework from Microsoft (open-sourced April 2026) that turns the OWASP Agentic AI Top 10 threat list into concrete code patterns — capability boundaries, memory guards, and circuit breakers you implement before your agent gets any real-world tools. |
+| **System Role** | The Agent Governance Toolkit is the architectural layer beneath every AOIS agent feature. `AgentCapability` enum defines what v20's AOIS can structurally do — read logs, yes; delete namespaces, never. `validate_memory_write()` guards every Mem0 write before it persists. `docs/governance-design.md` is the acceptance criteria for every Phase 7 version. Without the toolkit design, agent features are built ad-hoc and patched retroactively. |
+| **Technical** | Maps to six OWASP Agentic AI Top 10 threats: goal hijacking (defend at input and memory layers), tool misuse (enforce capability boundaries at invocation), identity abuse (SPIFFE + OpenFGA for agent-to-agent calls), memory poisoning (validate_memory_write() blocklist before Mem0 writes), cascading failures (circuit breaker halts multi-agent chains), rogue agents (human approval gate before any write action). The toolkit is a design pattern, not a library — the enforcement code is your own, guided by the framework's structure. |
+| **Remove it** | Without the governance design, v20 gives AOIS kubectl access without capability boundaries, Mem0 without write validation, and no circuit breaker. A crafted log entry can poison the agent's memory. A single misbehaving LangGraph node can delete a namespace. There is no audit trail of which capability was used by which agent instance. These are the failure modes that get AI systems pulled from production. |
+
+**Say it at three levels:**
+- *Non-technical:* "The Agent Governance Toolkit is a safety blueprint for AI agents. Before you give an AI any power to act in the real world, you use this blueprint to define exactly what it's allowed to do, guard its memory from manipulation, and install a kill switch for when it misbehaves."
+- *Junior engineer:* "Define `AOIS_V20_CAPABILITIES = frozenset([READ_LOGS, READ_METRICS, READ_EVENTS])`. Call `check_capability(action, granted)` before every tool invocation. Write `validate_memory_write(content)` and call it before every `memory.add()`. Write `docs/governance-design.md` that maps all six threat categories to your implementation. If a Phase 7 feature doesn't appear in that doc, it hasn't been governed."
+- *Senior engineer:* "The toolkit's most important contribution is separating detection from prevention. v5's `validate_output()` blocklist is detection — it fires after the LLM generates a destructive recommendation. Capability boundaries are prevention — they fire before any tool call, regardless of LLM output. Memory validation is prevention at the persistence layer — a poisoned write is rejected before it survives a session boundary. You need all three: prevention at invocation, prevention at persistence, detection at output. Any single layer alone is insufficient against an adversarially crafted input."
+
+---
+
 ### slowapi (rate limiting)
 
 | Layer | |
