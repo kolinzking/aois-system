@@ -897,8 +897,9 @@ All remaining steps in Step 6 run **on the Vast.ai instance** (inside your SSH s
 ### Step 6b: Build the model repository
 
 ```bash
+# On Vast.ai — the adapter is now at /tmp/triton_adapter/
 mkdir -p /tmp/triton_models/aois_tinyllama/1
-cp -r triton_adapter /tmp/triton_models/aois_tinyllama/lora_adapter
+cp -r /tmp/triton_adapter /tmp/triton_models/aois_tinyllama/lora_adapter
 
 cat > /tmp/triton_models/aois_tinyllama/config.pbtxt << 'EOF'
 name: "aois_tinyllama"
