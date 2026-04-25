@@ -1051,7 +1051,11 @@ Complete these before moving to v15:
 
 8. `modal logs aois-vllm` — you can read the container logs and identify a cold start vs a warm serving event.
 
-**The mastery bar:** you can take any open-source model from HuggingFace, deploy it on Modal with vLLM, expose it as an OpenAI-compatible endpoint, and route AOIS traffic to it via a single `VLLM_MODAL_URL` env var — without changing any other code.
+9. Explain the difference between vLLM and SGLang to a senior engineer: what RadixAttention adds over PagedAttention, why it matters for AOIS's LangGraph loop specifically, and one operational tradeoff SGLang introduces. No notes.
+
+10. Name the inference engine you would choose for each scenario: (a) single-turn high-concurrency summarization API at 500 RPS, (b) AOIS 10-step investigation agent with shared system prompt, (c) fixed production model on NVIDIA A100s needing maximum throughput. Justify each.
+
+**The mastery bar:** you understand the self-hosted inference tier from first principles — vLLM's PagedAttention for concurrency, SGLang's RadixAttention for agentic multi-turn, TGI's deprecation, and the break-even economics between self-hosted GPU and managed APIs. You can route AOIS to any of them via LiteLLM without changing application code.
 
 ---
 
