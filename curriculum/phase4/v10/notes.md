@@ -861,7 +861,95 @@ The Lambda is the most common failure point. Check: does it have the right permi
 - **v11 (Lambda)**: The `aois-analyzer` Lambda you built here becomes the core of a fully serverless AOIS deployment. API Gateway fronts it. The Lambda code is already written — v11 is about wiring it up properly with API Gateway, environment variables, and cold start optimization.
 - **v12 (EKS)**: IRSA (IAM Roles for Service Accounts) replaces the manual IAM role approach from Step 2. The AOIS pod on EKS gets temporary Bedrock credentials automatically from the pod's service account — zero static secrets. The `AOISBedrockPolicy` you created here attaches to the IRSA role in v12.
 - **v20 (Claude Tool Use)**: The Bedrock Agent pattern (model + tools + orchestration) is conceptually identical to what you'll build with Claude tool use directly. The difference: Bedrock Agents is fully managed (AWS orchestrates the loop), while v20 gives you full control of the agent loop in code. Knowing both gives you the ability to choose the right abstraction.
+- **v21 (MCP + A2A)**: Bedrock AgentCore's AG-UI support uses the same event stream protocol built in v21. When AOIS runs as a Bedrock AgentCore agent, the `/investigate/stream` endpoint you built in v21 works unchanged — AWS handles the SSE infrastructure.
 - **v28 (CI/CD)**: The GitHub Actions pipeline will need AWS credentials to push images to ECR and update EKS. The IAM pattern you built here (least-privilege policy, role assumption) is the same pattern used for GitHub Actions OIDC — no static AWS keys in GitHub secrets.
+
+---
+
+## Step 6b: Amazon Bedrock AgentCore — Managed Agent Runtime
+
+Bedrock and Bedrock Agents are already in v10. There is a third layer, announced in early 2026, that enterprises confuse with both: **Bedrock AgentCore**.
+
+Understanding the distinction is essential — in enterprise conversations, all three are called "Bedrock" and they are entirely different products.
+
+### The Three-Layer AWS Agent Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Layer 3: Bedrock AgentCore                                     │
+│  Managed agent runtime — persistent state, lifecycle, AG-UI     │
+│  "I need to run long-lived agents that survive restarts"        │
+├─────────────────────────────────────────────────────────────────┤
+│  Layer 2: Bedrock Agents                                        │
+│  Managed tool routing — ReAct loop, Lambda action groups,      │
+│  knowledge base, session context                                │
+│  "I need an agent that calls tools, without owning the loop"   │
+├─────────────────────────────────────────────────────────────────┤
+│  Layer 1: Bedrock (Foundation Models)                           │
+│  Raw model API — send prompt, get response                      │
+│  "I need to call Claude/Titan/Llama on AWS"                    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Layer 1 — Bedrock (what you built in Steps 1-4):**
+Call any foundation model via API. You own everything: prompt construction, output parsing, retry logic, context management. It is a model API with AWS auth, compliance, and data residency.
+
+**Layer 2 — Bedrock Agents (what you built in Step 5):**
+Give the agent tools (Lambda functions via OpenAPI schema). AWS runs the ReAct planning loop — decides which tools to call, calls them, synthesizes results. You own the Lambda functions; AWS owns the orchestration. Session context is managed per `sessionId`.
+
+**Layer 3 — Bedrock AgentCore (2026):**
+Persistent agent runtime. The agent is a managed service, not a request-response API:
+
+- **Persistent state**: agent state survives across invocations, not just within a session. If AOIS's investigation is interrupted, AgentCore resumes from checkpoint — no re-running completed steps.
+- **AG-UI support**: AgentCore natively emits AG-UI events. The same `RunStarted` / `ToolCallStart` / `RunFinished` stream you built in v21 works with AgentCore as the backend — AWS handles the SSE infrastructure.
+- **Agent lifecycle management**: start, stop, pause, resume, and monitor agents as managed resources. Not a Lambda invocation but a running managed agent process.
+- **Infrastructure-level observability**: CloudWatch natively captures agent execution graphs, tool call sequences, and latency breakdowns — without custom OTel instrumentation.
+
+### When to Choose Each
+
+```
+Do you need to call a model and parse the response yourself?
+└── Bedrock (Layer 1): full control, LiteLLM routes here
+
+Do you need an agent that calls tools, but you don't want to own the orchestration loop?
+└── Bedrock Agents (Layer 2): managed ReAct loop, Lambda action groups
+
+Do you need an agent that persists state across invocations, streams to a UI in real time,
+and runs as a managed AWS service (not a Lambda)?
+└── Bedrock AgentCore (Layer 3): persistent runtime, AG-UI, lifecycle management
+
+Are you on Hetzner or a non-AWS environment and own your full stack?
+└── LangGraph (v23) + Temporal (v22): full control, not AWS-dependent
+```
+
+The correct enterprise conversation:
+> "We're deploying AOIS to AWS. We want the full managed pattern — Claude on Bedrock for the model, Bedrock Agents for the tool routing, and AgentCore for the agent lifecycle and real-time UI streaming."
+
+That is one sentence that maps correctly to three distinct AWS services.
+
+### ▶ STOP — do this now
+
+Map the AOIS agent from v20 to the three-layer architecture. For each layer, state what v20 uses and what the AWS-managed equivalent would be:
+
+```
+Layer 1 — Model API:
+  v20 (self-managed): Anthropic direct via LiteLLM
+  AWS-managed: Bedrock → anthropic.claude-3-5-sonnet-20241022-v2:0
+
+Layer 2 — Tool routing / orchestration loop:
+  v20 (self-managed): LangGraph SRE loop (v23) — Detect → Investigate → Remediate nodes
+  AWS-managed: Bedrock Agents — action groups mapped to Lambda functions
+
+Layer 3 — Agent runtime / lifecycle:
+  v20 (self-managed): Temporal (v22) — durable workflow execution, crash recovery
+  AWS-managed: Bedrock AgentCore — managed persistent state, AG-UI streaming, lifecycle
+
+Self-managed → AWS-managed: same agent architecture, different operational model.
+Trade-off: AWS-managed = less code, less control, vendor lock-in.
+Self-managed = full control, full responsibility, portable across clouds.
+```
+
+Write this mapping to `docs/bedrock-architecture.md`. It will be the reference document when an enterprise team asks "how do we run AOIS on AWS without managing infrastructure?"
 
 ---
 
