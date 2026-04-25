@@ -334,13 +334,15 @@ The pattern behind half of all production AI applications — AOIS needs it for 
 - Cost-aware routing: NVIDIA for volume, Claude for quality
 
 **v13.5 — NVIDIA Triton Inference Server**
+- Steps 1–5: CPU — run locally or on Hetzner. No GPU needed for mechanics.
+- Step 6: GPU — Vast.ai RTX 3090 ($0.13/hr). Export LoRA adapter from Modal volume locally, scp to Vast.ai, launch Triton with --gpus all.
 - Triton is the production inference server NIM is built on — understand the layer underneath
 - Backends: TensorRT (NVIDIA optimised), ONNX Runtime, PyTorch, Python — one server, any framework
 - Dynamic batching: Triton groups concurrent requests and processes them together — how throughput scales
 - Model ensemble: chain a preprocessing model → LLM → postprocessor as a single inference pipeline
 - Perf Analyzer: measure throughput and latency under load before production
-- Compare: NIM (abstracted, API-ready) vs Triton (full control, requires configuration) — when to use each
-- Deploy the fine-tuned TinyLlama from v15 on Triton instead of vLLM — same model, different server
+- Compare: NIM (abstracted, API-ready) vs Triton vs SGLang/vLLM — when each wins
+- Deploy the fine-tuned TinyLlama from v15 on Triton Python backend — ~400ms vs ~300ms SGLang (30% Python backend overhead)
 
 **v14 — Self-Hosted GPU Inference: SGLang, vLLM, and Dynamo**
 - Rent a GPU on Vast.ai (RTX 3090 from $0.25/hr — 8× cheaper than Modal A10G at $1.98/hr)
