@@ -325,7 +325,7 @@ For question 2: NGC charges per token (similar to OpenAI pricing). A dedicated G
 
 NVIDIA NGC API is convenient but you are still paying per token. The production pattern for high-volume inference is a dedicated GPU running NIM.
 
-**Modal** is serverless GPU compute — you pay per second of GPU use, no minimum. An A10G costs ~$1.10/hr, billed in seconds. For bursty workloads, this is the cheapest path to running your own NIM.
+**Modal** is serverless GPU compute — you pay per second of GPU use, no minimum. An A10G costs ~$1.98/hr, billed in seconds. For bursty one-shot GPU jobs (like fine-tuning in v15), Modal is convenient. For persistent serving (NIM running all day), **Vast.ai** is cheaper: RTX 3090 (same 24GB VRAM) from $0.25/hr.
 
 The deployment pattern (no execution required — infrastructure cost is real):
 ```python
