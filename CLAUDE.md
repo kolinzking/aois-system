@@ -157,7 +157,7 @@ Full tool tables (AI/LLM, infra, observability, data, security, frontend, Linux)
 ### Current Position
 - **ALL PHASES COMPLETE — v0.1 through v34.5 DONE.** Curriculum complete.
 - v10/v11 blocked on AWS Bedrock daily quota (infrastructure built, live Bedrock call pending quota).
-- v14 closed (Modal GPU cost). v15 complete.
+- v14 notes retrofitted (SGLang + Vast.ai + Dynamo). Hands-on pending: rent Vast.ai GPU and run Steps 1–7. v15 complete.
 - Phase 10 (v31–v34.5) complete: multimodal vision, edge AI (Ollama), red-teaming (PyRIT+Garak), computer use (Playwright+Claude), EU AI Act compliance, capstone game day runbook.
 
 ### What's been built (v1–v12)
