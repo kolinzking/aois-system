@@ -1171,7 +1171,7 @@ You have now used all three. Here is the framework from first principles:
 | P3/P4 volume, NGC model, NGC API key exists | NIM NGC API | Zero infra, one line in LiteLLM |
 | P3/P4 volume, >3,000 calls/day, own GPU hardware | Self-hosted NIM on Vast.ai | TensorRT-LLM beats Python backend; Vast.ai RTX 3090 at $0.13/hr makes it economical |
 | Fine-tuned TinyLlama (v15 adapter), high throughput | vLLM | PagedAttention + LoRA native support; purpose-built for LLMs |
-| Embedding model + reranker + LLM on shared A10G | Triton | One server, three models, Prometheus covers all three |
+| Embedding model + reranker + LLM on shared RTX 3090 | Triton | One server, three models, Prometheus covers all three |
 | Preprocessing pipeline + LLM + postprocessing | Triton ensemble | Tensor routing between stages, one HTTP call to client |
 
 For AOIS at current scale: Groq API covers P3/P4. vLLM covers the fine-tuned TinyLlama tier.
