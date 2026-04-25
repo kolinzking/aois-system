@@ -615,7 +615,7 @@ calls_per_day = 10_000
 
 claude_cost  = calls_per_day * 0.001200   # average Claude premium
 groq_cost    = calls_per_day * 0.000001   # Groq Llama-3.1-8B
-sglang_cost  = 24 * 0.25                  # Vast.ai RTX 3090 @ $0.25/hr, 24hr rental
+sglang_cost  = 24 * 0.13                  # Vast.ai RTX 3090 @ $0.13/hr, 24hr rental
 
 print(f"Claude premium/day:  ${claude_cost:.2f}")
 print(f"Groq fast/day:       ${groq_cost:.2f}")
