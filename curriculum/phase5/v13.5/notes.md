@@ -62,11 +62,16 @@ python -c "import tritonclient.http; print('tritonclient ok')"
 # Expected: tritonclient ok
 ```
 
-**GPU access note**: Steps 1–6 (Triton mechanics, Python backend, dynamic batching, ensemble,
-Perf Analyzer) run on CPU. Step 7 (TinyLlama inference) requires a GPU instance — a Modal A10G,
-a cloud VM (GCP L4, AWS g4dn.xlarge), or local GPU. If you do not have GPU access now, complete
-Steps 1–6 in full and mark Step 7 as deferred. The mechanics are identical on GPU; only the
-`instance_group kind` in `config.pbtxt` changes from `KIND_CPU` to `KIND_GPU`.
+**Where each step runs:**
+
+- **Steps 1–5** (Triton mechanics, Python backend, dynamic batching, ensemble, Perf Analyzer):
+  CPU only. Run on your local machine or Hetzner server — just Docker, no GPU needed.
+- **Step 6** (TinyLlama on GPU): Runs on **Vast.ai**. Rent an RTX 3090 ($0.13/hr) or RTX 4090
+  ($0.29/hr) — same SSH model as v14. Total GPU time for this step: ~30–45 min = ~$0.10.
+
+If you want to complete Steps 1–5 first and defer Step 6, that is fine. The mechanics are
+identical on GPU; only the `instance_group kind` in `config.pbtxt` changes from `KIND_CPU`
+to `KIND_GPU`, and the Docker run command adds `--gpus all`.
 
 ---
 
