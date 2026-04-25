@@ -73,7 +73,7 @@ Vast.ai is a peer-to-peer GPU marketplace. Server owners rent out idle GPU capac
 | A100 (80GB) | 80GB | $0.80/hr | N/A | $1.89/hr | $12.24/hr |
 | H100 SXM | 80GB | $1.55/hr | N/A | $3.49/hr | N/A |
 
-For AOIS GPU learning: start with RTX 3090 at $0.25/hr. It has 24GB VRAM — identical to an A10G — and will serve Llama-3.1-8B comfortably. Stop the instance when done. Cost for a full v14 session: ~$1.00–$2.00.
+For AOIS GPU learning: start with RTX 3090 at ~$0.13/hr. It has 24GB VRAM — identical to an A10G — and will serve Llama-3.1-8B comfortably. If you want the faster Ada Lovelace architecture, RTX 4090 at ~$0.29/hr is the upgrade. Stop the instance when done. Cost for a full v14 session: ~$0.30–$0.60.
 
 **Trade-offs vs managed platforms:**
 
