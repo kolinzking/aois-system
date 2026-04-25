@@ -1467,7 +1467,7 @@ Complete these tasks in sequence. Each depends on the previous.
 |----------|----------------------|---------------------|
 | Serve Llama 3.1 8B on NGC hardware, no custom models | ? | ? |
 | Serve the v15 TinyLlama LoRA adapter at maximum throughput | ? | ? |
-| Shared GPU: embedding model + reranker + LLM on one A10G | ? | ? |
+| Shared GPU: embedding model + reranker + LLM on one RTX 3090 | ? | ? |
 | You own a DGX box and need to serve an NGC-catalog model fast | ? | ? |
 
 **The mastery bar:** You can deploy any HuggingFace model on Triton's Python backend, configure
