@@ -20,6 +20,8 @@
 | Fireworks AI | Fast inference platform | Different model availability and pricing from Groq/Together — full routing landscape matters |
 | Ollama | Run any model locally | Air-gapped, cost-free inference for testing |
 | vLLM | High-throughput LLM serving engine | How production inference actually scales |
+| SGLang | Agentic inference server with RadixAttention | De facto standard for multi-turn agent inference 2026 — deployed on 400k+ GPUs, outperforms vLLM for AOIS's multi-turn LangGraph workloads |
+| NVIDIA Dynamo | Inference orchestration layer above vLLM/SGLang | Disaggregated prefill/decode, KV cache-aware routing across GPU fleet, NIXL migration — the routing layer for multi-GPU agent deployments |
 | LiteLLM | Universal LLM proxy/gateway | One API to route between all providers — Claude, OpenAI, Bedrock, Groq, Together, Fireworks, local |
 | Hugging Face | 500k+ models, datasets, Inference API | The GitHub of AI models |
 | LangGraph | Stateful multi-agent orchestration | The right way to build complex AI workflows |
