@@ -52,7 +52,7 @@ At v2 you built LiteLLM routing with four tiers. The cheapest tier was Groq. Gro
 
 SGLang and vLLM solve all four. They are production-grade inference servers — SGLang is now deployed on 400,000+ GPUs globally; vLLM is used at Mistral, Anyscale, and most organisations running their own models. After v14, AOIS can serve any open-source model ever trained. No API key, no rate limits, no external dependency.
 
-The catch: you need a GPU. **Vast.ai** gives you hourly GPU rental at the cheapest rates available — RTX 3090 (24GB VRAM) from $0.25/hr, the same GPU that would cost $1.98/hr on Modal. You pay only for the hours you use.
+The catch: you need a GPU. **Vast.ai** gives you hourly GPU rental at the cheapest rates available — RTX 3090 (24GB VRAM) from $0.13/hr, or RTX 4090 (24GB VRAM, faster Ada Lovelace) from $0.29/hr. Modal's A10G costs $1.98/hr for the same VRAM. You pay only for the hours you use.
 
 > **Modal note:** The repo contains `vllm_modal/serve.py` — this documents a previous deployment attempt on Modal. Modal's cold starts (30–120s), dependency conflicts between vLLM versions, and $1.98/hr A10G cost (vs $0.25/hr RTX 3090 on Vast.ai) made it the wrong platform for persistent inference serving. Modal is the right choice for one-shot GPU jobs like fine-tuning runs (v15). For serving — where the server runs for hours — Vast.ai wins on cost by 5–8x.
 
