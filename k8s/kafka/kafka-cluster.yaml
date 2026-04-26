@@ -1,7 +1,9 @@
 ---
 # Single-node Kafka cluster for Hetzner k3s (dev/learning tier).
-# KRaft mode — no ZooKeeper. 1 replica, ephemeral storage.
-# For production: increase replicas to 3, use PersistentVolumeClaim storage.
+# KRaft mode — no ZooKeeper. 1 replica, persistent storage (local-path).
+# Persistent storage required: ephemeral causes quorum-state epoch corruption in KRaft mode
+# (quorum-state file at epoch 0, metadata log advances to epoch N, Strimzi startup wrapper aborts).
+# For production: increase replicas to 3.
 apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaNodePool
 metadata:
