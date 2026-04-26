@@ -2,6 +2,13 @@
 
 ⏱ **Estimated time: 4–5 hours**
 
+> **STATUS: COMPLETE — 2026-04-26**
+> Hands-on validated on Vast.ai: 2x RTX 3090 (48GB VRAM), Qwen3-8B served at port 18000 via tensor parallelism.
+> RadixAttention benchmark: **3.3x speedup** on 400-token shared prefix (1.10s cold → 0.34s warm avg).
+> AOIS incident analysis via OpenAI-compatible endpoint: valid structured JSON in 1.29s.
+> LiteLLM wiring pattern confirmed. Dynamo architecture covered in notes (single-node demo).
+> Cost: ~$0.58 total (2h @ $0.291/hr, 2x RTX 3090).
+
 ---
 
 ## Prerequisites
