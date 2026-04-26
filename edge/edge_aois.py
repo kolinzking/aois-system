@@ -103,7 +103,8 @@ async def queue_for_sync(incident: str, local_result: dict) -> None:
         "incident": incident,
         "local_result": local_result,
     }
-    with open(LOCAL_QUEUE_PATH, "a") as f:
+    queue_path = _queue_path()
+    with open(queue_path, "a") as f:
         f.write(json.dumps(entry) + "\n")
     log.info("Queued for sync: %s", incident[:60])
 
@@ -114,14 +115,15 @@ async def sync_to_central() -> int:
         log.warning("AOIS_CENTRAL_URL not set — cannot sync")
         return 0
 
-    if not LOCAL_QUEUE_PATH.exists():
+    queue_path = _queue_path()
+    if not queue_path.exists():
         return 0
 
-    raw = LOCAL_QUEUE_PATH.read_text().strip()
+    raw = queue_path.read_text().strip()
     if not raw:
         return 0
 
-    queue = [line for line in raw.split("\n") if line]
+    queue = [line for line in raw.split("\n") if line.strip()]
     synced = 0
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -131,24 +133,23 @@ async def sync_to_central() -> int:
                 await client.post(f"{CENTRAL_SYNC_URL}/api/edge_sync", json=entry)
                 synced += 1
             except Exception as e:
-                log.warning("Sync failed for entry: %s", e)
+                log.warning("Sync failed at entry %d: %s", synced + 1, e)
                 break  # stop on first failure — connectivity may be gone again
 
     if synced == len(queue):
-        LOCAL_QUEUE_PATH.unlink()
+        queue_path.unlink()
         log.info("Sync complete — %d entries uploaded, queue cleared", synced)
     else:
-        # rewrite only the unsynced entries
         remaining = queue[synced:]
-        LOCAL_QUEUE_PATH.write_text("\n".join(remaining) + "\n")
+        queue_path.write_text("\n".join(remaining) + "\n")
         log.info("Partial sync — %d/%d entries uploaded", synced, len(queue))
 
     return synced
 
 
 async def edge_analyze(incident: str) -> dict:
-    """Main edge entry point: analyze locally and queue for sync."""
-    result = await analyze_local(incident)
+    """Main edge entry point: analyze locally with retry, queue for sync."""
+    result = await analyze_local_with_retry(incident)
     await queue_for_sync(incident, result)
     return result
 
@@ -170,7 +171,8 @@ async def edge_loop(poll_interval: int = 30) -> None:
     log.info("Edge AOIS loop started. Ollama: %s, Model: %s", OLLAMA_URL, OLLAMA_MODEL)
     while True:
         online = await connectivity_check()
-        if online and LOCAL_QUEUE_PATH.exists():
+        queue_path = _queue_path()
+        if online and queue_path.exists():
             synced = await sync_to_central()
             log.info("Auto-sync: %d incidents uploaded to central", synced)
         await asyncio.sleep(poll_interval)
