@@ -10,16 +10,20 @@ from pathlib import Path
 log = logging.getLogger("aois.edge")
 
 CENTRAL_SYNC_URL = os.getenv("AOIS_CENTRAL_URL", "")
-LOCAL_QUEUE_PATH = Path(os.getenv("AOIS_QUEUE_PATH", "/var/aois/offline_queue.jsonl"))
-LOCAL_QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
-
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 
 
+def _queue_path() -> Path:
+    """Lazy queue path — creates parent dir on first call, not at import time."""
+    p = Path(os.getenv("AOIS_QUEUE_PATH", "/var/aois/offline_queue.jsonl"))
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
 async def analyze_local(incident: str) -> dict:
     """Analyze using local Ollama — works offline."""
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=120) as client:
         try:
             resp = await client.post(
                 f"{OLLAMA_URL}/api/generate",
@@ -45,6 +49,51 @@ async def analyze_local(incident: str) -> dict:
                 "confidence": 0.0,
                 "source": "edge_fallback",
             }
+
+
+async def analyze_local_with_retry(incident: str, max_attempts: int = 3) -> dict:
+    """Analyze with Ollama, retrying with stricter JSON instructions on parse failure."""
+    base_prompt = (
+        f"SRE incident: {incident}\n"
+        f"Classify severity P1-P4 and propose one remediation action.\n"
+    )
+    for attempt in range(max_attempts):
+        if attempt == 0:
+            json_hint = 'Return JSON: {"severity":"P1","proposed_action":"...","confidence":0.8}'
+        elif attempt == 1:
+            json_hint = (
+                'IMPORTANT: Return ONLY valid JSON. No text before or after.\n'
+                'Format: {"severity":"P1","proposed_action":"...","confidence":0.8}'
+            )
+        else:
+            json_hint = (
+                '{"severity":"P1","proposed_action":"restart the pod","confidence":0.8}\n'
+                'Output EXACTLY that format with real values for this incident.'
+            )
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                resp = await client.post(
+                    f"{OLLAMA_URL}/api/generate",
+                    json={
+                        "model": OLLAMA_MODEL,
+                        "prompt": base_prompt + json_hint,
+                        "stream": False,
+                        "format": "json",
+                    },
+                )
+                data = resp.json()
+                result = json.loads(data.get("response", "{}"))
+                return {**result, "model": f"ollama/{OLLAMA_MODEL}", "source": "edge", "attempts": attempt + 1}
+        except Exception as e:
+            log.warning("Attempt %d failed: %s", attempt + 1, e)
+
+    return {
+        "severity": "P3",
+        "proposed_action": "manual review — all Ollama retries failed",
+        "confidence": 0.0,
+        "source": "edge_fallback",
+        "attempts": max_attempts,
+    }
 
 
 async def queue_for_sync(incident: str, local_result: dict) -> None:
