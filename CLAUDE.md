@@ -220,6 +220,17 @@ SGLang 0.5.10 on Vast.ai 2x RTX 3090 (48GB VRAM), Qwen3-8B served via tensor par
 
 **History note:** Modal vLLM attempt failed — $7.71 burned on cold starts + dependency hell. Lesson: Modal = one-shot GPU jobs; Vast.ai = persistent inference servers. `vllm_modal/serve.py` stays in repo as reference.
 
+**Vast.ai GPU pricing (reference for future GPU work):**
+- RTX 3090 (24GB VRAM) from $0.13/hr — same VRAM as Modal A10G, 15× cheaper
+- RTX 4090 (24GB VRAM, faster Ada) from $0.29/hr — ~7× cheaper than Modal A10G
+- No cold starts — GPU always warm while rented
+
+**What Dynamo adds (single-GPU demo in notes; full benefit at 4+ GPU workers):**
+- Disaggregated prefill/decode routing across multi-GPU fleet
+- KV cache-aware routing — routes turn 2 to the worker holding turn 1's KV state
+- NIXL KV migration between nodes (requires NVLink — not on single Vast.ai node)
+- Single-node demo shows the router architecture; full benefit at 4+ GPU workers
+
 ### Curriculum Additions (April 2026 Audit) — ALL COMPLETE
 
 **1. Per-incident cost attribution — ✅ COMPLETE (Phase 7 / v20)**
