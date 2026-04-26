@@ -317,7 +317,7 @@ k8s/spire/ manifests committed and pushed.
 
 ### Phase 10 — COMPLETE
 - **v31**: Claude Vision for Grafana screenshots + architecture diagrams, `/analyze/image` endpoint — `multimodal/vision.py`
-- **v32**: Edge AOIS on Ollama, air-gapped operation, offline queue at `/var/aois/offline_queue.jsonl`, sync_to_central() — `edge/edge_aois.py`
+- **v32**: Edge AOIS on Ollama — VALIDATED ON HETZNER 2026-04-26. llama3.2:3b (2.0GB Q4_K_M) running CPU-only. Inference: 3–10s. edge_aois.py: analyze_local + analyze_local_with_retry (3-attempt escalating JSON pressure) + queue + sync. Offline queue confirmed: 3 incidents written, JSONL format, atomic append. Model hot after first call. JSON compliance ~85% with format=json — `edge/edge_aois.py`
 - **v33**: PyRIT injection tests, Garak vulnerability scan, constitutional AI constraints, red-team CI pipeline — `redteam/`
 - **v34**: Claude Computer Use + Playwright Grafana agent, EU AI Act compliance layer (RiskCategory, AuditEntry, model card) — `computer_use/`, `governance/`
 - **v34.5**: Capstone — AI-specific SLO enforcement, 5 game day scenarios, 4 AI incident playbooks, on-call runbook, portfolio artifact description
