@@ -26,7 +26,7 @@ At the end of v13:
 ## Prerequisites
 
 - v12 complete: EKS torn down, Hetzner k3s still running, AOIS live
-- v10/v11 infrastructure built (Bedrock quota pending — not a blocker for v13)
+- v10/v11 infrastructure built (Bedrock quota was the only blocker — not a blocker for v13)
 - NVIDIA NGC API key (Step 0 — free, takes 5 minutes)
 
 Verify the local server starts cleanly:
