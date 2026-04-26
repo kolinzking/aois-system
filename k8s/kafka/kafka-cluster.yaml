@@ -17,7 +17,10 @@ spec:
     - controller
     - broker
   storage:
-    type: ephemeral
+    type: persistent-claim
+    size: 5Gi
+    deleteClaim: false
+    class: local-path
   jvmOptions:
     "-Xms": "256m"
     "-Xmx": "512m"
