@@ -214,29 +214,11 @@ curl -X POST https://l9ryxlxtpe.execute-api.us-east-1.amazonaws.com/prod/analyze
 ```
 Then measure cold vs warm start, check CloudWatch logs, complete mastery checkpoint.
 
-### v14 — NOTES COMPLETE, HANDS-ON PENDING
+### v14 — COMPLETE (2026-04-26)
 
-Notes retrofitted 2026-04-25. New approach: SGLang on Vast.ai (RTX 3090 from $0.25/hr).
+SGLang 0.5.10 on Vast.ai 2x RTX 3090 (48GB VRAM), Qwen3-8B served via tensor parallelism. RadixAttention benchmark: 3.3x speedup on 400-token shared prefix (1.10s cold → 0.34s warm avg). AOIS incident analysis via OpenAI-compatible API: valid JSON in 1.29s. LiteLLM wiring pattern validated. Dynamo architecture covered in notes.
 
-**History:** Modal vLLM attempt failed — $7.71 burned on cold starts + dependency hell (vLLM 0.4.3/0.6.6/0.7.3/0.8.4 conflicts). Modal is right for one-shot fine-tune jobs (v15); wrong for persistent inference servers. Lesson documented in notes.
-
-**New platform — Vast.ai:**
-- RTX 3090 (24GB VRAM) from $0.13/hr — same VRAM as Modal A10G, 15× cheaper
-- RTX 4090 (24GB VRAM, faster Ada) from $0.29/hr — ~7× cheaper than Modal A10G
-- No cold starts — GPU always warm while rented
-- `vllm_modal/serve.py` stays in repo as historical reference
-
-**To complete hands-on:**
-1. Create Vast.ai account at vast.ai, add SSH key
-2. Rent RTX 3090, ~$0.25/hr
-3. Follow v14 notes Steps 1–7: SGLang serve → benchmark → LiteLLM wire → Dynamo demo
-4. Stop instance when done. Total cost: ~$1–2
-
-**What Dynamo adds (covered in notes, architecture only on single GPU):**
-- Disaggregated prefill/decode routing across multi-GPU fleet
-- KV cache-aware routing — routes turn 2 to the worker holding turn 1's KV state
-- NIXL KV migration between nodes (requires NVLink — not on single Vast.ai node)
-- Single-node demo shows the router architecture; full benefit at 4+ GPU workers
+**History note:** Modal vLLM attempt failed — $7.71 burned on cold starts + dependency hell. Lesson: Modal = one-shot GPU jobs; Vast.ai = persistent inference servers. `vllm_modal/serve.py` stays in repo as reference.
 
 ### Curriculum Additions (April 2026 Audit) — ALL COMPLETE
 
