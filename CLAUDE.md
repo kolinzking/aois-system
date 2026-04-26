@@ -157,7 +157,7 @@ Full tool tables (AI/LLM, infra, observability, data, security, frontend, Linux)
 ### Current Position
 - **ALL PHASES COMPLETE — v0.1 through v34.5 DONE.** Curriculum complete.
 - v10/v11 blocked on AWS Bedrock daily quota (infrastructure built, live Bedrock call pending quota).
-- v14 notes retrofitted (SGLang + Vast.ai + Dynamo). Hands-on pending: rent Vast.ai GPU and run Steps 1–7. v15 complete.
+- v14 COMPLETE (2026-04-26). Notes + hands-on done: SGLang on Vast.ai 2x RTX 3090, Qwen3-8B served, RadixAttention benchmark 3.3x speedup (cold 1.10s → warm 0.34s), AOIS JSON analysis validated. v15 complete.
 - Phase 10 (v31–v34.5) complete: multimodal vision, edge AI (Ollama), red-teaming (PyRIT+Garak), computer use (Playwright+Claude), EU AI Act compliance, capstone game day runbook.
 
 ### What's been built (v1–v12)
@@ -174,7 +174,7 @@ Full tool tables (AI/LLM, infra, observability, data, security, frontend, Linux)
 - **v11**: Lambda handler `lambda/aois-analyzer/handler.py`, packaged and deployed, API Gateway live at `l9ryxlxtpe.execute-api.us-east-1.amazonaws.com/prod/analyze`, cost comparison model `cost_comparison.py`. *Pending: live Bedrock response test once quota resets.*
 - **v12**: EKS cluster provisioned with `eksctl`, IRSA service account for Bedrock access (zero static credentials), AOIS image pushed to ECR, AOIS deployed to EKS via Helm (`values.eks.yaml`), Karpenter installed and validated — provisioned a new node in 43 seconds under load. Cluster torn down to stop charges.
 - **v13**: COMPLETE. NVIDIA NIM + Groq tiers working. NGC API key in .env. Groq (0.22s, $0.000001) beats NIM (1.07s) for P3/P4 volume. SEVERITY_TIER_MAP: P1/P2→Claude, P3/P4→Groq (fast). LiteLLM 1.83.x bug worked around: groq_client and _nim_openai bypass LiteLLM with direct OpenAI-compatible calls.
-- **v14**: Curriculum retrofitted (2026-04-25). Notes rewritten: SGLang as primary engine, Vast.ai as deployment platform (RTX 3090 $0.13/hr or RTX 4090 $0.29/hr vs Modal A10G $1.98/hr), Dynamo orchestration layer added. vLLM Modal attempt documented as historical context. `sglang` tier wired into ROUTING_TIERS with LiteLLM `api_base` pattern. To complete hands-on: rent a Vast.ai RTX 3090, run Steps 1–7 in the new notes.
+- **v14**: COMPLETE (2026-04-26). SGLang 0.5.10 on Vast.ai 2x RTX 3090 (48GB VRAM), Qwen3-8B served via tensor parallelism. RadixAttention benchmark: 3.3x speedup on 400-token shared prefix (1.10s cold → 0.34s warm avg). AOIS incident analysis via OpenAI-compatible API: valid JSON in 1.29s. LiteLLM wiring pattern validated. Dynamo architecture covered in notes.
 
 ### Curriculum notes structure (mastery-level)
 Each phase has three layers:
