@@ -315,7 +315,7 @@ Benchmarking claude_premium...
 
 Run the benchmark and record your actual numbers. Then answer:
 1. At 10,000 P3/P4 log analyses per day, what is the monthly cost difference between always-on Claude premium and NIM?
-2. At what call volume does NIM on a dedicated Modal GPU (~$0.59/hr A10G) become cheaper than NGC hosted NIM?
+2. At what call volume does NIM on a dedicated Modal GPU ($1.98/hr A10G — or $0.25/hr RTX 3090 on Vast.ai) become cheaper than NGC hosted NIM?
 
 For question 2: NGC charges per token (similar to OpenAI pricing). A dedicated GPU has a flat hourly cost. At some request volume, flat cost wins.
 
